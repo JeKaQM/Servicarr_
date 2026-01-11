@@ -785,7 +785,8 @@ async function submitLogin() {
     });
     
     dlg.close();
-    await whoami();
+    // Reload page to get server-rendered admin elements
+    window.location.reload();
   } catch (err) {
     console.error('Login error:', err.message);
     
@@ -811,7 +812,8 @@ async function logout() {
   try {
     await j('/api/logout', {method: 'POST'});
   } catch (_) {}
-  await whoami();
+  // Reload page to remove server-rendered admin elements
+  window.location.reload();
 }
 
 function getCsrf() {
