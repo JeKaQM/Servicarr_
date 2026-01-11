@@ -9,12 +9,13 @@ import (
 
 func defaultResourcesUIConfig() *models.ResourcesUIConfig {
 	return &models.ResourcesUIConfig{
-		Enabled: true,
-		CPU:     true,
-		Memory:  true,
-		Network: true,
-		Temp:    true,
-		Storage: true,
+		Enabled:    false, // Disabled by default until Glances is configured
+		GlancesURL: "",    // User must set host:port
+		CPU:        true,
+		Memory:     true,
+		Network:    true,
+		Temp:       true,
+		Storage:    true,
 	}
 }
 

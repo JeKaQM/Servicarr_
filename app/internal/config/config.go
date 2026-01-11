@@ -44,6 +44,45 @@ type ServiceConfig struct {
 	MaxOK   int
 }
 
+// LoadBasic reads configuration from environment variables without requiring auth credentials
+// This is used during initial setup when credentials haven't been configured yet
+func LoadBasic() (*Config, error) {
+	_ = godotenv.Load()
+
+	cfg := &Config{
+		AuthUser:        getenv("AUTH_USER", ""),
+		InsecureDev:     envBool("INSECURE_DEV", true),
+		SessionMaxAgeS:  envInt("SESSION_MAX_AGE_SECONDS", 86400),
+		Port:            getenv("PORT", "4555"),
+		DBPath:          getenv("DB_PATH", "./uptime.db"),
+		EnableScheduler: strings.ToLower(getenv("ENABLE_SCHEDULER", "true")) == "true",
+		PollInterval:    envDurSecs("POLL_SECONDS", 60),
+		StatusPageURL:   getenv("STATUS_PAGE_URL", ""),
+		GlancesBaseURL:  strings.TrimSuffix(getenv("GLANCES_BASE_URL", "http://10.0.0.2:61208/api/4"), "/"),
+	}
+
+	// Try to load auth password/hash (optional during setup)
+	if hp := getenv("AUTH_PASSWORD_BCRYPT", ""); hp != "" {
+		cfg.AuthHash = []byte(hp)
+	} else if pw := getenv("AUTH_PASSWORD", ""); pw != "" {
+		h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, err
+		}
+		cfg.AuthHash = h
+	}
+
+	// Try to load HMAC secret (optional during setup)
+	if secret := getenv("AUTH_SECRET", ""); len(secret) >= 32 {
+		cfg.HmacSecret = []byte(secret)
+	}
+
+	// Load service configurations
+	cfg.ServiceConfigs = loadServiceConfigs()
+
+	return cfg, nil
+}
+
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	_ = godotenv.Load()

@@ -53,6 +53,28 @@ CREATE TABLE IF NOT EXISTS service_state (
   updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  service_type TEXT NOT NULL DEFAULT 'custom',
+  icon TEXT,
+  icon_url TEXT,
+  api_token TEXT,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  visible INTEGER NOT NULL DEFAULT 1,
+  check_type TEXT NOT NULL DEFAULT 'http',
+  check_interval INTEGER NOT NULL DEFAULT 60,
+  timeout INTEGER NOT NULL DEFAULT 5,
+  expected_min INTEGER NOT NULL DEFAULT 200,
+  expected_max INTEGER NOT NULL DEFAULT 399,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_services_key ON services(key);
+CREATE INDEX IF NOT EXISTS idx_services_order ON services(display_order);
+
 CREATE TABLE IF NOT EXISTS alert_config (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL DEFAULT 0,
@@ -70,7 +92,8 @@ CREATE TABLE IF NOT EXISTS alert_config (
 
 CREATE TABLE IF NOT EXISTS resources_ui_config (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
-	enabled INTEGER NOT NULL DEFAULT 1,
+	enabled INTEGER NOT NULL DEFAULT 0,
+	glances_url TEXT,
 	cpu INTEGER NOT NULL DEFAULT 1,
 	memory INTEGER NOT NULL DEFAULT 1,
 	network INTEGER NOT NULL DEFAULT 1,
@@ -93,6 +116,16 @@ CREATE TABLE IF NOT EXISTS status_alerts (
   level TEXT NOT NULL DEFAULT 'info',
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  setup_complete INTEGER NOT NULL DEFAULT 0,
+  username TEXT,
+  password_hash TEXT,
+  auth_secret TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
 `)
 	if err != nil {
 		return err
@@ -102,6 +135,8 @@ CREATE TABLE IF NOT EXISTS status_alerts (
 	// SQLite doesn't support IF NOT EXISTS on ADD COLUMN, so we ignore the error
 	// if the column already exists.
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN storage INTEGER NOT NULL DEFAULT 1;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN glances_url TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
 
 	return nil
 }
@@ -157,9 +192,10 @@ func SaveAlertConfig(config *models.AlertConfig) error {
 // LoadResourcesUIConfig loads resources UI configuration from database
 func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 	var config models.ResourcesUIConfig
-	err := DB.QueryRow(`SELECT enabled, cpu, memory, network, temp, storage
+	var glancesURL sql.NullString
+	err := DB.QueryRow(`SELECT enabled, COALESCE(glances_url, ''), cpu, memory, network, temp, storage
 		FROM resources_ui_config WHERE id = 1`).Scan(
-		&config.Enabled, &config.CPU, &config.Memory, &config.Network, &config.Temp, &config.Storage,
+		&config.Enabled, &glancesURL, &config.CPU, &config.Memory, &config.Network, &config.Temp, &config.Storage,
 	)
 
 	if err == sql.ErrNoRows {
@@ -168,17 +204,18 @@ func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.GlancesURL = glancesURL.String
 	return &config, nil
 }
 
 // SaveResourcesUIConfig saves resources UI configuration to database
 func SaveResourcesUIConfig(config *models.ResourcesUIConfig) error {
-	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, cpu, memory, network, temp, storage, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, datetime('now'))
+	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, cpu, memory, network, temp, storage, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
-			enabled=?, cpu=?, memory=?, network=?, temp=?, storage=?, updated_at=datetime('now')`,
-		config.Enabled, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
-		config.Enabled, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+			enabled=?, glances_url=?, cpu=?, memory=?, network=?, temp=?, storage=?, updated_at=datetime('now')`,
+		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
 	)
 	return err
 }
@@ -207,5 +244,238 @@ func SetServiceDisabledState(key string, disabled bool) error {
 		VALUES (?, ?, datetime('now'))
 		ON CONFLICT(service_key) DO UPDATE SET disabled=?, updated_at=datetime('now')`,
 		key, disabledInt, disabledInt)
+	return err
+}
+
+// GetAllServices returns all services from the database ordered by display_order
+func GetAllServices() ([]models.ServiceConfig, error) {
+	rows, err := DB.Query(`
+		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
+		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
+		       created_at, COALESCE(updated_at, '')
+		FROM services ORDER BY display_order ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var services []models.ServiceConfig
+	for rows.Next() {
+		var s models.ServiceConfig
+		var visible int
+		err := rows.Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
+			&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
+			&s.ExpectedMin, &s.ExpectedMax, &s.CreatedAt, &s.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		s.Visible = visible != 0
+		services = append(services, s)
+	}
+	return services, nil
+}
+
+// GetVisibleServices returns only visible services from the database
+func GetVisibleServices() ([]models.ServiceConfig, error) {
+	rows, err := DB.Query(`
+		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
+		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
+		       created_at, COALESCE(updated_at, '')
+		FROM services WHERE visible = 1 ORDER BY display_order ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var services []models.ServiceConfig
+	for rows.Next() {
+		var s models.ServiceConfig
+		var visible int
+		err := rows.Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
+			&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
+			&s.ExpectedMin, &s.ExpectedMax, &s.CreatedAt, &s.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		s.Visible = visible != 0
+		services = append(services, s)
+	}
+	return services, nil
+}
+
+// GetServiceByID returns a service by its ID
+func GetServiceByID(id int) (*models.ServiceConfig, error) {
+	var s models.ServiceConfig
+	var visible int
+	err := DB.QueryRow(`
+		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
+		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
+		       created_at, COALESCE(updated_at, '')
+		FROM services WHERE id = ?`, id).Scan(
+		&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
+		&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
+		&s.ExpectedMin, &s.ExpectedMax, &s.CreatedAt, &s.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.Visible = visible != 0
+	return &s, nil
+}
+
+// GetServiceByKey returns a service by its key
+func GetServiceByKey(key string) (*models.ServiceConfig, error) {
+	var s models.ServiceConfig
+	var visible int
+	err := DB.QueryRow(`
+		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
+		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
+		       created_at, COALESCE(updated_at, '')
+		FROM services WHERE key = ?`, key).Scan(
+		&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
+		&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
+		&s.ExpectedMin, &s.ExpectedMax, &s.CreatedAt, &s.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.Visible = visible != 0
+	return &s, nil
+}
+
+// CreateService inserts a new service into the database
+func CreateService(s *models.ServiceConfig) (int64, error) {
+	visible := 0
+	if s.Visible {
+		visible = 1
+	}
+
+	// Get the next display order
+	var maxOrder int
+	_ = DB.QueryRow(`SELECT COALESCE(MAX(display_order), -1) FROM services`).Scan(&maxOrder)
+	s.DisplayOrder = maxOrder + 1
+
+	result, err := DB.Exec(`
+		INSERT INTO services (key, name, url, service_type, icon, icon_url, api_token, display_order, visible,
+		                      check_type, check_interval, timeout, expected_min, expected_max, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		s.Key, s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
+		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// UpdateService updates an existing service
+func UpdateService(s *models.ServiceConfig) error {
+	visible := 0
+	if s.Visible {
+		visible = 1
+	}
+	_, err := DB.Exec(`
+		UPDATE services SET name=?, url=?, service_type=?, icon=?, icon_url=?, api_token=?, display_order=?,
+		                    visible=?, check_type=?, check_interval=?, timeout=?, expected_min=?,
+		                    expected_max=?, updated_at=datetime('now')
+		WHERE id = ?`,
+		s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
+		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.ID)
+	return err
+}
+
+// DeleteService removes a service from the database
+func DeleteService(id int) error {
+	_, err := DB.Exec(`DELETE FROM services WHERE id = ?`, id)
+	return err
+}
+
+// UpdateServiceVisibility toggles service visibility
+func UpdateServiceVisibility(id int, visible bool) error {
+	v := 0
+	if visible {
+		v = 1
+	}
+	_, err := DB.Exec(`UPDATE services SET visible = ?, updated_at = datetime('now') WHERE id = ?`, v, id)
+	return err
+}
+
+// UpdateServiceOrder updates the display order of services
+func UpdateServiceOrder(orders map[int]int) error {
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE services SET display_order = ?, updated_at = datetime('now') WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for id, order := range orders {
+		_, err := stmt.Exec(order, id)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetServiceCount returns the number of services
+func GetServiceCount() (int, error) {
+	var count int
+	err := DB.QueryRow(`SELECT COUNT(*) FROM services`).Scan(&count)
+	return count, err
+}
+
+// IsSetupComplete checks if initial setup has been completed
+func IsSetupComplete() (bool, error) {
+	var complete int
+	err := DB.QueryRow(`SELECT COALESCE((SELECT setup_complete FROM app_settings WHERE id = 1), 0)`).Scan(&complete)
+	if err != nil {
+		return false, err
+	}
+	return complete == 1, nil
+}
+
+// LoadAppSettings loads application settings from database
+func LoadAppSettings() (*models.AppSettings, error) {
+	row := DB.QueryRow(`SELECT setup_complete, username, password_hash, auth_secret, 
+		COALESCE(created_at, ''), COALESCE(updated_at, '')
+		FROM app_settings WHERE id = 1`)
+	
+	var settings models.AppSettings
+	var setupComplete int
+	err := row.Scan(&setupComplete, &settings.Username, &settings.PasswordHash, 
+		&settings.AuthSecret, &settings.CreatedAt, &settings.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	settings.SetupComplete = setupComplete == 1
+	return &settings, nil
+}
+
+// SaveAppSettings saves application settings to database
+func SaveAppSettings(settings *models.AppSettings) error {
+	setupComplete := 0
+	if settings.SetupComplete {
+		setupComplete = 1
+	}
+	
+	_, err := DB.Exec(`INSERT INTO app_settings (id, setup_complete, username, password_hash, auth_secret, created_at, updated_at)
+		VALUES (1, ?, ?, ?, ?, datetime('now'), datetime('now'))
+		ON CONFLICT(id) DO UPDATE SET
+		setup_complete = excluded.setup_complete,
+		username = excluded.username,
+		password_hash = excluded.password_hash,
+		auth_secret = excluded.auth_secret,
+		updated_at = datetime('now')`,
+		setupComplete, settings.Username, settings.PasswordHash, settings.AuthSecret)
 	return err
 }

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servicarr - Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/main.css">
+  <style>
+    .setup-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .setup-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+
+    .setup-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .setup-header h1 {
+      font-size: 28px;
+      margin: 0 0 8px 0;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .setup-header p {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .step {
+      display: none;
+    }
+
+    .step.active {
+      display: block;
+    }
+
+    .step-indicator {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.3s;
+    }
+
+    .step-dot.active {
+      background: #3b82f6;
+    }
+
+    .step-dot.completed {
+      background: var(--ok);
+    }
+
+    .step-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .step-description {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: #e5e7eb;
+      font-size: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .form-group input::placeholder {
+      color: #6b7280;
+    }
+
+    .form-group .help-text {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .password-requirements {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+      padding: 10px;
+      background: rgba(59, 130, 246, 0.1);
+      border-radius: 6px;
+    }
+
+    .password-requirements ul {
+      margin: 6px 0 0 0;
+      padding-left: 18px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+      color: #e5e7eb;
+    }
+
+    .step-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .step-actions .btn-primary {
+      flex: 1;
+    }
+
+    .error-message {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--down);
+      color: var(--down);
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .success-message {
+      background: rgba(22, 163, 74, 0.15);
+      border: 1px solid var(--ok);
+      color: var(--ok);
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .service-templates {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .service-template {
+      padding: 12px 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .service-template:hover {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+    }
+
+    .service-template.selected {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.15);
+    }
+
+    .service-template img {
+      width: 32px;
+      height: 32px;
+      margin-bottom: 4px;
+    }
+
+    .service-template span {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .or-divider::before,
+    .or-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .setup-complete-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, var(--ok), #22c55e);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .setup-complete-icon svg {
+      width: 40px;
+      height: 40px;
+      fill: white;
+    }
+
+    .test-result {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+
+    .test-result.success {
+      background: rgba(22, 163, 74, 0.15);
+      border: 1px solid var(--ok);
+      color: var(--ok);
+    }
+
+    .test-result.error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--down);
+      color: var(--down);
+    }
+  </style>
+</head>
+<body>
+  <div class="setup-container">
+    <div class="setup-card">
+      <div class="setup-header">
+        <h1>Welcome to Servicarr</h1>
+        <p>Let's get your status dashboard set up</p>
+      </div>
+
+      <div class="step-indicator">
+        <div class="step-dot active" data-step="1"></div>
+        <div class="step-dot" data-step="2"></div>
+        <div class="step-dot" data-step="3"></div>
+      </div>
+
+      <!-- Step 1: Create Admin Account -->
+      <div class="step active" id="step1">
+        <div class="step-title">Create Admin Account</div>
+        <div class="step-description">Set up your login credentials to access the admin panel.</div>
+
+        <div id="step1Error" class="error-message hidden"></div>
+
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" placeholder="Enter your username" autocomplete="username" minlength="3" required>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter your password" autocomplete="new-password" minlength="6" required>
+          <div class="password-requirements">
+            <strong>Password requirements:</strong>
+            <ul>
+              <li>At least 6 characters</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">Confirm Password</label>
+          <input type="password" id="confirmPassword" placeholder="Confirm your password" autocomplete="new-password" required>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-primary" id="step1Next">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Add First Service (Optional) -->
+      <div class="step" id="step2">
+        <div class="step-title">Add Your First Service</div>
+        <div class="step-description">Add a service to monitor, or skip to add one later.</div>
+
+        <div id="step2Error" class="error-message hidden"></div>
+        <div id="step2Success" class="success-message hidden"></div>
+
+        <div class="service-templates">
+          <div class="service-template" data-type="plex">
+            <img src="https://cdn.simpleicons.org/plex/E5A00D" alt="Plex">
+            <span>Plex</span>
+          </div>
+          <div class="service-template" data-type="jellyfin">
+            <img src="https://cdn.simpleicons.org/jellyfin/00A4DC" alt="Jellyfin">
+            <span>Jellyfin</span>
+          </div>
+          <div class="service-template" data-type="sonarr">
+            <img src="https://cdn.simpleicons.org/sonarr/00CCFF" alt="Sonarr">
+            <span>Sonarr</span>
+          </div>
+          <div class="service-template" data-type="radarr">
+            <img src="https://cdn.simpleicons.org/radarr/FFC230" alt="Radarr">
+            <span>Radarr</span>
+          </div>
+          <div class="service-template" data-type="overseerr">
+            <img src="https://cdn.simpleicons.org/overseerr/5B4BB5" alt="Overseerr">
+            <span>Overseerr</span>
+          </div>
+          <div class="service-template" data-type="custom">
+            <img src="https://cdn.simpleicons.org/openapiinitiative/6BA539" alt="Custom">
+            <span>Custom</span>
+          </div>
+        </div>
+
+        <div class="or-divider">or enter manually</div>
+
+        <div class="form-group">
+          <label for="serviceName">Service Name</label>
+          <input type="text" id="serviceName" placeholder="e.g., My Plex Server">
+        </div>
+
+        <div class="form-group">
+          <label for="serviceUrl">Service URL</label>
+          <input type="url" id="serviceUrl" placeholder="https://your-service.com">
+          <div class="help-text">The URL to check for availability</div>
+        </div>
+
+        <div class="form-group">
+          <label for="serviceToken">API Token (Optional)</label>
+          <input type="text" id="serviceToken" placeholder="Optional API token">
+          <div class="help-text">Some services require an API token for authentication</div>
+        </div>
+
+        <div id="testConnectionResult" class="test-result hidden"></div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" id="skipService">Skip for Now</button>
+          <button type="button" class="btn btn-secondary" id="testConnection">Test</button>
+          <button type="button" class="btn btn-primary" id="addService">Add Service</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Complete -->
+      <div class="step" id="step3">
+        <div class="setup-complete-icon">
+          <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        </div>
+        <div class="step-title" style="text-align: center;">Setup Complete!</div>
+        <div class="step-description" style="text-align: center;">Your Servicarr instance is ready to use.</div>
+
+        <div class="step-actions" style="justify-content: center;">
+          <button type="button" class="btn btn-primary" id="goToDashboard">Go to Dashboard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+    const $ = s => document.querySelector(s);
+    const $$ = s => document.querySelectorAll(s);
+    
+    let currentStep = 1;
+    let selectedServiceType = '';
+    let credentials = {};
+
+    // Service template data
+    const templates = {
+      plex: { name: 'Plex', icon: 'https://cdn.simpleicons.org/plex/E5A00D' },
+      jellyfin: { name: 'Jellyfin', icon: 'https://cdn.simpleicons.org/jellyfin/00A4DC' },
+      sonarr: { name: 'Sonarr', icon: 'https://cdn.simpleicons.org/sonarr/00CCFF' },
+      radarr: { name: 'Radarr', icon: 'https://cdn.simpleicons.org/radarr/FFC230' },
+      overseerr: { name: 'Overseerr', icon: 'https://cdn.simpleicons.org/overseerr/5B4BB5' },
+      custom: { name: 'Custom Service', icon: '' }
+    };
+
+    function showStep(step) {
+      $$('.step').forEach(s => s.classList.remove('active'));
+      $(`#step${step}`).classList.add('active');
+      
+      $$('.step-dot').forEach((dot, i) => {
+        dot.classList.remove('active', 'completed');
+        if (i + 1 < step) dot.classList.add('completed');
+        if (i + 1 === step) dot.classList.add('active');
+      });
+      
+      currentStep = step;
+    }
+
+    function showError(stepId, message) {
+      const el = $(`#${stepId}Error`);
+      if (el) {
+        el.textContent = message;
+        el.classList.remove('hidden');
+      }
+    }
+
+    function hideError(stepId) {
+      const el = $(`#${stepId}Error`);
+      if (el) el.classList.add('hidden');
+    }
+
+    // Step 1: Create Account
+    $('#step1Next').addEventListener('click', async () => {
+      hideError('step1');
+      
+      const username = $('#username').value.trim();
+      const password = $('#password').value;
+      const confirmPassword = $('#confirmPassword').value;
+
+      if (username.length < 3) {
+        showError('step1', 'Username must be at least 3 characters');
+        return;
+      }
+
+      if (password.length < 6) {
+        showError('step1', 'Password must be at least 6 characters');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showError('step1', 'Passwords do not match');
+        return;
+      }
+
+      // Store credentials for later
+      credentials = { username, password };
+      
+      // Save credentials
+      const btn = $('#step1Next');
+      btn.disabled = true;
+      btn.textContent = 'Setting up...';
+
+      try {
+        const resp = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const data = await resp.json();
+        
+        if (!data.success) {
+          showError('step1', data.error || 'Setup failed');
+          btn.disabled = false;
+          btn.textContent = 'Continue';
+          return;
+        }
+        
+        showStep(2);
+      } catch (e) {
+        showError('step1', 'Connection error. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+      }
+    });
+
+    // Service template selection
+    $$('.service-template').forEach(el => {
+      el.addEventListener('click', () => {
+        $$('.service-template').forEach(t => t.classList.remove('selected'));
+        el.classList.add('selected');
+        
+        selectedServiceType = el.dataset.type;
+        const template = templates[selectedServiceType];
+        
+        if (selectedServiceType !== 'custom') {
+          $('#serviceName').value = template.name;
+        } else {
+          $('#serviceName').value = '';
+        }
+      });
+    });
+
+    // Test Connection
+    $('#testConnection').addEventListener('click', async () => {
+      const url = $('#serviceUrl').value.trim();
+      const token = $('#serviceToken').value.trim();
+      const resultEl = $('#testConnectionResult');
+      
+      if (!url) {
+        resultEl.textContent = 'Please enter a URL first';
+        resultEl.className = 'test-result error';
+        resultEl.classList.remove('hidden');
+        return;
+      }
+
+      const btn = $('#testConnection');
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      resultEl.classList.add('hidden');
+
+      try {
+        const resp = await fetch('/api/admin/services/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            api_token: token,
+            service_type: selectedServiceType || 'custom',
+            check_type: 'http',
+            timeout: 5
+          })
+        });
+        
+        const data = await resp.json();
+        
+        if (data.success) {
+          let msg = '✓ Connection successful';
+          if (data.status_code) msg += ` (${data.status_code})`;
+          if (data.latency_ms !== undefined) msg += ` - ${data.latency_ms}ms`;
+          resultEl.textContent = msg;
+          resultEl.className = 'test-result success';
+        } else {
+          resultEl.textContent = '✗ ' + (data.error || 'Connection failed');
+          resultEl.className = 'test-result error';
+        }
+        resultEl.classList.remove('hidden');
+      } catch (e) {
+        resultEl.textContent = '✗ Connection test failed';
+        resultEl.className = 'test-result error';
+        resultEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
+      }
+    });
+
+    // Add Service
+    $('#addService').addEventListener('click', async () => {
+      hideError('step2');
+      
+      const name = $('#serviceName').value.trim();
+      const url = $('#serviceUrl').value.trim();
+      const token = $('#serviceToken').value.trim();
+
+      if (!name || !url) {
+        showError('step2', 'Please enter a name and URL');
+        return;
+      }
+
+      const btn = $('#addService');
+      btn.disabled = true;
+      btn.textContent = 'Adding...';
+
+      try {
+        const resp = await fetch('/api/setup/service', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            url,
+            service_type: selectedServiceType || 'custom',
+            api_token: token,
+            icon_url: templates[selectedServiceType]?.icon || ''
+          })
+        });
+        
+        const data = await resp.json();
+        
+        if (!data.success) {
+          showError('step2', data.error || 'Failed to add service');
+          btn.disabled = false;
+          btn.textContent = 'Add Service';
+          return;
+        }
+        
+        showStep(3);
+      } catch (e) {
+        showError('step2', 'Connection error. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Add Service';
+      }
+    });
+
+    // Skip adding service
+    $('#skipService').addEventListener('click', () => {
+      showStep(3);
+    });
+
+    // Go to Dashboard
+    $('#goToDashboard').addEventListener('click', () => {
+      window.location.href = '/';
+    });
+
+    // Enter key support
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (currentStep === 1) {
+          $('#step1Next').click();
+        }
+      }
+    });
+    }); // End DOMContentLoaded
+  </script>
+</body>
+</html>

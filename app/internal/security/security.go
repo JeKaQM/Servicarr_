@@ -16,7 +16,7 @@ import (
 
 // SecureHeaders adds security headers to responses
 func SecureHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")

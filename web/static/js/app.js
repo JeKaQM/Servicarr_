@@ -83,7 +83,9 @@ function applyResourcesVisibility(config) {
   // Cache the config for use elsewhere
   resourcesConfig = config;
 
-  const enabled = config.enabled !== false;
+  // Resources section only shows if enabled AND glances_url is configured
+  const hasGlances = config.glances_url && config.glances_url.trim() !== '';
+  const enabled = config.enabled !== false && hasGlances;
   
   // For each tile: if enabled in config, remove 'hidden' class; otherwise ensure it has 'hidden'
   const tiles = $$('.resource-tile', section);
@@ -121,6 +123,7 @@ async function loadResourcesConfig() {
 
     // If admin form exists (admin view), hydrate it too.
     if ($('#resourcesEnabled')) {
+      $('#glancesUrl').value = cfg.glances_url || '';
       $('#resourcesEnabled').checked = cfg.enabled !== false;
       $('#resourcesCPU').checked = cfg.cpu !== false;
       $('#resourcesMemory').checked = cfg.memory !== false;
@@ -135,6 +138,7 @@ async function loadResourcesConfig() {
       const cfg = await j('/api/admin/resources/config');
       applyResourcesVisibility(cfg);
       if ($('#resourcesEnabled')) {
+        $('#glancesUrl').value = cfg.glances_url || '';
         $('#resourcesEnabled').checked = cfg.enabled !== false;
         $('#resourcesCPU').checked = cfg.cpu !== false;
         $('#resourcesMemory').checked = cfg.memory !== false;
@@ -166,6 +170,7 @@ async function saveResourcesConfig() {
   if (!btn) return;
 
   const config = {
+    glances_url: $('#glancesUrl').value.trim(),
     enabled: $('#resourcesEnabled').checked,
     cpu: $('#resourcesCPU').checked,
     memory: $('#resourcesMemory').checked,
@@ -197,6 +202,73 @@ async function saveResourcesConfig() {
       }
     },
     'Resources settings saved'
+  );
+}
+
+async function testGlancesConnection() {
+  const statusEl = $('#resourcesStatus');
+  const btn = $('#testGlances');
+  const glancesUrl = $('#glancesUrl').value.trim();
+  
+  if (!glancesUrl) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a Glances host:port first';
+      statusEl.className = 'status-message error';
+      statusEl.classList.remove('hidden');
+      setTimeout(() => statusEl.classList.add('hidden'), 3000);
+    }
+    return;
+  }
+  
+  // Save config first so the server uses the new URL
+  const config = {
+    glances_url: glancesUrl,
+    enabled: $('#resourcesEnabled').checked,
+    cpu: $('#resourcesCPU').checked,
+    memory: $('#resourcesMemory').checked,
+    network: $('#resourcesNetwork').checked,
+    temp: $('#resourcesTemp').checked,
+    storage: $('#resourcesStorage') ? $('#resourcesStorage').checked : true,
+  };
+  
+  await handleButtonAction(
+    btn,
+    async () => {
+      // Save config first
+      await j('/api/admin/resources/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrf()
+        },
+        body: JSON.stringify(config)
+      });
+      
+      // Now test the connection
+      const result = await j('/api/resources');
+      
+      if (result.error) {
+        throw new Error(result.message || 'Connection failed');
+      }
+      
+      if (statusEl) {
+        statusEl.textContent = `✓ Connected to Glances on ${result.host || glancesUrl}`;
+        statusEl.className = 'status-message success';
+        statusEl.classList.remove('hidden');
+        setTimeout(() => statusEl.classList.add('hidden'), 5000);
+      }
+      
+      // Refresh resources display
+      applyResourcesVisibility(config);
+    },
+    'Testing...',
+    async (err) => {
+      if (statusEl) {
+        statusEl.textContent = `✗ Connection failed: ${err.message || 'Could not reach Glances'}`;
+        statusEl.className = 'status-message error';
+        statusEl.classList.remove('hidden');
+      }
+    }
   );
 }
 
@@ -455,9 +527,14 @@ async function toggleMonitoring(card, enabled) {
 let chart;
 function renderChart(overall) {
   if(!window.Chart) return;
-  const labels = ['server','plex','overseerr'];
+  // Get service keys from the servicesData array (dynamic)
+  const labels = servicesData.map(s => s.key);
+  if (labels.length === 0) return;
+  
   const vals = labels.map(k => +(overall?.[k]??0).toFixed(1));
-  const ctx = document.getElementById('uptimeChart').getContext('2d');
+  const ctx = document.getElementById('uptimeChart');
+  if (!ctx) return;
+  
   const data = {labels, datasets:[{label:'Uptime %',data:vals,borderWidth:1}]};
   
   if(chart) {
@@ -466,7 +543,7 @@ function renderChart(overall) {
     return;
   }
   
-  chart = new Chart(ctx, {
+  chart = new Chart(ctx.getContext('2d'), {
     type: 'bar',
     data,
     options: {
@@ -491,7 +568,8 @@ function renderIncidents(items) {
 }
 
 function updateServiceStats(metrics) {
-  const services = ['server', 'plex', 'overseerr'];
+  // Get service keys from the servicesData array (dynamic)
+  const services = servicesData.map(s => s.key);
   
   services.forEach(key => {
     const uptimeEl = $(`#uptime-24h-${key}`);
@@ -530,7 +608,8 @@ function updateServiceStats(metrics) {
 
 function renderUptimeBars(metrics, days) {
   const daysToShow = days || DAYS;
-  const services = ['server', 'plex', 'overseerr'];
+  // Get service keys from the servicesData array (dynamic)
+  const services = servicesData.map(s => s.key);
   const now = new Date();
   const daysAgo = now.getTime() - (daysToShow * 24 * 60 * 60 * 1000);
   
@@ -731,9 +810,16 @@ async function refresh() {
   try {
     const live = await j('/api/check');
     $('#updated').textContent = new Date(live.t).toLocaleString();
-    updCard('card-server', live.status.server || {});
-    updCard('card-plex', live.status.plex || {});
-    updCard('card-overseerr', live.status.overseerr || {});
+    
+    // Update cards dynamically based on services returned from API
+    if (live.status) {
+      Object.keys(live.status).forEach(key => {
+        const cardEl = document.getElementById(`card-${key}`);
+        if (cardEl) {
+          updCard(`card-${key}`, live.status[key] || {});
+        }
+      });
+    }
   } catch (e) {
     console.error('live check failed', e);
   }
@@ -1045,6 +1131,19 @@ window.addEventListener('load', async () => {
   // This prevents hidden tiles from briefly appearing due to race conditions.
   await loadResourcesConfig();
   
+  // Load services dynamically and render them (non-blocking)
+  loadServices().then(services => {
+    if (services.length > 0) {
+      renderDynamicUptimeBars(services);
+    }
+  }).catch(e => {
+    console.error('Failed to load services on init', e);
+  });
+  
+  // Initialize services management (admin features)
+  initServicesManagement();
+  
+  // Start the refresh cycle immediately (don't wait for services)
   refresh();
   whoami();
   setInterval(refresh, REFRESH_MS);
@@ -1160,6 +1259,11 @@ window.addEventListener('load', async () => {
   const saveResourcesBtn = $('#saveResources');
   if (saveResourcesBtn) {
     saveResourcesBtn.addEventListener('click', saveResourcesConfig);
+  }
+  
+  const testGlancesBtn = $('#testGlances');
+  if (testGlancesBtn) {
+    testGlancesBtn.addEventListener('click', testGlancesConnection);
   }
   
   $$('.checkNow').forEach(btn => 
@@ -1401,6 +1505,775 @@ async function deleteBanner(id) {
     console.error('Failed to delete banner', e);
     showToast('Failed to delete banner', 'error');
   }
+}
+
+/* ========================================
+   Dynamic Services Management
+   ======================================== */
+
+let servicesData = [];
+let serviceTemplates = [];
+let editingServiceId = null;
+
+// Service Icons SVG - inline for simplicity
+const SERVICE_ICONS = {
+  server: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="6" rx="2"/><rect x="2" y="13" width="20" height="6" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="16" r="1" fill="currentColor"/></svg>`,
+  plex: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.5L17 8v8l-5 3-5-3V8l5-3.5z"/></svg>`,
+  overseerr: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5" stroke="white" stroke-width="2" fill="none"/></svg>`,
+  jellyfin: `<svg viewBox="0 0 24 24" fill="currentColor"><ellipse cx="12" cy="6" rx="4" ry="4"/><ellipse cx="12" cy="18" rx="4" ry="4"/><ellipse cx="12" cy="12" rx="8" ry="4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`,
+  emby: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>`,
+  sonarr: `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 15l3-3 2 2 5-5" stroke="white" stroke-width="2" fill="none"/></svg>`,
+  radarr: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="white"/></svg>`,
+  prowlarr: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8" stroke="white" stroke-width="2"/></svg>`,
+  lidarr: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="white"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>`,
+  readarr: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h6v16H4V4zm10 0h6v16h-6V4z"/></svg>`,
+  bazarr: `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h12M6 14h8" stroke="white" stroke-width="1.5"/></svg>`,
+  tautulli: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3v18h18V3H3zm16 16H5V5h14v14z"/><path d="M7 17V9l4 4-4 4zm6-8h4v2h-4V9zm0 4h4v2h-4v-2z"/></svg>`,
+  sabnzbd: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+  qbittorrent: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12" stroke="white" stroke-width="2"/></svg>`,
+  transmission: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2" stroke="white" stroke-width="2" fill="none"/></svg>`,
+  homeassistant: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L2 12h3v8h14v-8h3L12 3zm0 12a2 2 0 100-4 2 2 0 000 4z"/></svg>`,
+  pihole: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" fill="white"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>`,
+  portainer: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"/></svg>`,
+  website: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`,
+  custom: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"/></svg>`
+};
+
+// Service Icons - use image files for known services, inline SVG for others
+const SERVICE_ICON_FILES = ['server', 'plex', 'overseerr'];
+
+// Get icon HTML for a service - supports custom icon URLs
+function getServiceIconHtml(serviceTypeOrObj, iconUrl = null) {
+  let serviceType = serviceTypeOrObj;
+  let customIconUrl = iconUrl;
+  
+  // Handle service object
+  if (typeof serviceTypeOrObj === 'object' && serviceTypeOrObj !== null) {
+    serviceType = serviceTypeOrObj.service_type || 'custom';
+    customIconUrl = serviceTypeOrObj.icon_url || null;
+  }
+  
+  // Use custom icon URL if provided
+  if (customIconUrl) {
+    // Use a data attribute for fallback, handle error in CSS/JS
+    return `<img src="${customIconUrl}" class="icon service-icon-img" alt="${serviceType}" data-fallback="${serviceType}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"/><span class="icon icon-fallback" style="display:none;">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
+  }
+  
+  // Use local image file if available
+  if (SERVICE_ICON_FILES.includes(serviceType)) {
+    return `<img src="/static/images/${serviceType}.svg" class="icon" alt="${serviceType}"/>`;
+  }
+  
+  // Fallback to inline SVG for other services
+  return `<span class="icon">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
+}
+
+async function loadServiceTemplates() {
+  try {
+    const templates = await j('/api/services/templates');
+    serviceTemplates = templates;
+    populateTemplateDropdown();
+  } catch (e) {
+    console.error('Failed to load service templates', e);
+  }
+}
+
+function populateTemplateDropdown() {
+  const select = $('#serviceTemplate');
+  if (!select || !serviceTemplates.length) return;
+  
+  select.innerHTML = '<option value="">Select a template...</option>';
+  serviceTemplates.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.type; // Templates use 'type' field
+    opt.textContent = t.name;
+    select.appendChild(opt);
+  });
+}
+
+async function loadServices() {
+  try {
+    // Load visible services for public view
+    const services = await j('/api/services');
+    servicesData = services;
+    renderServiceCards(services);
+    return services;
+  } catch (e) {
+    console.error('Failed to load services', e);
+    return [];
+  }
+}
+
+async function loadAllServices() {
+  try {
+    // Load all services for admin view (includes hidden)
+    const services = await j('/api/admin/services', {
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    servicesData = services;
+    renderAdminServicesList(services);
+    return services;
+  } catch (e) {
+    console.error('Failed to load all services', e);
+    return [];
+  }
+}
+
+function renderServiceCards(services) {
+  const container = $('#services-container');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  services.forEach(svc => {
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.id = `card-${svc.key}`;
+    card.setAttribute('data-key', svc.key);
+    
+    const iconHtml = getServiceIconHtml(svc);
+    
+    // Match original structure - no clickable link exposing URL
+    card.innerHTML = `
+      <div class="row">
+        <div class="row-left">
+          ${iconHtml}
+          <div><strong>${svc.name}</strong><div class="label">${getServiceLabel(svc.service_type)}</div></div>
+        </div>
+        <span class="pill warn">—</span>
+      </div>
+      <div class="row kpirow"><div class="kpi">—</div><div class="label">—</div></div>
+      
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">24h Uptime</div>
+          <div class="stat-value" id="uptime-24h-${svc.key}">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Avg Response</div>
+          <div class="stat-value" id="avg-response-${svc.key}">—</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Last Check</div>
+          <div class="stat-value" id="last-check-${svc.key}">—</div>
+        </div>
+      </div>
+      
+      <div class="row adminRow hidden">
+        <div class="label">Admin</div>
+        <div class="ops">
+          <button class="btn mini checkNow">Check now</button>
+          <label class="toggle">
+            <input type="checkbox" class="monitorToggle" checked>
+            <span class="slider"></span>
+            <span class="toggleLabel">Monitor</span>
+          </label>
+        </div>
+      </div>
+    `;
+    
+    container.appendChild(card);
+  });
+  
+  // Rebind event handlers for new cards
+  $$('.checkNow').forEach(btn => {
+    btn.removeEventListener('click', checkNowHandler);
+    btn.addEventListener('click', checkNowHandler);
+  });
+  
+  $$('.monitorToggle').forEach(toggle => {
+    toggle.removeEventListener('change', toggleMonitoringHandler);
+    toggle.addEventListener('change', toggleMonitoringHandler);
+  });
+}
+
+// Get service label based on type
+function getServiceLabel(serviceType) {
+  const labels = {
+    server: 'Health Check',
+    plex: 'Media Server',
+    overseerr: 'Request Management',
+    jellyfin: 'Media Server',
+    emby: 'Media Server',
+    sonarr: 'TV Shows',
+    radarr: 'Movies',
+    prowlarr: 'Indexer Manager',
+    lidarr: 'Music',
+    readarr: 'Books',
+    bazarr: 'Subtitles',
+    tautulli: 'Plex Stats',
+    sabnzbd: 'Usenet Downloader',
+    qbittorrent: 'Torrent Client',
+    transmission: 'Torrent Client',
+    homeassistant: 'Home Automation',
+    pihole: 'DNS Filter',
+    portainer: 'Container Manager',
+    website: 'Website',
+    custom: 'Service'
+  };
+  return labels[serviceType] || 'Service';
+}
+
+function checkNowHandler(e) {
+  checkNowFor(e.target.closest('.card'));
+}
+
+function toggleMonitoringHandler(e) {
+  toggleMonitoring(e.target.closest('.card'), e.target.checked);
+}
+
+function renderDynamicUptimeBars(services) {
+  const container = $('#uptime-bars-container');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  services.forEach(svc => {
+    const row = document.createElement('div');
+    row.className = 'service-uptime';
+    row.innerHTML = `
+      <div class="service-uptime-header">
+        <span class="service-name">${svc.name}</span>
+        <span class="protocol-badge">${svc.check_type.toUpperCase()}</span>
+        <span class="uptime-percent" id="uptime-${svc.key}">—%</span>
+      </div>
+      <div class="uptime-bar-container">
+        <div class="uptime-bar" id="uptime-bar-${svc.key}"></div>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function renderAdminServicesList(services) {
+  const list = $('#servicesList');
+  if (!list) return;
+  
+  list.innerHTML = '';
+  
+  services.forEach((svc, index) => {
+    const item = document.createElement('div');
+    item.className = 'service-item';
+    item.dataset.id = svc.id;
+    item.draggable = true;
+    
+    // Use icon HTML (with img for known types or custom icon URL)
+    const iconHtml = getServiceIconHtml(svc);
+    
+    // Mask the URL for display (only show domain)
+    const urlDisplay = maskUrl(svc.url);
+    
+    item.innerHTML = `
+      <span class="drag-handle">⋮⋮</span>
+      <span class="service-icon-wrap">${iconHtml}</span>
+      <div class="service-info">
+        <div class="service-name">${svc.name}</div>
+        <div class="service-url">${urlDisplay}</div>
+      </div>
+      <div class="service-actions">
+        <span class="visibility-toggle ${svc.visible ? 'visible' : 'hidden-svc'}" title="Toggle visibility">
+          ${svc.visible ? '👁' : '🚫'}
+        </span>
+        <button class="edit-btn" title="Edit service">✏️</button>
+      </div>
+    `;
+    
+    // Drag and drop events
+    item.addEventListener('dragstart', handleDragStart);
+    item.addEventListener('dragend', handleDragEnd);
+    item.addEventListener('dragover', handleDragOver);
+    item.addEventListener('drop', handleDrop);
+    item.addEventListener('dragenter', handleDragEnter);
+    item.addEventListener('dragleave', handleDragLeave);
+    
+    // Visibility toggle
+    item.querySelector('.visibility-toggle').addEventListener('click', () => toggleServiceVisibility(svc.id, !svc.visible));
+    
+    // Edit button
+    item.querySelector('.edit-btn').addEventListener('click', () => openServiceModal(svc));
+    
+    list.appendChild(item);
+  });
+}
+
+// Drag and drop state
+let draggedItem = null;
+
+function handleDragStart(e) {
+  draggedItem = this;
+  this.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/html', this.innerHTML);
+}
+
+function handleDragEnd(e) {
+  this.classList.remove('dragging');
+  $$('.service-item').forEach(item => item.classList.remove('drag-over'));
+  draggedItem = null;
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  return false;
+}
+
+function handleDragEnter(e) {
+  this.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  this.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  
+  if (draggedItem !== this) {
+    const list = $('#servicesList');
+    const items = [...list.querySelectorAll('.service-item')];
+    const draggedIndex = items.indexOf(draggedItem);
+    const targetIndex = items.indexOf(this);
+    
+    if (draggedIndex < targetIndex) {
+      this.parentNode.insertBefore(draggedItem, this.nextSibling);
+    } else {
+      this.parentNode.insertBefore(draggedItem, this);
+    }
+    
+    // Save the new order
+    saveServiceOrder();
+  }
+  
+  this.classList.remove('drag-over');
+  return false;
+}
+
+async function saveServiceOrder() {
+  const list = $('#servicesList');
+  const items = [...list.querySelectorAll('.service-item')];
+  
+  const orders = {};
+  items.forEach((item, index) => {
+    orders[parseInt(item.dataset.id)] = index;
+  });
+  
+  try {
+    await j('/api/admin/services/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({ orders })
+    });
+    showToast('Order saved');
+    // Reload to reflect new order everywhere
+    loadServices().then(services => {
+      renderDynamicUptimeBars(services);
+    });
+  } catch (e) {
+    console.error('Failed to save order', e);
+    showToast('Failed to save order', 'error');
+  }
+}
+
+// Mask URL for display - show only host, hide path and port
+function maskUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.hostname}`;
+  } catch {
+    return '***';
+  }
+}
+
+async function toggleServiceVisibility(id, visible) {
+  try {
+    await j(`/api/admin/services/${id}/visibility`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({ visible })
+    });
+    showToast(`Service ${visible ? 'shown' : 'hidden'}`);
+    loadAllServices();
+    loadServices().then(services => {
+      renderDynamicUptimeBars(services);
+      refresh();
+    });
+  } catch (e) {
+    console.error('Failed to toggle visibility', e);
+    showToast('Failed to toggle visibility', 'error');
+  }
+}
+
+// Update icon preview in the service modal
+function updateIconPreview(iconUrl) {
+  const preview = $('#iconPreview');
+  if (!preview) return;
+  
+  if (iconUrl) {
+    preview.innerHTML = `<img src="${iconUrl}" class="icon-preview-img" alt="Icon preview" onerror="this.style.display='none';this.nextElementSibling.style.display='block';" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
+    preview.classList.remove('hidden');
+  } else {
+    preview.innerHTML = '';
+    preview.classList.add('hidden');
+  }
+}
+
+function openServiceModal(service = null) {
+  const modal = $('#serviceModal');
+  if (!modal) return;
+  
+  editingServiceId = service?.id || null;
+  
+  // Update modal title
+  const title = $('#serviceModalTitle');
+  if (title) {
+    title.textContent = service ? 'Edit Service' : 'Add Service';
+  }
+  
+  // Show/hide delete button
+  const deleteBtn = $('#deleteService');
+  if (deleteBtn) {
+    deleteBtn.classList.toggle('hidden', !service);
+  }
+  
+  // Clear any previous error
+  const errEl = $('#serviceError');
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.classList.add('hidden');
+  }
+  
+  // Clear any previous test result
+  const testResultEl = $('#testConnectionResult');
+  if (testResultEl) {
+    testResultEl.textContent = '';
+    testResultEl.classList.add('hidden');
+  }
+  
+  // Populate form
+  $('#serviceTemplate').value = service?.service_type || '';
+  $('#serviceName').value = service?.name || '';
+  $('#serviceUrl').value = service?.url || '';
+  $('#serviceToken').value = service?.api_token || '';
+  $('#serviceIconUrl').value = service?.icon_url || '';
+  $('#serviceCheckType').value = service?.check_type || 'http';
+  $('#serviceTimeout').value = service?.timeout || 5;
+  $('#serviceInterval').value = service?.check_interval || 60;
+  $('#serviceExpectedMin').value = service?.expected_min || 200;
+  $('#serviceExpectedMax').value = service?.expected_max || 399;
+  $('#serviceVisible').checked = service?.visible !== false;
+  $('#serviceId').value = service?.id || '';
+  $('#serviceType').value = service?.service_type || '';
+  
+  // Update icon preview
+  updateIconPreview(service?.icon_url);
+  
+  // If editing, disable template selection
+  $('#serviceTemplate').disabled = !!service;
+  
+  modal.showModal();
+}
+
+function closeServiceModal() {
+  const modal = $('#serviceModal');
+  if (modal) modal.close();
+  editingServiceId = null;
+}
+
+function handleTemplateChange(e) {
+  const templateType = e.target.value;
+  if (!templateType) return;
+  
+  // Templates use 'type' field from the backend
+  const template = serviceTemplates.find(t => t.type === templateType);
+  if (!template) return;
+  
+  // Auto-fill form fields from template
+  $('#serviceName').value = template.name;
+  $('#serviceCheckType').value = template.check_type;
+  
+  // Auto-fill icon URL from template if available
+  if (template.icon_url) {
+    $('#serviceIconUrl').value = template.icon_url;
+    updateIconPreview(template.icon_url);
+  }
+  
+  // Set URL placeholder based on template
+  if (template.default_url) {
+    const urlField = $('#serviceUrl');
+    if (!urlField.value) {
+      urlField.placeholder = template.default_url;
+    }
+  }
+  
+  // Show help text if available
+  const helpEl = $('#templateHelp');
+  if (helpEl && template.help_text) {
+    helpEl.textContent = template.help_text;
+  }
+  
+  // Show/hide token field based on whether it's required
+  const tokenGroup = $('#tokenGroup');
+  const tokenHelp = $('#tokenHelp');
+  if (tokenGroup) {
+    if (template.requires_token) {
+      tokenGroup.classList.remove('hidden');
+      if (tokenHelp && template.token_header) {
+        tokenHelp.textContent = `Required header: ${template.token_header}`;
+      }
+    }
+  }
+}
+
+// Test service connection before saving
+async function testServiceConnection() {
+  const url = $('#serviceUrl').value.trim();
+  const apiToken = $('#serviceToken').value.trim();
+  const checkType = $('#serviceCheckType').value;
+  const timeout = parseInt($('#serviceTimeout').value) || 5;
+  const serviceType = $('#serviceTemplate').value || $('#serviceType').value || 'custom';
+  
+  const resultEl = $('#testConnectionResult');
+  const btn = $('#testServiceConnection');
+  
+  if (!url) {
+    if (resultEl) {
+      resultEl.textContent = 'Please enter a URL first';
+      resultEl.className = 'test-result error';
+      resultEl.classList.remove('hidden');
+    }
+    return;
+  }
+  
+  // Show loading state
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+  }
+  if (resultEl) {
+    resultEl.textContent = 'Testing connection...';
+    resultEl.className = 'test-result';
+    resultEl.classList.remove('hidden');
+  }
+  
+  try {
+    const resp = await j('/api/admin/services/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({
+        url,
+        api_token: apiToken,
+        check_type: checkType,
+        timeout,
+        service_type: serviceType
+      })
+    });
+    
+    if (resultEl) {
+      if (resp.success) {
+        let msg = '✓ Connection successful';
+        if (resp.status_code) {
+          msg += ` (${resp.status_code})`;
+        }
+        if (resp.latency_ms !== undefined) {
+          msg += ` - ${resp.latency_ms}ms`;
+        }
+        resultEl.textContent = msg;
+        resultEl.className = 'test-result success';
+      } else {
+        resultEl.textContent = '✗ ' + (resp.error || 'Connection failed');
+        resultEl.className = 'test-result error';
+      }
+      resultEl.classList.remove('hidden');
+    }
+  } catch (e) {
+    console.error('Connection test failed:', e);
+    if (resultEl) {
+      resultEl.textContent = '✗ ' + (e.body?.error || e.message || 'Connection test failed');
+      resultEl.className = 'test-result error';
+      resultEl.classList.remove('hidden');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Test Connection';
+    }
+  }
+}
+
+async function saveService() {
+  const serviceData = {
+    name: $('#serviceName').value.trim(),
+    url: $('#serviceUrl').value.trim(),
+    key: generateServiceKey($('#serviceName').value),
+    service_type: $('#serviceTemplate').value || $('#serviceType').value || 'custom',
+    api_token: $('#serviceToken').value.trim(),
+    icon_url: $('#serviceIconUrl').value.trim(),
+    check_type: $('#serviceCheckType').value,
+    timeout: parseInt($('#serviceTimeout').value) || 5,
+    check_interval: parseInt($('#serviceInterval').value) || 60,
+    expected_min: parseInt($('#serviceExpectedMin').value) || 200,
+    expected_max: parseInt($('#serviceExpectedMax').value) || 399,
+    visible: $('#serviceVisible').checked
+  };
+  
+  if (!serviceData.name || !serviceData.url) {
+    const errEl = $('#serviceError');
+    if (errEl) {
+      errEl.textContent = 'Name and URL are required';
+      errEl.classList.remove('hidden');
+    }
+    return;
+  }
+  
+  try {
+    if (editingServiceId) {
+      // Update existing service
+      await j(`/api/admin/services/${editingServiceId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrf()
+        },
+        body: JSON.stringify(serviceData)
+      });
+      showToast('Service updated');
+    } else {
+      // Create new service
+      await j('/api/admin/services', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrf()
+        },
+        body: JSON.stringify(serviceData)
+      });
+      showToast('Service created');
+    }
+    
+    closeServiceModal();
+    loadAllServices();
+    loadServices().then(services => {
+      renderDynamicUptimeBars(services);
+      refresh();
+    });
+  } catch (e) {
+    console.error('Failed to save service', e);
+    const errEl = $('#serviceError');
+    if (errEl) {
+      errEl.textContent = e.body?.error || 'Failed to save service';
+      errEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function deleteService() {
+  if (!editingServiceId) return;
+  
+  if (!confirm('Are you sure you want to delete this service? All monitoring data will be lost.')) {
+    return;
+  }
+  
+  try {
+    await j(`/api/admin/services/${editingServiceId}`, {
+      method: 'DELETE',
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    showToast('Service deleted');
+    closeServiceModal();
+    loadAllServices();
+    loadServices().then(services => {
+      renderDynamicUptimeBars(services);
+      refresh();
+    });
+  } catch (e) {
+    console.error('Failed to delete service', e);
+    showToast('Failed to delete service', 'error');
+  }
+}
+
+function generateServiceKey(name) {
+  return name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 32);
+}
+
+// Initialize services management
+function initServicesManagement() {
+  // Load templates
+  loadServiceTemplates();
+  
+  // Add service button
+  const addBtn = $('#addServiceBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openServiceModal());
+  }
+  
+  // Service modal handlers
+  const closeBtn = $('#closeServiceModal');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeServiceModal);
+  }
+  
+  const cancelBtn = $('#cancelService');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', closeServiceModal);
+  }
+  
+  const saveBtn = $('#saveService');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', saveService);
+  }
+  
+  const testBtn = $('#testServiceConnection');
+  if (testBtn) {
+    testBtn.addEventListener('click', testServiceConnection);
+  }
+  
+  const deleteBtn = $('#deleteService');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', deleteService);
+  }
+  
+  const templateSelect = $('#serviceTemplate');
+  if (templateSelect) {
+    templateSelect.addEventListener('change', handleTemplateChange);
+  }
+  
+  // Update icon preview when URL changes
+  const iconUrlInput = $('#serviceIconUrl');
+  if (iconUrlInput) {
+    iconUrlInput.addEventListener('input', (e) => {
+      updateIconPreview(e.target.value.trim());
+    });
+  }
+  
+  // Close modal on backdrop click
+  const modal = $('#serviceModal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeServiceModal();
+    });
+  }
+  
+  // Load services when Services tab is clicked
+  const tabBtns = $$('.tab-btn');
+  tabBtns.forEach(btn => {
+    if (btn.getAttribute('data-tab') === 'services') {
+      btn.addEventListener('click', loadAllServices);
+    }
+  });
 }
 
 // Handle browser back/forward cache (bfcache) restoration

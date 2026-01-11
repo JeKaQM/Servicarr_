@@ -34,125 +34,8 @@
   </header>
 
   <main>
-    <section class="card" id="card-server" data-key="server">
-      <div class="row">
-        <div class="row-left">
-          <img src="/static/images/server.svg" class="icon" alt="Server"/>
-          <div><strong>Server</strong><div class="label">Health Check</div></div>
-        </div>
-        <span class="pill warn">—</span>
-      </div>
-      <div class="row kpirow"><div class="kpi">—</div><div class="label">—</div></div>
-      
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">24h Uptime</div>
-          <div class="stat-value" id="uptime-24h-server">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Avg Response</div>
-          <div class="stat-value" id="avg-response-server">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Last Check</div>
-          <div class="stat-value" id="last-check-server">—</div>
-        </div>
-      </div>
-      
-      {{if .IsAdmin}}
-      <div class="row adminRow hidden">
-        <div class="label">Admin</div>
-        <div class="ops">
-          <button class="btn mini checkNow">Check now</button>
-          <label class="toggle">
-            <input type="checkbox" class="monitorToggle" checked>
-            <span class="slider"></span>
-            <span class="toggleLabel">Monitor</span>
-          </label>
-        </div>
-      </div>
-      {{end}}
-    </section>
-
-    <section class="card" id="card-plex" data-key="plex">
-      <div class="row">
-        <div class="row-left">
-          <img src="/static/images/plex.svg" class="icon" alt="Plex"/>
-          <div><strong>Plex</strong><div class="label">Media Server</div></div>
-        </div>
-        <span class="pill warn">—</span>
-      </div>
-      <div class="row kpirow"><div class="kpi">—</div><div class="label">—</div></div>
-      
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">24h Uptime</div>
-          <div class="stat-value" id="uptime-24h-plex">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Avg Response</div>
-          <div class="stat-value" id="avg-response-plex">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Last Check</div>
-          <div class="stat-value" id="last-check-plex">—</div>
-        </div>
-      </div>
-      
-      {{if .IsAdmin}}
-      <div class="row adminRow hidden">
-        <div class="label">Admin</div>
-        <div class="ops">
-          <button class="btn mini checkNow">Check now</button>
-          <label class="toggle">
-            <input type="checkbox" class="monitorToggle" checked>
-            <span class="slider"></span>
-            <span class="toggleLabel">Monitor</span>
-          </label>
-        </div>
-      </div>
-      {{end}}
-    </section>
-
-    <section class="card" id="card-overseerr" data-key="overseerr">
-      <div class="row">
-        <div class="row-left">
-          <img src="/static/images/overseerr.svg" class="icon" alt="Overseerr"/>
-          <div><strong>Overseerr</strong><div class="label">Request Management</div></div>
-        </div>
-        <span class="pill warn">—</span>
-      </div>
-      <div class="row kpirow"><div class="kpi">—</div><div class="label">—</div></div>
-      
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">24h Uptime</div>
-          <div class="stat-value" id="uptime-24h-overseerr">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Avg Response</div>
-          <div class="stat-value" id="avg-response-overseerr">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Last Check</div>
-          <div class="stat-value" id="last-check-overseerr">—</div>
-        </div>
-      </div>
-      
-      {{if .IsAdmin}}
-      <div class="row adminRow hidden">
-        <div class="label">Admin</div>
-        <div class="ops">
-          <button class="btn mini checkNow">Check now</button>
-          <label class="toggle">
-            <input type="checkbox" class="monitorToggle" checked>
-            <span class="slider"></span>
-            <span class="toggleLabel">Monitor</span>
-          </label>
-        </div>
-      </div>
-      {{end}}
-    </section>
+    <!-- Dynamic service cards will be rendered here by JavaScript -->
+    <div id="services-container"></div>
 
     <section class="card">
       <div class="row"><div><strong>Recent incidents</strong><div class="label">Last 24h</div></div></div>
@@ -268,41 +151,8 @@
       </select>
     </div>
     
-    <!-- Server Uptime Bar -->
-    <div class="service-uptime">
-      <div class="service-uptime-header">
-        <span class="service-name">Server</span>
-        <span class="protocol-badge">WG HTTP</span>
-        <span class="uptime-percent" id="uptime-server">—%</span>
-      </div>
-      <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-server"></div>
-      </div>
-    </div>
-
-    <!-- Plex Uptime Bar -->
-    <div class="service-uptime">
-      <div class="service-uptime-header">
-        <span class="service-name">Plex</span>
-        <span class="protocol-badge">WG HTTP</span>
-        <span class="uptime-percent" id="uptime-plex">—%</span>
-      </div>
-      <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-plex"></div>
-      </div>
-    </div>
-
-    <!-- Overseerr Uptime Bar -->
-    <div class="service-uptime">
-      <div class="service-uptime-header">
-        <span class="service-name">Overseerr</span>
-        <span class="protocol-badge">WG HTTP</span>
-        <span class="uptime-percent" id="uptime-overseerr">—%</span>
-      </div>
-      <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-overseerr"></div>
-      </div>
-    </div>
+    <!-- Dynamic uptime bars will be rendered here -->
+    <div id="uptime-bars-container"></div>
     
     <div class="uptime-footer">
       <span class="uptime-timestamp" id="timestamp-global">—</span>
@@ -337,10 +187,11 @@
   <section id="adminPanel" class="card admin-panel admin hidden">
     <div class="admin-tabs">
       <button class="tab-btn active" data-tab="main">Main</button>
+      <button class="tab-btn" data-tab="services">Services</button>
       <button class="tab-btn" data-tab="banners">Banners</button>
       <button class="tab-btn" data-tab="security">Security</button>
       <button class="tab-btn" data-tab="resources">Resources</button>
-  <button class="tab-btn" data-tab="alerts">Email</button>
+      <button class="tab-btn" data-tab="alerts">Email</button>
     </div>
 
     <!-- Main Tab -->
@@ -353,6 +204,19 @@
           <button id="ingestNowTab" class="btn">Check All Services Now</button>
           <button id="resetRecentTab" class="btn danger">Reset Recent Incidents</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Services Tab -->
+    <div id="tab-services" class="tab-content">
+      <div class="services-header">
+        <h2>Manage Services</h2>
+        <button id="addServiceBtn" class="btn">+ Add Service</button>
+      </div>
+      <p class="muted">Add, edit, or remove monitored services. Drag to reorder.</p>
+      
+      <div id="servicesList" class="services-list">
+        <div class="muted">Loading services...</div>
       </div>
     </div>
 
@@ -428,20 +292,27 @@
 
     <!-- Resources Tab -->
     <div id="tab-resources" class="tab-content">
-      <h2>Resources Widgets</h2>
-      <p class="muted">Choose which resource tiles appear on the public dashboard.</p>
+      <h2>Resources Monitoring</h2>
+      <p class="muted">Monitor system resources using Glances. Requires <a href="https://nicolargo.github.io/glances/" target="_blank">Glances</a> running with web server enabled.</p>
 
       <div class="admin-section">
-        <h3>Visibility</h3>
+        <h3>Glances Connection</h3>
         <form id="resourcesForm">
           <div class="form-group">
+            <label for="glancesUrl">Glances Host:Port</label>
+            <input type="text" id="glancesUrl" placeholder="e.g., 192.168.1.100:61208 or server.local:61208">
+            <small class="help-text">Enter the host and port where Glances web server is running. API path /api/4 is added automatically.</small>
+          </div>
+          
+          <div class="form-group">
             <label for="resourcesEnabled">
-              <input type="checkbox" id="resourcesEnabled" checked> Enable Resources section
+              <input type="checkbox" id="resourcesEnabled"> Enable Resources section
             </label>
+            <small class="help-text">Resources will only show when Glances is configured and reachable.</small>
           </div>
 
-          <div class="form-group">
-            <h4>Tiles</h4>
+          <h3>Visible Tiles</h3>
+          <div class="form-group tiles-group">
             <label>
               <input type="checkbox" id="resourcesCPU" checked> 🖥️ CPU
             </label>
@@ -460,7 +331,8 @@
           </div>
 
           <div class="ops">
-            <button type="button" id="saveResources" class="btn">Save Resources Settings</button>
+            <button type="button" id="testGlances" class="btn ghost">Test Connection</button>
+            <button type="button" id="saveResources" class="btn">Save Settings</button>
           </div>
 
           <div id="resourcesStatus" class="status-message hidden"></div>
@@ -536,6 +408,107 @@
     </div>
   </section>
   {{end}}
+
+  <!-- Service Add/Edit Modal -->
+  <dialog id="serviceModal">
+    <form class="service-form">
+      <div class="modal-header">
+        <h3 id="serviceModalTitle">Add Service</h3>
+        <button type="button" class="close-btn" id="closeServiceModal">&times;</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="serviceTemplate">Service Template</label>
+        <select id="serviceTemplate">
+          <option value="">-- Select a template (optional) --</option>
+        </select>
+        <small class="help-text" id="templateHelp"></small>
+      </div>
+      
+      <div class="form-group">
+        <label for="serviceName">Name *</label>
+        <input type="text" id="serviceName" placeholder="e.g., My Plex Server" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="serviceUrl">URL *</label>
+        <input type="text" id="serviceUrl" placeholder="e.g., http://192.168.1.100:32400" required>
+        <small class="help-text">For TCP checks, use: tcp://host:port</small>
+      </div>
+      
+      <div class="form-group" id="tokenGroup">
+        <label for="serviceToken">API Token</label>
+        <input type="text" id="serviceToken" placeholder="Optional API token or key">
+        <small class="help-text" id="tokenHelp">Some services require an API token for authentication</small>
+      </div>
+      
+      <div class="form-group">
+        <label for="serviceIconUrl">Custom Icon URL</label>
+        <div class="icon-url-row">
+          <input type="text" id="serviceIconUrl" placeholder="https://example.com/icon.svg">
+          <div id="iconPreview" class="icon-preview hidden"></div>
+        </div>
+        <small class="help-text">Optional: Enter a URL to a custom icon image (SVG, PNG, etc.)</small>
+      </div>
+      
+      <details class="advanced-settings">
+        <summary>Advanced Settings</summary>
+        
+        <div class="form-group">
+          <label for="serviceCheckType">Check Type</label>
+          <select id="serviceCheckType">
+            <option value="http">HTTP/HTTPS</option>
+            <option value="tcp">TCP Port</option>
+          </select>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="serviceTimeout">Timeout (seconds)</label>
+            <input type="number" id="serviceTimeout" value="5" min="1" max="60">
+          </div>
+          
+          <div class="form-group">
+            <label for="serviceInterval">Check Interval (seconds)</label>
+            <input type="number" id="serviceInterval" value="60" min="10" max="3600">
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="serviceExpectedMin">Expected Status Min</label>
+            <input type="number" id="serviceExpectedMin" value="200" min="100" max="599">
+          </div>
+          
+          <div class="form-group">
+            <label for="serviceExpectedMax">Expected Status Max</label>
+            <input type="number" id="serviceExpectedMax" value="399" min="100" max="599">
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="serviceVisible" checked>
+            Show on public dashboard
+          </label>
+        </div>
+      </details>
+      
+      <input type="hidden" id="serviceId">
+      <input type="hidden" id="serviceType">
+      
+      <div id="testConnectionResult" class="test-result hidden"></div>
+      
+      <div class="modal-actions">
+        <button type="button" id="testServiceConnection" class="btn ghost">Test Connection</button>
+        <button type="button" id="saveService" class="btn">Save Service</button>
+        <button type="button" id="cancelService" class="ghost">Cancel</button>
+        <button type="button" id="deleteService" class="btn danger hidden">Delete</button>
+      </div>
+      
+      <div id="serviceError" class="error hidden"></div>
+    </form>
+  </dialog>
 
   <footer>Auto-refreshing every 15s. Metrics need a few minutes to populate.</footer>
 </body>

@@ -143,3 +143,10 @@ func (a *Auth) sign(b []byte) string {
 	m.Write(b)
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
+
+// Reload updates the auth credentials (used after setup completes)
+func (a *Auth) Reload(user string, hash []byte, secret []byte) {
+	a.User = user
+	a.Hash = hash
+	a.HmacSecret = secret
+}

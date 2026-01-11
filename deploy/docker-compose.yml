@@ -1,19 +1,19 @@
 services:
-  status:
+  servicarr:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: jekaq/statusapp
-    container_name: statusapp
+    image: servicarr:local
+    container_name: servicarr
     env_file:
       - ../.env
     ports:
       - "4555:4555"
     volumes:
-      - status_data:/data
+      - servicarr_data:/data
     restart: unless-stopped
 
 volumes:
-  status_data:
-    name: statusapp_data
+  servicarr_data:
+    name: servicarr_data
     external: false
