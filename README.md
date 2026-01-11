@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="status-app/web/static/images/favicon.svg" alt="Servicarr" width="80">
+  <img src="web/static/images/favicon.svg" alt="Servicarr" width="80">
   
 # Servicarr
 
@@ -27,8 +27,8 @@ A lightweight status page application that monitors multiple services and displa
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/JeKaQM/Servicarr.git
-   cd Servicarr/status-app
+   git clone https://github.com/JeKaQM/Servicarr_.git
+   cd Servicarr_
    ```
 
 2. **Configure services** - Edit `deploy/docker-compose.yml` to add your services:
@@ -46,19 +46,14 @@ A lightweight status page application that monitors multiple services and displa
 
 ### Running Locally
 
-1. **Navigate to the app directory**
-   ```bash
-   cd status-app
-   ```
+1. **Set up environment variables** - Create a `.env` file (see `.env.example`)
 
-2. **Set up environment variables** - Create a `.env` file (see `.env.example`)
-
-3. **Run the application**
+2. **Run the application**
    ```bash
    go run ./app
    ```
 
-4. **Access at** http://localhost:3000
+3. **Access at** http://localhost:3000
 
 ## Configuration
 
@@ -85,7 +80,7 @@ Edit the `.env` file to customize:
 ## Project Structure
 
 ```
-status-app/
+Serviccarr_/
 ├── app/main.go           # Go backend server
 ├── web/
 │   ├── static/           # Frontend assets (CSS, JS, images)
@@ -111,7 +106,6 @@ status-app/
 ### Building the Docker image
 
 ```bash
-cd status-app
 docker build -f deploy/Dockerfile -t your-registry/servicarr:latest .
 docker push your-registry/servicarr:latest
 ```
@@ -119,7 +113,6 @@ docker push your-registry/servicarr:latest
 ### Running tests
 
 ```bash
-cd status-app
 go test ./...
 ```
 
