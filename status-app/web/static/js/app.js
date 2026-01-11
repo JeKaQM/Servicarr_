@@ -567,7 +567,13 @@ function renderUptimeBars(metrics, days) {
         uptimePercent.textContent = 'N/A';
         uptimePercent.style.color = 'var(--text-dim)';
       } else {
-        uptimePercent.textContent = `${avgUptime.toFixed(1)}%`;
+        // Use 2 decimal places to avoid rounding 99.99% to 100%
+        // But show "100%" without decimals if truly 100%
+        if (avgUptime >= 100) {
+          uptimePercent.textContent = '100%';
+        } else {
+          uptimePercent.textContent = `${avgUptime.toFixed(2)}%`;
+        }
         // Green only for 100%, orange for <100%, red for <50%
         uptimePercent.style.color = avgUptime >= 100 ? 'var(--ok)' : avgUptime >= 50 ? 'var(--warn)' : 'var(--down)';
       }
