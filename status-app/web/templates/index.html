@@ -59,6 +59,7 @@
         </div>
       </div>
       
+      {{if .IsAdmin}}
       <div class="row adminRow hidden">
         <div class="label">Admin</div>
         <div class="ops">
@@ -70,6 +71,7 @@
           </label>
         </div>
       </div>
+      {{end}}
     </section>
 
     <section class="card" id="card-plex" data-key="plex">
@@ -97,6 +99,7 @@
         </div>
       </div>
       
+      {{if .IsAdmin}}
       <div class="row adminRow hidden">
         <div class="label">Admin</div>
         <div class="ops">
@@ -108,6 +111,7 @@
           </label>
         </div>
       </div>
+      {{end}}
     </section>
 
     <section class="card" id="card-overseerr" data-key="overseerr">
@@ -135,6 +139,7 @@
         </div>
       </div>
       
+      {{if .IsAdmin}}
       <div class="row adminRow hidden">
         <div class="label">Admin</div>
         <div class="ops">
@@ -146,6 +151,7 @@
           </label>
         </div>
       </div>
+      {{end}}
     </section>
 
     <section class="card">
@@ -326,6 +332,7 @@
     </form>
   </dialog>
 
+  {{if .IsAdmin}}
   <!-- Admin Panel with Tabs -->
   <section id="adminPanel" class="card admin-panel admin hidden">
     <div class="admin-tabs">
@@ -528,6 +535,7 @@
       </div>
     </div>
   </section>
+  {{end}}
 
   <footer>Auto-refreshing every 15s. Metrics need a few minutes to populate.</footer>
 </body>
