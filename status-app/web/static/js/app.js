@@ -534,11 +534,32 @@ function renderUptimeBars(metrics, days) {
   const now = new Date();
   const daysAgo = now.getTime() - (daysToShow * 24 * 60 * 60 * 1000);
   
-  // Update global timestamp once
+  // Find the earliest date with actual data across all services
+  let earliestDate = null;
+  if (metrics && metrics.series) {
+    services.forEach(key => {
+      const data = metrics.series[key] || [];
+      data.forEach(point => {
+        const dayStr = point.day || point.hour?.substr(0, 10);
+        if (dayStr && point.uptime !== null && point.uptime !== undefined) {
+          const d = new Date(dayStr);
+          if (!earliestDate || d < earliestDate) {
+            earliestDate = d;
+          }
+        }
+      });
+    });
+  }
+  
+  // Update global timestamp with actual tracking start date
   const globalTimestamp = $('#timestamp-global');
   if (globalTimestamp) {
-    const today = now.toLocaleDateString();
-    globalTimestamp.textContent = `Tracking from ${today} • Hover over blocks for details`;
+    if (earliestDate) {
+      const startDate = earliestDate.toLocaleDateString();
+      globalTimestamp.textContent = `Tracking since ${startDate} • Hover over blocks for details`;
+    } else {
+      globalTimestamp.textContent = `No data yet • Hover over blocks for details`;
+    }
   }
   
   services.forEach(key => {
