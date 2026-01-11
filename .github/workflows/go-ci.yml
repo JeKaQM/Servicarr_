@@ -5,17 +5,17 @@ on:
     branches:
       - main
     paths:
-      - 'status-app/**/*.go'
-      - 'status-app/go.mod'
-      - 'status-app/go.sum'
+      - 'app/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/go-ci.yml'
   push:
     branches:
       - main
     paths:
-      - 'status-app/**/*.go'
-      - 'status-app/go.mod'
-      - 'status-app/go.sum'
+      - 'app/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
 
 jobs:
   lint:
@@ -33,7 +33,6 @@ jobs:
           go-version: '1.25'
 
       - name: Run go fmt
-        working-directory: ./status-app
         run: |
           if [ -n "$(gofmt -l .)" ]; then
             echo "Go code is not formatted:"
@@ -42,7 +41,6 @@ jobs:
           fi
 
       - name: Run go vet
-        working-directory: ./status-app
         run: go vet ./...
 
   build:
@@ -60,11 +58,9 @@ jobs:
           go-version: '1.25'
 
       - name: Download dependencies
-        working-directory: ./status-app
         run: go mod download
 
       - name: Build application
-        working-directory: ./status-app
         run: go build -v ./...
 
   test:
@@ -82,9 +78,7 @@ jobs:
           go-version: '1.25'
 
       - name: Download dependencies
-        working-directory: ./status-app
         run: go mod download
 
       - name: Run tests
-        working-directory: ./status-app
         run: go test -v ./...

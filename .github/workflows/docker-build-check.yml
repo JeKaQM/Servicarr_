@@ -5,7 +5,11 @@ on:
     branches:
       - main
     paths:
-      - 'status-app/**'
+      - 'app/**'
+      - 'web/**'
+      - 'deploy/**'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/docker-build-check.yml'
   push:
     branches:
@@ -27,8 +31,8 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./status-app
-          file: ./status-app/deploy/Dockerfile
+          context: .
+          file: ./deploy/Dockerfile
           push: false
           tags: servicarr:test
           cache-from: type=gha
