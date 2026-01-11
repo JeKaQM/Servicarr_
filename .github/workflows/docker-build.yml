@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: servicarr
+  IMAGE_NAME: jekaqm/servicarr
 
 jobs:
   build-and-push:
