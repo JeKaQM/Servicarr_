@@ -135,9 +135,11 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 			var up, total int
 			var avgMs sql.NullFloat64
 			_ = rows.Scan(&key, &tb, &up, &total, &avgMs)
-			u := 0
+			var u float64
 			if total > 0 {
-				u = int((float64(up)/float64(total))*100 + 0.5)
+				// Use float with 1 decimal place precision to show accurate uptime
+				u = float64(up) / float64(total) * 100.0
+				u = float64(int(u*10+0.5)) / 10.0 // Round to 1 decimal place
 			}
 			point := map[string]any{timeField: tb, "uptime": u}
 			if avgMs.Valid {
@@ -155,7 +157,8 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 				var up, total sql.NullInt64
 				_ = rows2.Scan(&key, &up, &total)
 				if total.Valid && total.Int64 > 0 {
-					overall[key] = float64(up.Int64) * 100.0 / float64(total.Int64)
+					pct := float64(up.Int64) * 100.0 / float64(total.Int64)
+					overall[key] = float64(int(pct*10+0.5)) / 10.0 // Round to 1 decimal place
 				}
 			}
 		}
