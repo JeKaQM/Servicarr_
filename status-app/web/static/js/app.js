@@ -551,7 +551,15 @@ function renderUptimeBars(metrics, days) {
     bar.setAttribute('data-days', daysToShow);
     
     const data = (metrics && metrics.series) ? metrics.series[key] || [] : [];
-    const overall = (metrics && metrics.overall) ? metrics.overall[key] || 0 : 0;
+    
+    // Calculate average uptime from the daily/hourly data points (not the overall which dilutes short outages)
+    let avgUptime = 0;
+    if (data.length > 0) {
+      const validPoints = data.filter(p => p.uptime !== null && p.uptime !== undefined);
+      if (validPoints.length > 0) {
+        avgUptime = validPoints.reduce((sum, p) => sum + p.uptime, 0) / validPoints.length;
+      }
+    }
     
     // Update uptime percentage
     if (uptimePercent) {
@@ -559,9 +567,9 @@ function renderUptimeBars(metrics, days) {
         uptimePercent.textContent = 'N/A';
         uptimePercent.style.color = 'var(--text-dim)';
       } else {
-        uptimePercent.textContent = `${overall.toFixed(1)}%`;
+        uptimePercent.textContent = `${avgUptime.toFixed(1)}%`;
         // Green only for 100%, orange for <100%, red for <50%
-        uptimePercent.style.color = overall >= 100 ? 'var(--ok)' : overall >= 50 ? 'var(--warn)' : 'var(--down)';
+        uptimePercent.style.color = avgUptime >= 100 ? 'var(--ok)' : avgUptime >= 50 ? 'var(--warn)' : 'var(--down)';
       }
     }
     
