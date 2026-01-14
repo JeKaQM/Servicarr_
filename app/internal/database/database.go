@@ -5,6 +5,7 @@ import (
 	"status/app/internal/models"
 	"time"
 
+	// Import SQLite driver for database/sql usage
 	_ "modernc.org/sqlite"
 )
 
@@ -499,10 +500,10 @@ func LoadAppSettings() (*models.AppSettings, error) {
 	row := DB.QueryRow(`SELECT setup_complete, username, password_hash, auth_secret, 
 		COALESCE(app_name, 'Service Status'), COALESCE(created_at, ''), COALESCE(updated_at, '')
 		FROM app_settings WHERE id = 1`)
-	
+
 	var settings models.AppSettings
 	var setupComplete int
-	err := row.Scan(&setupComplete, &settings.Username, &settings.PasswordHash, 
+	err := row.Scan(&setupComplete, &settings.Username, &settings.PasswordHash,
 		&settings.AuthSecret, &settings.AppName, &settings.CreatedAt, &settings.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -523,7 +524,7 @@ func SaveAppSettings(settings *models.AppSettings) error {
 	if settings.AppName == "" {
 		settings.AppName = "Service Status"
 	}
-	
+
 	_, err := DB.Exec(`INSERT INTO app_settings (id, setup_complete, username, password_hash, auth_secret, app_name, created_at, updated_at)
 		VALUES (1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
@@ -608,17 +609,17 @@ func GetLogs(limit int, level, category, service string, offset int) ([]models.L
 // GetLogStats returns statistics about logs
 func GetLogStats() (*models.LogStats, error) {
 	var stats models.LogStats
-	
+
 	err := DB.QueryRow(`SELECT COUNT(*) FROM system_logs`).Scan(&stats.TotalLogs)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'error'`).Scan(&stats.ErrorCount)
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'warn'`).Scan(&stats.WarnCount)
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'info'`).Scan(&stats.InfoCount)
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'debug'`).Scan(&stats.DebugCount)
-	
+
 	return &stats, nil
 }
 

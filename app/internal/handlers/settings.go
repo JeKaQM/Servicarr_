@@ -140,13 +140,13 @@ func HandleChangePassword(authMgr *auth.Auth) http.HandlerFunc {
 
 // DatabaseExport represents the exported database structure
 type DatabaseExport struct {
-	Version     string                `json:"version"`
-	ExportedAt  string                `json:"exported_at"`
-	AppSettings *exportAppSettings    `json:"app_settings"`
-	Services    []exportService       `json:"services"`
-	AlertConfig *exportAlertConfig    `json:"alert_config"`
+	Version     string                 `json:"version"`
+	ExportedAt  string                 `json:"exported_at"`
+	AppSettings *exportAppSettings     `json:"app_settings"`
+	Services    []exportService        `json:"services"`
+	AlertConfig *exportAlertConfig     `json:"alert_config"`
 	Resources   *exportResourcesConfig `json:"resources_config"`
-	Samples     []exportSample        `json:"samples"`
+	Samples     []exportSample         `json:"samples"`
 }
 
 type exportService struct {

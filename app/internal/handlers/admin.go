@@ -504,26 +504,26 @@ func HandleGetLogs() http.HandlerFunc {
 				limit = 500
 			}
 		}
-		
+
 		offset := 0
 		if o := r.URL.Query().Get("offset"); o != "" {
 			fmt.Sscanf(o, "%d", &offset)
 		}
-		
+
 		level := r.URL.Query().Get("level")
 		category := r.URL.Query().Get("category")
 		service := r.URL.Query().Get("service")
-		
+
 		logs, err := database.GetLogs(limit, level, category, service, offset)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		
+
 		if logs == nil {
 			logs = []models.LogEntry{}
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"logs": logs,
@@ -539,7 +539,7 @@ func HandleGetLogStats() http.HandlerFunc {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(stats)
 	}
@@ -551,19 +551,19 @@ func HandleClearLogs() http.HandlerFunc {
 		var req struct {
 			Days int `json:"days"` // 0 means clear all
 		}
-		
+
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			// Default to clearing all if no body
 			req.Days = 0
 		}
-		
+
 		if err := database.ClearLogs(req.Days); err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		
+
 		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Logs cleared", fmt.Sprintf("Cleared logs older than %d days", req.Days))
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	}

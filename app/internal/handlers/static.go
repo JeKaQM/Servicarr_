@@ -18,21 +18,21 @@ type PageData struct {
 func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
 	// Parse the template once at startup
 	tmpl := template.Must(template.ParseFiles("web/templates/index.html"))
-	
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set CSRF token cookie on every page load (for login form)
 		authMgr.SetCSRFCookie(w)
-		
+
 		// Check if user is authenticated
 		session, err := authMgr.ParseSession(r)
 		isAdmin := err == nil && session != nil
-		
+
 		// Get app name from settings
 		appName := "Service Status"
 		if settings, err := database.LoadAppSettings(); err == nil && settings != nil && settings.AppName != "" {
 			appName = settings.AppName
 		}
-		
+
 		// Render template with auth state
 		data := PageData{IsAdmin: isAdmin, AppName: appName}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

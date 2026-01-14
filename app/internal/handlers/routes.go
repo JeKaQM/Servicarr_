@@ -30,7 +30,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	api := http.NewServeMux()
 	api.HandleFunc("/api/check", HandleCheck(services))
 	api.HandleFunc("/api/metrics", HandleMetrics())
-	api.HandleFunc("/api/uptime", HandleUptimeStats())        // New efficient uptime stats
+	api.HandleFunc("/api/uptime", HandleUptimeStats())          // New efficient uptime stats
 	api.HandleFunc("/api/heartbeats", HandleRecentHeartbeats()) // New recent heartbeats
 	api.HandleFunc("/api/resources", HandleResources(gl))
 	api.HandleFunc("/api/resources/config", HandleGetResourcesUIConfig())
@@ -46,7 +46,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	authAPI.HandleFunc("/api/admin/blocks", authMgr.RequireAuth(HandleListBlocks()))
 	authAPI.HandleFunc("/api/admin/unblock", authMgr.RequireAuth(HandleUnblockIP()))
 	authAPI.HandleFunc("/api/admin/clear-blocks", authMgr.RequireAuth(HandleClearAllBlocks()))
-	
+
 	// Whitelist/Blacklist routes
 	authAPI.HandleFunc("/api/admin/whitelist", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -72,7 +72,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	
+
 	authAPI.HandleFunc("/api/admin/alerts/config", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			HandleGetAlertsConfig(alertMgr)(w, r)
@@ -207,33 +207,33 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 
 	// Main router
 	mux := http.NewServeMux()
-	
+
 	// Setup routes (must be accessible before setup is complete)
 	mux.HandleFunc("/setup", HandleSetupPage)
 	mux.HandleFunc("/api/setup", HandleCompleteSetup(authMgr))
 	mux.HandleFunc("/api/setup/status", HandleSetupStatus)
 	mux.HandleFunc("/api/setup/service", HandleAddFirstService)
 	mux.HandleFunc("/api/setup/import", HandleSetupImport(authMgr))
-	
+
 	// Self-unblock endpoint (accessible even when blocked)
 	mux.HandleFunc("/api/self-unblock", HandleSelfUnblock())
-	
+
 	// Apply rate limiting based on endpoint type
 	// Login endpoints: 20 requests/minute (prevents brute force)
 	mux.Handle("/api/login", RateLimitMiddleware(ratelimit.LoginLimiter, http.HandlerFunc(HandleLogin(authMgr))))
 	mux.Handle("/api/logout", RateLimitMiddleware(ratelimit.LoginLimiter, http.HandlerFunc(HandleLogout(authMgr))))
 	mux.Handle("/api/me", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleWhoAmI(authMgr))))
-	
+
 	// Admin API: 60 requests/minute
 	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, authAPI))
-	
+
 	// Public API: 30 requests/minute for check endpoint (prevents abuse)
 	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(services))))
-	
+
 	// Other public API endpoints: standard rate limit
 	mux.HandleFunc("/api/status-alerts", HandleGetStatusAlerts()) // Public, no rate limit
 	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
-	
+
 	mux.HandleFunc("/static/", HandleStatic())
 	mux.HandleFunc("/favicon.ico", HandleFavicon())
 	mux.Handle("/", security.CheckIPBlock(http.HandlerFunc(HandleIndex(authMgr))))

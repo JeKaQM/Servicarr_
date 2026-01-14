@@ -514,7 +514,7 @@ func HandleTestServiceConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := testServiceConnection(req.URL, req.APIToken, req.CheckType, req.ServiceType, timeout)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }
@@ -544,7 +544,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 
 	// HTTP/HTTPS check
 	start := time.Now()
-	
+
 	// For Plex, append token as query parameter
 	testURL := url
 	if apiToken != "" && serviceType == "plex" {
@@ -554,7 +554,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 			testURL += "?X-Plex-Token=" + apiToken
 		}
 	}
-	
+
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
 		return map[string]any{
@@ -566,7 +566,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 	// Add common headers
 	req.Header.Set("User-Agent", "Servicarr/1.0")
 	req.Header.Set("Accept", "application/json")
-	
+
 	// Add API token based on service type
 	if apiToken != "" {
 		switch serviceType {
@@ -598,7 +598,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 
 	resp, err := client.Do(req)
 	latency := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return map[string]any{
 			"success":    false,
@@ -610,18 +610,18 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 
 	// Consider 2xx and 3xx as success
 	success := resp.StatusCode >= 200 && resp.StatusCode < 400
-	
+
 	result := map[string]any{
 		"success":     success,
 		"status_code": resp.StatusCode,
 		"status":      resp.Status,
 		"latency_ms":  latency,
 	}
-	
+
 	if !success {
 		result["error"] = "Unexpected status code: " + resp.Status
 	}
-	
+
 	return result
 }
 
@@ -629,11 +629,11 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 func testTCPConnection(url string, timeout int) map[string]any {
 	// Parse TCP URL (tcp://host:port)
 	address := strings.TrimPrefix(url, "tcp://")
-	
+
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", address, time.Duration(timeout)*time.Second)
 	latency := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return map[string]any{
 			"success":    false,
@@ -642,7 +642,7 @@ func testTCPConnection(url string, timeout int) map[string]any {
 		}
 	}
 	conn.Close()
-	
+
 	return map[string]any{
 		"success":    true,
 		"status":     "TCP port open",
@@ -654,11 +654,11 @@ func testTCPConnection(url string, timeout int) map[string]any {
 func testDNSConnection(url string, timeout int) map[string]any {
 	// Parse DNS URL (dns://hostname)
 	hostname := strings.TrimPrefix(url, "dns://")
-	
+
 	start := time.Now()
 	addrs, err := net.LookupHost(hostname)
 	latency := time.Since(start).Milliseconds()
-	
+
 	if err != nil {
 		return map[string]any{
 			"success":    false,
@@ -666,7 +666,7 @@ func testDNSConnection(url string, timeout int) map[string]any {
 			"latency_ms": latency,
 		}
 	}
-	
+
 	if len(addrs) == 0 {
 		return map[string]any{
 			"success":    false,
@@ -674,7 +674,7 @@ func testDNSConnection(url string, timeout int) map[string]any {
 			"latency_ms": latency,
 		}
 	}
-	
+
 	return map[string]any{
 		"success":    true,
 		"status":     fmt.Sprintf("Resolved to %s", strings.Join(addrs, ", ")),

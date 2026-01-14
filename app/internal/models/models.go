@@ -41,7 +41,7 @@ type ServiceTemplate struct {
 	Type          string `json:"type"`
 	Name          string `json:"name"`
 	Icon          string `json:"icon"`
-	IconURL       string `json:"icon_url"`       // Default icon URL for this service type
+	IconURL       string `json:"icon_url"` // Default icon URL for this service type
 	DefaultURL    string `json:"default_url"`
 	CheckType     string `json:"check_type"`
 	URLSuffix     string `json:"url_suffix"`     // e.g., /api/v1/status for Overseerr
@@ -125,9 +125,9 @@ type StatusAlert struct {
 type AppSettings struct {
 	SetupComplete bool   `json:"setup_complete"`
 	Username      string `json:"username"`
-	PasswordHash  string `json:"-"`              // Never expose in JSON
-	AuthSecret    string `json:"-"`              // Never expose in JSON
-	AppName       string `json:"app_name"`       // Customizable app name displayed in header
+	PasswordHash  string `json:"-"`        // Never expose in JSON
+	AuthSecret    string `json:"-"`        // Never expose in JSON
+	AppName       string `json:"app_name"` // Customizable app name displayed in header
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 }
@@ -136,20 +136,20 @@ type AppSettings struct {
 type LogEntry struct {
 	ID        int64  `json:"id"`
 	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`     // info, warn, error, debug
-	Category  string `json:"category"`  // check, email, security, system, schedule
-	Service   string `json:"service"`   // service key if applicable
+	Level     string `json:"level"`    // info, warn, error, debug
+	Category  string `json:"category"` // check, email, security, system, schedule
+	Service   string `json:"service"`  // service key if applicable
 	Message   string `json:"message"`
-	Details   string `json:"details"`   // Additional details (JSON or plain text)
+	Details   string `json:"details"` // Additional details (JSON or plain text)
 }
 
 // LogStats represents log statistics
 type LogStats struct {
-	TotalLogs   int `json:"total_logs"`
-	ErrorCount  int `json:"error_count"`
-	WarnCount   int `json:"warn_count"`
-	InfoCount   int `json:"info_count"`
-	DebugCount  int `json:"debug_count"`
+	TotalLogs  int `json:"total_logs"`
+	ErrorCount int `json:"error_count"`
+	WarnCount  int `json:"warn_count"`
+	InfoCount  int `json:"info_count"`
+	DebugCount int `json:"debug_count"`
 }
 
 // ScheduleInfo represents a scheduled task

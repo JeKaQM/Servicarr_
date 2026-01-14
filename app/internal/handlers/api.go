@@ -116,15 +116,15 @@ func HandleCheck(services []*models.Service) http.HandlerFunc {
 
 				ok := checkOK || s.ConsecutiveFailures < 2
 				degraded := ok && ms != nil && *ms > 200
-				   out.Status[s.Key] = models.LiveResult{
-					   Label:     s.Label,
-					   OK:        ok,
-					   Status:    code,
-					   MS:        ms,
-					   Disabled:  false,
-					   Degraded:  degraded,
-					   CheckType: s.CheckType,
-				   }
+				out.Status[s.Key] = models.LiveResult{
+					Label:     s.Label,
+					OK:        ok,
+					Status:    code,
+					MS:        ms,
+					Disabled:  false,
+					Degraded:  degraded,
+					CheckType: s.CheckType,
+				}
 			}
 		}
 
@@ -275,7 +275,7 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 func HandleUptimeStats() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		serviceKey := r.URL.Query().Get("service")
-		
+
 		if serviceKey != "" {
 			// Get stats for a specific service
 			uptimeStats := stats.GetUptimeStats(serviceKey)

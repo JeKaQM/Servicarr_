@@ -73,9 +73,9 @@ type Snapshot struct {
 	GPUTempC   *float64 `json:"gpu_temp_c,omitempty"`
 
 	// Container metrics
-	ContainerCount   *uint64          `json:"container_count,omitempty"`
-	ContainerRunning *uint64          `json:"container_running,omitempty"`
-	Containers       []ContainerInfo  `json:"containers,omitempty"`
+	ContainerCount   *uint64         `json:"container_count,omitempty"`
+	ContainerRunning *uint64         `json:"container_running,omitempty"`
+	Containers       []ContainerInfo `json:"containers,omitempty"`
 }
 
 // ContainerInfo holds basic container stats
@@ -86,6 +86,7 @@ type ContainerInfo struct {
 	MemPercent *float64 `json:"mem_percent,omitempty"`
 }
 
+// Client is a Glances API client for fetching system resource data.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
@@ -104,6 +105,7 @@ type Client struct {
 	tempMax  float64
 }
 
+// NewClient creates a new Glances API client with the given baseURL.
 func NewClient(baseURL string) *Client {
 	c := &Client{
 		BaseURL:  baseURL,
@@ -114,6 +116,7 @@ func NewClient(baseURL string) *Client {
 	return c
 }
 
+// SetCacheTTL sets the cache time-to-live for the client.
 func (c *Client) SetCacheTTL(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -308,6 +311,7 @@ func asUint64Ptr(v interface{}) *uint64 {
 	}
 }
 
+// FetchSnapshot fetches and caches a system resource snapshot from Glances.
 func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	// Cache with coalescing to avoid a thundering herd.
 	c.mu.Lock()

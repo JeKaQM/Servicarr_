@@ -46,7 +46,7 @@ func (a *Auth) SetCSRFCookie(w http.ResponseWriter) (string, error) {
 		return "", err
 	}
 	val := base64.RawURLEncoding.EncodeToString(b)
-	
+
 	c := &http.Cookie{
 		Name:     "csrf",
 		Value:    val,

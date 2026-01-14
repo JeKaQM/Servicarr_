@@ -20,8 +20,8 @@ import (
 
 // SetupState tracks setup wizard progress
 type SetupState struct {
-	NeedsSetup   bool `json:"needs_setup"`
-	HasServices  bool `json:"has_services"`
+	NeedsSetup  bool `json:"needs_setup"`
+	HasServices bool `json:"has_services"`
 }
 
 // HandleSetupPage serves the setup wizard page
@@ -62,116 +62,116 @@ func HandleSetupStatus(w http.ResponseWriter, r *http.Request) {
 // HandleCompleteSetup processes the setup form submission
 func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-	// Check if setup is already complete
-	complete, _ := database.IsSetupComplete()
-	if complete {
+		// Check if setup is already complete
+		complete, _ := database.IsSetupComplete()
+		if complete {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Setup already completed",
+			})
+			return
+		}
+
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Invalid request body",
+			})
+			return
+		}
+
+		// Validate inputs
+		if req.Username == "" || len(req.Username) < 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Username must be at least 3 characters",
+			})
+			return
+		}
+
+		if req.Password == "" || len(req.Password) < 6 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Password must be at least 6 characters",
+			})
+			return
+		}
+
+		// Hash password with bcrypt
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Failed to hash password",
+			})
+			return
+		}
+
+		// Generate a random auth secret (32 bytes = 256 bits)
+		authSecretBytes := make([]byte, 32)
+		if _, err := rand.Read(authSecretBytes); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Failed to generate auth secret",
+			})
+			return
+		}
+		authSecret := base64.StdEncoding.EncodeToString(authSecretBytes)
+
+		// Save settings to database
+		settings := &models.AppSettings{
+			SetupComplete: true,
+			Username:      req.Username,
+			PasswordHash:  string(passwordHash),
+			AuthSecret:    authSecret,
+		}
+
+		if err := database.SaveAppSettings(settings); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Failed to save settings: " + err.Error(),
+			})
+			return
+		}
+
+		// Reload auth manager with new credentials
+		authMgr.Reload(req.Username, passwordHash, authSecretBytes)
+		log.Printf("Setup complete - auth credentials loaded for user: %s", req.Username)
+
+		// Check if we need to create a dummy service
+		serviceCount, _ := database.GetServiceCount()
+		if serviceCount == 0 {
+			createDummyService()
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Setup already completed",
+			"success": true,
+			"message": "Setup completed successfully",
 		})
-		return
-	}
-
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Invalid request body",
-		})
-		return
-	}
-
-	// Validate inputs
-	if req.Username == "" || len(req.Username) < 3 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Username must be at least 3 characters",
-		})
-		return
-	}
-
-	if req.Password == "" || len(req.Password) < 6 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Password must be at least 6 characters",
-		})
-		return
-	}
-
-	// Hash password with bcrypt
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Failed to hash password",
-		})
-		return
-	}
-
-	// Generate a random auth secret (32 bytes = 256 bits)
-	authSecretBytes := make([]byte, 32)
-	if _, err := rand.Read(authSecretBytes); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Failed to generate auth secret",
-		})
-		return
-	}
-	authSecret := base64.StdEncoding.EncodeToString(authSecretBytes)
-
-	// Save settings to database
-	settings := &models.AppSettings{
-		SetupComplete: true,
-		Username:      req.Username,
-		PasswordHash:  string(passwordHash),
-		AuthSecret:    authSecret,
-	}
-
-	if err := database.SaveAppSettings(settings); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Failed to save settings: " + err.Error(),
-		})
-		return
-	}
-
-	// Reload auth manager with new credentials
-	authMgr.Reload(req.Username, passwordHash, authSecretBytes)
-	log.Printf("Setup complete - auth credentials loaded for user: %s", req.Username)
-
-	// Check if we need to create a dummy service
-	serviceCount, _ := database.GetServiceCount()
-	if serviceCount == 0 {
-		createDummyService()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-		"message": "Setup completed successfully",
-	})
 	}
 }
 
@@ -398,7 +398,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		// But for import, we'll require them in a separate step or use the backup username
 		// For now, redirect to main setup to create credentials
 		// Mark as NOT complete so user still needs to create credentials
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":           true,
@@ -441,7 +441,7 @@ func SetupRequiredMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]any{
-				"error": "Setup required",
+				"error":          "Setup required",
 				"setup_required": true,
 			})
 			return

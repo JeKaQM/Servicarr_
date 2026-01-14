@@ -319,7 +319,7 @@ func updateMinutelyStat(serviceKey string, ok bool, ping *int) {
 func AggregateHourlyStats() {
 	now := time.Now().UTC()
 	// Aggregate stats from more than 1 hour ago
-	hourAgo := now.Add(-1 * time.Hour).Unix() / 3600 * 3600
+	hourAgo := now.Add(-1*time.Hour).Unix() / 3600 * 3600
 
 	rows, err := database.DB.Query(`
 		SELECT service_key, 
@@ -369,7 +369,7 @@ func AggregateHourlyStats() {
 func AggregateDailyStats() {
 	now := time.Now().UTC()
 	// Aggregate stats from more than 1 day ago
-	dayAgo := now.Add(-24 * time.Hour).Unix() / 86400 * 86400
+	dayAgo := now.Add(-24*time.Hour).Unix() / 86400 * 86400
 
 	rows, err := database.DB.Query(`
 		SELECT service_key, 
@@ -432,7 +432,7 @@ func CleanupOldHeartbeats() {
 	_, _ = database.DB.Exec(`DELETE FROM heartbeats WHERE time < ?`, weekAgo)
 }
 
-// GetUptimeStats returns uptime statistics for a service
+// UptimeStats contains computed uptime and latency statistics for a service.
 type UptimeStats struct {
 	Uptime24h   float64 `json:"uptime_24h"`
 	Uptime7d    float64 `json:"uptime_7d"`

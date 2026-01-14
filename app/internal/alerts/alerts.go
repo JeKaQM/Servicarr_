@@ -80,14 +80,14 @@ func (m *Manager) SendEmail(subject, body string) error {
 	addr := fmt.Sprintf("%s:%d", m.config.SMTPHost, m.config.SMTPPort)
 
 	err := smtp.SendMail(addr, auth, from, []string{m.config.AlertEmail}, []byte(msg))
-	
+
 	// Log email send attempt
 	if err != nil {
 		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, "", "Failed to send email", fmt.Sprintf("to=%s, subject=%s, error=%v", m.config.AlertEmail, subject, err))
 	} else {
 		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, "", "Email sent successfully", fmt.Sprintf("to=%s, subject=%s", m.config.AlertEmail, subject))
 	}
-	
+
 	return err
 }
 

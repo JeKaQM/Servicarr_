@@ -109,7 +109,7 @@ func createAuthManager(cfg *config.Config) *auth.Auth {
 				cfg.SessionMaxAgeS,
 			)
 		}
-		
+
 		// Setup is complete but couldn't load from DB - fall back to env
 		if cfg.AuthUser != "" && len(cfg.AuthHash) > 0 && len(cfg.HmacSecret) > 0 {
 			log.Println("Falling back to auth credentials from environment")
@@ -139,7 +139,7 @@ func createAuthManager(cfg *config.Config) *auth.Auth {
 func loadServicesFromDB(cfg *config.Config) []*models.Service {
 	// Check if setup is complete
 	setupComplete, _ := database.IsSetupComplete()
-	
+
 	// Check if we have services in the database
 	dbServices, err := database.GetAllServices()
 	if err != nil {
@@ -225,12 +225,12 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 
 	// Batch check results for efficient DB operations
 	type checkResult struct {
-		Key        string
-		OK         bool
-		Code       int
-		MS         *int
-		ErrMsg     string
-		Degraded   bool
+		Key      string
+		OK       bool
+		Code     int
+		MS       *int
+		ErrMsg   string
+		Degraded bool
 	}
 
 	for range ticker.C {
@@ -248,7 +248,7 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 		for _, s := range svcManager.services {
 			existingMap[s.Key] = s
 		}
-		
+
 		// Build updated services list
 		updatedServices := make([]*models.Service, 0, len(dbServices))
 		for _, sc := range dbServices {
@@ -346,21 +346,21 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 		for _, r := range results {
 			// Record in new efficient stats system
 			stats.RecordHeartbeat(r.Key, r.OK, r.MS, r.Code, r.ErrMsg)
-			
+
 			// Also record in legacy samples table for backward compatibility
 			database.InsertSample(time.Now(), r.Key, r.OK, r.Code, r.MS)
-			
+
 			// Log the check result
 			logLevel := database.LogLevelInfo
 			logMsg := "Service check passed"
 			logDetails := ""
-			
+
 			if r.MS != nil {
 				logDetails = fmt.Sprintf("status=%d, latency=%dms", r.Code, *r.MS)
 			} else {
 				logDetails = fmt.Sprintf("status=%d", r.Code)
 			}
-			
+
 			if !r.OK {
 				logLevel = database.LogLevelError
 				logMsg = "Service check failed"
@@ -371,9 +371,9 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 				logLevel = database.LogLevelWarn
 				logMsg = "Service degraded (slow response)"
 			}
-			
+
 			_ = database.InsertLog(logLevel, database.LogCategoryCheck, r.Key, logMsg, logDetails)
-			
+
 			// Send alerts if status changed
 			svcConfig, _ := database.GetServiceByKey(r.Key)
 			name := r.Key
@@ -382,7 +382,7 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 			}
 			alertMgr.CheckAndSendAlerts(r.Key, name, r.OK, r.Degraded)
 		}
-		
+
 		// Prune old logs to prevent database bloat (keep last 10000 entries)
 		_ = database.PruneLogs(10000)
 	}
