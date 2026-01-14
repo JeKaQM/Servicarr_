@@ -10,8 +10,9 @@ type Service struct {
 	Timeout             time.Duration
 	MinOK               int
 	MaxOK               int
-	Disabled            bool `json:"disabled"`
-	ConsecutiveFailures int  // Track consecutive check failures
+	Disabled            bool   `json:"disabled"`
+	ConsecutiveFailures int    // Track consecutive check failures
+	CheckType           string // http, tcp, dns, etc.
 }
 
 // ServiceConfig represents a service stored in the database
@@ -51,12 +52,13 @@ type ServiceTemplate struct {
 
 // LiveResult represents the current status of a service
 type LiveResult struct {
-	Label    string `json:"label"`
-	OK       bool   `json:"ok"`
-	Status   int    `json:"status"`
-	MS       *int   `json:"ms,omitempty"`
-	Disabled bool   `json:"disabled"`
-	Degraded bool   `json:"degraded"`
+	Label     string `json:"label"`
+	OK        bool   `json:"ok"`
+	Status    int    `json:"status"`
+	MS        *int   `json:"ms,omitempty"`
+	Disabled  bool   `json:"disabled"`
+	Degraded  bool   `json:"degraded"`
+	CheckType string `json:"check_type,omitempty"`
 }
 
 // LivePayload represents a collection of service statuses
@@ -88,6 +90,12 @@ type ResourcesUIConfig struct {
 	Network    bool   `json:"network"`
 	Temp       bool   `json:"temp"`
 	Storage    bool   `json:"storage"`
+	Swap       bool   `json:"swap"`
+	Load       bool   `json:"load"`
+	GPU        bool   `json:"gpu"`
+	Containers bool   `json:"containers"`
+	Processes  bool   `json:"processes"`
+	Uptime     bool   `json:"uptime"`
 }
 
 // ServiceStatus tracks service state for change detection
@@ -119,6 +127,37 @@ type AppSettings struct {
 	Username      string `json:"username"`
 	PasswordHash  string `json:"-"`              // Never expose in JSON
 	AuthSecret    string `json:"-"`              // Never expose in JSON
+	AppName       string `json:"app_name"`       // Customizable app name displayed in header
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// LogEntry represents a log entry in the system
+type LogEntry struct {
+	ID        int64  `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`     // info, warn, error, debug
+	Category  string `json:"category"`  // check, email, security, system, schedule
+	Service   string `json:"service"`   // service key if applicable
+	Message   string `json:"message"`
+	Details   string `json:"details"`   // Additional details (JSON or plain text)
+}
+
+// LogStats represents log statistics
+type LogStats struct {
+	TotalLogs   int `json:"total_logs"`
+	ErrorCount  int `json:"error_count"`
+	WarnCount   int `json:"warn_count"`
+	InfoCount   int `json:"info_count"`
+	DebugCount  int `json:"debug_count"`
+}
+
+// ScheduleInfo represents a scheduled task
+type ScheduleInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Interval    string `json:"interval"`
+	LastRun     string `json:"last_run"`
+	NextRun     string `json:"next_run"`
+	Status      string `json:"status"` // running, idle, error
 }
