@@ -24,6 +24,7 @@ type Snapshot struct {
 	Platform string `json:"platform"`
 
 	UptimeSeconds *float64 `json:"uptime_seconds,omitempty"`
+	UptimeString  string   `json:"uptime_string,omitempty"`
 
 	CPUPercent        *float64  `json:"cpu_percent,omitempty"`
 	CPUUserPercent    *float64  `json:"cpu_user_percent,omitempty"`
@@ -48,6 +49,7 @@ type Snapshot struct {
 	ProcTotal    *uint64 `json:"proc_total,omitempty"`
 	ProcRunning  *uint64 `json:"proc_running,omitempty"`
 	ProcSleeping *uint64 `json:"proc_sleeping,omitempty"`
+	ProcThreads  *uint64 `json:"proc_threads,omitempty"`
 
 	TempC    *float64 `json:"temp_c,omitempty"`
 	TempMinC *float64 `json:"temp_min_c,omitempty"`
@@ -63,6 +65,25 @@ type Snapshot struct {
 	FSUsedBytes   *uint64  `json:"fs_used_bytes,omitempty"`
 	FSFreeBytes   *uint64  `json:"fs_free_bytes,omitempty"`
 	FSUsedPercent *float64 `json:"fs_used_percent,omitempty"`
+
+	// GPU metrics
+	GPUName    string   `json:"gpu_name,omitempty"`
+	GPUPercent *float64 `json:"gpu_percent,omitempty"`
+	GPUMemPct  *float64 `json:"gpu_mem_percent,omitempty"`
+	GPUTempC   *float64 `json:"gpu_temp_c,omitempty"`
+
+	// Container metrics
+	ContainerCount   *uint64          `json:"container_count,omitempty"`
+	ContainerRunning *uint64          `json:"container_running,omitempty"`
+	Containers       []ContainerInfo  `json:"containers,omitempty"`
+}
+
+// ContainerInfo holds basic container stats
+type ContainerInfo struct {
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	CPUPercent *float64 `json:"cpu_percent,omitempty"`
+	MemPercent *float64 `json:"mem_percent,omitempty"`
 }
 
 type Client struct {
@@ -154,6 +175,7 @@ type glancesProcessCount struct {
 	Total    interface{} `json:"total"`
 	Running  interface{} `json:"running"`
 	Sleeping interface{} `json:"sleeping"`
+	Thread   interface{} `json:"thread"`
 }
 
 type glancesSensor struct {
@@ -203,6 +225,22 @@ type glancesFS struct {
 	Used       interface{} `json:"used"`
 	Free       interface{} `json:"free"`
 	Percent    interface{} `json:"percent"`
+}
+
+type glancesGPU struct {
+	GPUID       interface{} `json:"gpu_id"`
+	Name        interface{} `json:"name"`
+	Mem         interface{} `json:"mem"`
+	Proc        interface{} `json:"proc"`
+	Temperature interface{} `json:"temperature"`
+}
+
+type glancesContainer struct {
+	Name       interface{} `json:"name"`
+	Status     interface{} `json:"status"`
+	CPUPercent interface{} `json:"cpu_percent"`
+	MemUsage   interface{} `json:"memory_usage"`
+	MemLimit   interface{} `json:"memory_limit"`
 }
 
 func asFloatPtr(v interface{}) *float64 {
@@ -348,6 +386,24 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	}
 	if err := c.getJSON(ctx, "/fs", &fs); err != nil {
 		// Optional in some builds
+	}
+
+	// GPU metrics (optional)
+	var gpus []glancesGPU
+	if err := c.getJSON(ctx, "/gpu", &gpus); err != nil {
+		// Optional - not all systems have GPUs
+	}
+
+	// Container metrics (optional)
+	var containers []glancesContainer
+	if err := c.getJSON(ctx, "/containers", &containers); err != nil {
+		// Optional - Docker/Podman may not be installed
+	}
+
+	// Uptime as string (optional)
+	var uptimeStr string
+	if err := c.getJSON(ctx, "/uptime", &uptimeStr); err != nil {
+		// Optional
 	}
 
 	// If everything failed, surface an error.
@@ -608,6 +664,67 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			p := (float64(used) / float64(total)) * 100
 			s.FSUsedPercent = &p
 		}
+	}
+
+	// GPU metrics: take the first GPU with data
+	if len(gpus) > 0 {
+		for _, g := range gpus {
+			if name, ok := g.Name.(string); ok && name != "" {
+				s.GPUName = name
+			}
+			if proc := asFloatPtr(g.Proc); proc != nil {
+				s.GPUPercent = proc
+			}
+			if mem := asFloatPtr(g.Mem); mem != nil {
+				s.GPUMemPct = mem
+			}
+			if temp := asFloatPtr(g.Temperature); temp != nil {
+				s.GPUTempC = temp
+			}
+			// Only use first GPU
+			if s.GPUName != "" {
+				break
+			}
+		}
+	}
+
+	// Container metrics
+	if len(containers) > 0 {
+		count := uint64(len(containers))
+		s.ContainerCount = &count
+		var running uint64
+		for _, c := range containers {
+			status, _ := c.Status.(string)
+			if status == "running" {
+				running++
+			}
+			// Add container info
+			info := ContainerInfo{}
+			if name, ok := c.Name.(string); ok {
+				info.Name = name
+			}
+			info.Status = status
+			info.CPUPercent = asFloatPtr(c.CPUPercent)
+			// Calculate memory percent if we have usage and limit
+			if usage := asUint64Ptr(c.MemUsage); usage != nil {
+				if limit := asUint64Ptr(c.MemLimit); limit != nil && *limit > 0 {
+					pct := (float64(*usage) / float64(*limit)) * 100
+					info.MemPercent = &pct
+				}
+			}
+			s.Containers = append(s.Containers, info)
+		}
+		s.ContainerRunning = &running
+	}
+
+	// Uptime string
+	if uptimeStr != "" {
+		s.UptimeString = uptimeStr
+	}
+
+	// Process thread count
+	if thread := asUint64Ptr(pc.Thread); thread != nil {
+		s.ProcThreads = thread
 	}
 
 	c.mu.Lock()

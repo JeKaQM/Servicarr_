@@ -187,6 +187,142 @@ func HandleClearAllBlocks() http.HandlerFunc {
 	}
 }
 
+// HandleListWhitelist returns all whitelisted IPs
+func HandleListWhitelist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		list, err := security.ListWhitelist()
+		if err != nil {
+			http.Error(w, "Failed to load whitelist", http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = []map[string]interface{}{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"whitelist": list,
+		})
+	}
+}
+
+// HandleAddToWhitelist adds an IP to the whitelist
+func HandleAddToWhitelist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IP   string `json:"ip"`
+			Note string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := security.AddToWhitelist(req.IP, req.Note); err != nil {
+			http.Error(w, "Failed to add to whitelist", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"ip": req.IP,
+		})
+	}
+}
+
+// HandleRemoveFromWhitelist removes an IP from the whitelist
+func HandleRemoveFromWhitelist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IP string `json:"ip"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := security.RemoveFromWhitelist(req.IP); err != nil {
+			http.Error(w, "Failed to remove from whitelist", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"ip": req.IP,
+		})
+	}
+}
+
+// HandleListBlacklist returns all blacklisted IPs
+func HandleListBlacklist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		list, err := security.ListBlacklist()
+		if err != nil {
+			http.Error(w, "Failed to load blacklist", http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = []map[string]interface{}{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"blacklist": list,
+		})
+	}
+}
+
+// HandleAddToBlacklist adds an IP to the blacklist
+func HandleAddToBlacklist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IP        string `json:"ip"`
+			Note      string `json:"note"`
+			Permanent bool   `json:"permanent"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := security.AddToBlacklist(req.IP, req.Note, req.Permanent); err != nil {
+			http.Error(w, "Failed to add to blacklist", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":        true,
+			"ip":        req.IP,
+			"permanent": req.Permanent,
+		})
+	}
+}
+
+// HandleRemoveFromBlacklist removes an IP from the blacklist
+func HandleRemoveFromBlacklist() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IP string `json:"ip"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := security.RemoveFromBlacklist(req.IP); err != nil {
+			http.Error(w, "Failed to remove from blacklist", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok": true,
+			"ip": req.IP,
+		})
+	}
+}
+
 // HandleGetAlertsConfig retrieves alert configuration
 func HandleGetAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +489,81 @@ func HandleDeleteStatusAlert() http.HandlerFunc {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}
+}
+
+// HandleGetLogs returns system logs with optional filtering
+func HandleGetLogs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 100
+		if l := r.URL.Query().Get("limit"); l != "" {
+			fmt.Sscanf(l, "%d", &limit)
+			if limit > 500 {
+				limit = 500
+			}
+		}
+		
+		offset := 0
+		if o := r.URL.Query().Get("offset"); o != "" {
+			fmt.Sscanf(o, "%d", &offset)
+		}
+		
+		level := r.URL.Query().Get("level")
+		category := r.URL.Query().Get("category")
+		service := r.URL.Query().Get("service")
+		
+		logs, err := database.GetLogs(limit, level, category, service, offset)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		
+		if logs == nil {
+			logs = []models.LogEntry{}
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs": logs,
+		})
+	}
+}
+
+// HandleGetLogStats returns log statistics
+func HandleGetLogStats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stats, err := database.GetLogStats()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(stats)
+	}
+}
+
+// HandleClearLogs clears logs older than specified days
+func HandleClearLogs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Days int `json:"days"` // 0 means clear all
+		}
+		
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			// Default to clearing all if no body
+			req.Days = 0
+		}
+		
+		if err := database.ClearLogs(req.Days); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Logs cleared", fmt.Sprintf("Cleared logs older than %d days", req.Days))
+		
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	}

@@ -16,7 +16,7 @@ import (
 
 // SecureHeaders adds security headers to responses
 func SecureHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -39,6 +39,12 @@ var rl = map[string]*rlEntry{}
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := ClientIP(r)
+
+		// Skip rate limiting for whitelisted IPs
+		if IsWhitelisted(ip) {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		// Check if IP is blocked
 		if block, err := GetIPBlock(ip); block != nil {
@@ -89,7 +95,40 @@ func CheckIPBlock(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := ClientIP(r)
 
-		// Check if IP is blocked
+		// Check if IP is blacklisted (permanent ban or login block)
+		if blacklisted, permanent := IsBlacklisted(ip); blacklisted {
+			block := &models.BlockInfo{
+				IP:        ip,
+				Attempts:  0,
+				ExpiresAt: "Never",
+			}
+			if permanent {
+				// Permanent ban - always show blocked page
+				if strings.HasPrefix(r.URL.Path, "/api/") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"error":   "access_blocked",
+						"message": "Your IP has been permanently blocked",
+					})
+					return
+				}
+				serveBlockedPage(w, r, block)
+				return
+			}
+			// Non-permanent blacklist - block login attempts but allow viewing
+			if r.URL.Path == "/api/login" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":   "access_blocked",
+					"message": "Your IP has been blocked from logging in",
+				})
+				return
+			}
+		}
+
+		// Check if IP is blocked (temporary from failed logins)
 		if block, err := GetIPBlock(ip); block != nil {
 			// For API requests, return JSON
 			if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -247,4 +286,107 @@ func serveBlockedPage(w http.ResponseWriter, r *http.Request, block *models.Bloc
 
 	// Redirect to blocked page with params
 	http.Redirect(w, r, "/static/blocked.html?"+q.Encode(), http.StatusSeeOther)
+}
+
+// IsWhitelisted checks if an IP is in the whitelist
+func IsWhitelisted(ip string) bool {
+	var count int
+	err := database.DB.QueryRow(`SELECT COUNT(*) FROM ip_whitelist WHERE ip_address = ?`, ip).Scan(&count)
+	return err == nil && count > 0
+}
+
+// IsBlacklisted checks if an IP is in the blacklist
+func IsBlacklisted(ip string) (bool, bool) {
+	var permanent int
+	err := database.DB.QueryRow(`SELECT permanent FROM ip_blacklist WHERE ip_address = ?`, ip).Scan(&permanent)
+	if err != nil {
+		return false, false
+	}
+	return true, permanent == 1
+}
+
+// AddToWhitelist adds an IP to the whitelist
+func AddToWhitelist(ip, note string) error {
+	_, err := database.DB.Exec(`
+		INSERT OR REPLACE INTO ip_whitelist (ip_address, note, created_at) 
+		VALUES (?, ?, datetime('now'))
+	`, ip, note)
+	return err
+}
+
+// RemoveFromWhitelist removes an IP from the whitelist
+func RemoveFromWhitelist(ip string) error {
+	_, err := database.DB.Exec(`DELETE FROM ip_whitelist WHERE ip_address = ?`, ip)
+	return err
+}
+
+// AddToBlacklist adds an IP to the blacklist
+func AddToBlacklist(ip, note string, permanent bool) error {
+	perm := 0
+	if permanent {
+		perm = 1
+	}
+	_, err := database.DB.Exec(`
+		INSERT OR REPLACE INTO ip_blacklist (ip_address, permanent, note, created_at) 
+		VALUES (?, ?, ?, datetime('now'))
+	`, ip, perm, note)
+	return err
+}
+
+// RemoveFromBlacklist removes an IP from the blacklist
+func RemoveFromBlacklist(ip string) error {
+	_, err := database.DB.Exec(`DELETE FROM ip_blacklist WHERE ip_address = ?`, ip)
+	return err
+}
+
+// ListWhitelist returns all whitelisted IPs
+func ListWhitelist() ([]map[string]interface{}, error) {
+	rows, err := database.DB.Query(`SELECT ip_address, note, created_at FROM ip_whitelist ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var ip string
+		var note sql.NullString
+		var createdAt string
+		if err := rows.Scan(&ip, &note, &createdAt); err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"ip":         ip,
+			"note":       note.String,
+			"created_at": createdAt,
+		})
+	}
+	return results, nil
+}
+
+// ListBlacklist returns all blacklisted IPs
+func ListBlacklist() ([]map[string]interface{}, error) {
+	rows, err := database.DB.Query(`SELECT ip_address, permanent, note, created_at FROM ip_blacklist ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var ip string
+		var permanent int
+		var note sql.NullString
+		var createdAt string
+		if err := rows.Scan(&ip, &permanent, &note, &createdAt); err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"ip":         ip,
+			"permanent":  permanent == 1,
+			"note":       note.String,
+			"created_at": createdAt,
+		})
+	}
+	return results, nil
 }

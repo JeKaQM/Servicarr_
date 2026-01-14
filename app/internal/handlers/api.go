@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"status/app/internal/cache"
 	"status/app/internal/checker"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"status/app/internal/stats"
 	"strconv"
 	"time"
 )
@@ -18,38 +20,111 @@ func HandleCheck(services []*models.Service) http.HandlerFunc {
 		now := time.Now().UTC()
 		out := models.LivePayload{T: now, Status: map[string]models.LiveResult{}}
 
+		// Load services dynamically from database to pick up new services
+		dbServices, err := database.GetAllServices()
+		if err != nil {
+			// Fall back to in-memory services if DB fails
+			dbServices = nil
+		}
+
+		// Build a map of in-memory services for consecutive failure tracking
+		svcMap := make(map[string]*models.Service)
 		for _, s := range services {
-			if s.Disabled {
-				// Include disabled services in response
-				out.Status[s.Key] = models.LiveResult{
-					Label:    s.Label,
-					OK:       false,
-					Status:   0,
-					MS:       nil,
-					Disabled: true,
-					Degraded: false,
+			svcMap[s.Key] = s
+		}
+
+		// If we have DB services, use those; otherwise fall back to in-memory
+		if len(dbServices) > 0 {
+			for _, sc := range dbServices {
+				// Check if monitoring is disabled
+				disabled, _ := database.GetServiceDisabledState(sc.Key)
+				if disabled {
+					out.Status[sc.Key] = models.LiveResult{
+						Label:     sc.Name,
+						OK:        false,
+						Status:    0,
+						MS:        nil,
+						Disabled:  true,
+						Degraded:  false,
+						CheckType: sc.CheckType,
+					}
+					continue
 				}
-				continue
-			}
-			checkOK, code, ms, _ := checker.HTTPCheck(s.URL, s.Timeout, s.MinOK, s.MaxOK)
 
-			// Update consecutive failure count
-			if checkOK {
-				s.ConsecutiveFailures = 0
-			} else {
-				s.ConsecutiveFailures++
-			}
+				timeout := time.Duration(sc.Timeout) * time.Second
+				if timeout == 0 {
+					timeout = 5 * time.Second
+				}
 
-			// Service is only DOWN after 2 consecutive failures
-			ok := checkOK || s.ConsecutiveFailures < 2
-			degraded := ok && ms != nil && *ms > 200
-			out.Status[s.Key] = models.LiveResult{
-				Label:    s.Label,
-				OK:       ok,
-				Status:   code,
-				MS:       ms,
-				Disabled: false,
-				Degraded: degraded,
+				checkOK, code, ms, _ := checker.HTTPCheck(sc.URL, timeout, sc.ExpectedMin, sc.ExpectedMax)
+
+				// Get or create in-memory service for consecutive failure tracking
+				svc := svcMap[sc.Key]
+				if svc == nil {
+					svc = &models.Service{
+						Key:     sc.Key,
+						Label:   sc.Name,
+						URL:     sc.URL,
+						Timeout: timeout,
+						MinOK:   sc.ExpectedMin,
+						MaxOK:   sc.ExpectedMax,
+					}
+					svcMap[sc.Key] = svc
+				}
+
+				// Update consecutive failure count
+				if checkOK {
+					svc.ConsecutiveFailures = 0
+				} else {
+					svc.ConsecutiveFailures++
+				}
+
+				// Service is only DOWN after 2 consecutive failures
+				ok := checkOK || svc.ConsecutiveFailures < 2
+				degraded := ok && ms != nil && *ms > 200
+				out.Status[sc.Key] = models.LiveResult{
+					Label:     sc.Name,
+					OK:        ok,
+					Status:    code,
+					MS:        ms,
+					Disabled:  false,
+					Degraded:  degraded,
+					CheckType: sc.CheckType,
+				}
+			}
+		} else {
+			// Fallback to in-memory services
+			for _, s := range services {
+				if s.Disabled {
+					out.Status[s.Key] = models.LiveResult{
+						Label:    s.Label,
+						OK:       false,
+						Status:   0,
+						MS:       nil,
+						Disabled: true,
+						Degraded: false,
+					}
+					continue
+				}
+				checkOK, code, ms, _ := checker.HTTPCheck(s.URL, s.Timeout, s.MinOK, s.MaxOK)
+
+				if checkOK {
+					s.ConsecutiveFailures = 0
+				} else {
+					s.ConsecutiveFailures++
+				}
+
+				ok := checkOK || s.ConsecutiveFailures < 2
+				degraded := ok && ms != nil && *ms > 200
+				   out.Status[s.Key] = models.LiveResult{
+					   Label:     s.Label,
+					   OK:        ok,
+					   Status:    code,
+					   MS:        ms,
+					   Disabled:  false,
+					   Degraded:  degraded,
+					   CheckType: s.CheckType,
+				   }
 			}
 		}
 
@@ -193,5 +268,70 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+	}
+}
+
+// HandleUptimeStats returns pre-computed uptime statistics for services
+func HandleUptimeStats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serviceKey := r.URL.Query().Get("service")
+		
+		if serviceKey != "" {
+			// Get stats for a specific service
+			uptimeStats := stats.GetUptimeStats(serviceKey)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(uptimeStats)
+			return
+		}
+
+		// Get stats for all services
+		cacheKey := "all_uptime_stats"
+		if cached, ok := cache.StatsCache.Get(cacheKey); ok {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(cached)
+			return
+		}
+
+		// Load all services and compute stats
+		services, err := database.GetAllServices()
+		if err != nil {
+			http.Error(w, "failed to load services", http.StatusInternalServerError)
+			return
+		}
+
+		result := make(map[string]*stats.UptimeStats)
+		for _, svc := range services {
+			result[svc.Key] = stats.GetUptimeStats(svc.Key)
+		}
+
+		// Cache for 30 seconds
+		cache.StatsCache.Set(cacheKey, result)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}
+}
+
+// HandleRecentHeartbeats returns recent heartbeats for a service
+func HandleRecentHeartbeats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serviceKey := r.URL.Query().Get("service")
+		if serviceKey == "" {
+			http.Error(w, "service parameter required", http.StatusBadRequest)
+			return
+		}
+
+		count := 20
+		if q := r.URL.Query().Get("count"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 100 {
+				count = n
+			}
+		}
+
+		calc := stats.GetCalculator(serviceKey)
+		heartbeats := calc.GetRecentHeartbeats(count)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(heartbeats)
 	}
 }

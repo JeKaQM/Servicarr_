@@ -46,6 +46,7 @@ func (a *Auth) SetCSRFCookie(w http.ResponseWriter) (string, error) {
 		return "", err
 	}
 	val := base64.RawURLEncoding.EncodeToString(b)
+	
 	c := &http.Cookie{
 		Name:     "csrf",
 		Value:    val,
@@ -127,11 +128,13 @@ func (a *Auth) ParseSession(r *http.Request) (*Session, error) {
 func (a *Auth) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, err := a.ParseSession(r); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 		if !a.VerifyCSRF(r) && r.Method != http.MethodGet {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 			return
 		}
 		next(w, r)

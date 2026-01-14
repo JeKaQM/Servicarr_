@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -268,12 +269,153 @@ func HandleAddFirstService(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSetupImport handles importing a backup during setup
+func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Only allow import if setup is not complete
+		complete, _ := database.IsSetupComplete()
+		if complete {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Setup already complete"})
+			return
+		}
+
+		// Parse multipart form
+		if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
+			return
+		}
+
+		file, _, err := r.FormFile("backup")
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "No backup file provided"})
+			return
+		}
+		defer file.Close()
+
+		// Read and parse JSON
+		data, err := io.ReadAll(file)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to read file"})
+			return
+		}
+
+		var export DatabaseExport
+		if err := json.Unmarshal(data, &export); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup format"})
+			return
+		}
+
+		// Validate export
+		if export.Version == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
+			return
+		}
+
+		// Import services
+		if len(export.Services) > 0 {
+			_, _ = database.DB.Exec(`DELETE FROM services`)
+			for _, s := range export.Services {
+				svc := &models.ServiceConfig{
+					Key:           s.Key,
+					Name:          s.Name,
+					URL:           s.URL,
+					ServiceType:   s.ServiceType,
+					Icon:          s.Icon,
+					IconURL:       s.IconURL,
+					DisplayOrder:  s.DisplayOrder,
+					Visible:       s.Visible,
+					CheckType:     s.CheckType,
+					CheckInterval: s.CheckInterval,
+					Timeout:       s.Timeout,
+					ExpectedMin:   s.ExpectedMin,
+					ExpectedMax:   s.ExpectedMax,
+				}
+				_, _ = database.CreateService(svc)
+			}
+		}
+
+		// Import alert config
+		if export.AlertConfig != nil {
+			alertCfg := &models.AlertConfig{
+				Enabled:         export.AlertConfig.Enabled,
+				SMTPHost:        export.AlertConfig.SMTPHost,
+				SMTPPort:        export.AlertConfig.SMTPPort,
+				SMTPUser:        export.AlertConfig.SMTPUser,
+				AlertEmail:      export.AlertConfig.AlertEmail,
+				FromEmail:       export.AlertConfig.FromEmail,
+				AlertOnDown:     export.AlertConfig.AlertOnDown,
+				AlertOnDegraded: export.AlertConfig.AlertOnDegraded,
+				AlertOnUp:       export.AlertConfig.AlertOnUp,
+			}
+			_ = database.SaveAlertConfig(alertCfg)
+		}
+
+		// Import resources config
+		if export.Resources != nil {
+			resCfg := &models.ResourcesUIConfig{
+				Enabled:    export.Resources.Enabled,
+				GlancesURL: export.Resources.GlancesURL,
+				CPU:        export.Resources.CPU,
+				Memory:     export.Resources.Memory,
+				Network:    export.Resources.Network,
+				Temp:       export.Resources.Temp,
+				Storage:    export.Resources.Storage,
+			}
+			_ = database.SaveResourcesUIConfig(resCfg)
+		}
+
+		// Import samples
+		if len(export.Samples) > 0 {
+			_, _ = database.DB.Exec(`DELETE FROM samples`)
+			for _, s := range export.Samples {
+				ok := 0
+				if s.OK {
+					ok = 1
+				}
+				_, _ = database.DB.Exec(`INSERT INTO samples (taken_at, service_key, ok, http_status, latency_ms) VALUES (?, ?, ?, ?, ?)`,
+					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
+			}
+		}
+
+		// Now we need credentials - prompt user to create them
+		// But for import, we'll require them in a separate step or use the backup username
+		// For now, redirect to main setup to create credentials
+		// Mark as NOT complete so user still needs to create credentials
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":           true,
+			"services_imported": len(export.Services),
+			"needs_credentials": true,
+			"message":           "Backup restored. Please create admin credentials.",
+		})
+	}
+}
+
 // SetupRequiredMiddleware redirects to setup if not configured
 func SetupRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow setup routes through
 		if r.URL.Path == "/setup" || r.URL.Path == "/api/setup" ||
 			r.URL.Path == "/api/setup/status" || r.URL.Path == "/api/setup/service" ||
+			r.URL.Path == "/api/setup/import" ||
 			r.URL.Path == "/api/admin/services/test" { // Allow test connection during setup
 			next.ServeHTTP(w, r)
 			return

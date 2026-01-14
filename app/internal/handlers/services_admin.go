@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -536,6 +537,11 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 		return testTCPConnection(url, timeout)
 	}
 
+	// Handle DNS checks
+	if checkType == "dns" || strings.HasPrefix(url, "dns://") {
+		return testDNSConnection(url, timeout)
+	}
+
 	// HTTP/HTTPS check
 	start := time.Now()
 	
@@ -640,6 +646,38 @@ func testTCPConnection(url string, timeout int) map[string]any {
 	return map[string]any{
 		"success":    true,
 		"status":     "TCP port open",
+		"latency_ms": latency,
+	}
+}
+
+// testDNSConnection tests a DNS lookup
+func testDNSConnection(url string, timeout int) map[string]any {
+	// Parse DNS URL (dns://hostname)
+	hostname := strings.TrimPrefix(url, "dns://")
+	
+	start := time.Now()
+	addrs, err := net.LookupHost(hostname)
+	latency := time.Since(start).Milliseconds()
+	
+	if err != nil {
+		return map[string]any{
+			"success":    false,
+			"error":      "DNS lookup failed: " + err.Error(),
+			"latency_ms": latency,
+		}
+	}
+	
+	if len(addrs) == 0 {
+		return map[string]any{
+			"success":    false,
+			"error":      "DNS lookup returned no addresses",
+			"latency_ms": latency,
+		}
+	}
+	
+	return map[string]any{
+		"success":    true,
+		"status":     fmt.Sprintf("Resolved to %s", strings.Join(addrs, ", ")),
 		"latency_ms": latency,
 	}
 }

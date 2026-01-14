@@ -7,8 +7,10 @@ services:
     container_name: servicarr
     env_file:
       - ../.env
+    environment:
+      - UNBLOCK_TOKEN=test123
     ports:
-      - "4555:4555"
+      - "0.0.0.0:4555:4555"
     volumes:
       - servicarr_data:/data
     restart: unless-stopped

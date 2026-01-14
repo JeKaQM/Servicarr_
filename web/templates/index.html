@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"/>
-  <title>Service Status</title>
+  <title>{{.AppName}}</title>
   <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg"/>
   <meta name="theme-color" content="#0c121c"/>
   <meta name="mobile-web-app-capable" content="yes"/>
@@ -23,13 +23,15 @@
 
   <header>
     <div class="brand">
-      <h1>Service Status</h1>
-      <small>Updated <span id="updated">—</span></small>
+      <h1 id="appTitle">{{.AppName}}</h1>
     </div>
-    <div class="user">
-      <span id="welcome" class="muted">Public view</span>
-      <button id="loginBtn" class="ghost">Login</button>
-      <button id="logoutBtn" class="ghost hidden">Logout</button>
+    <div class="header-right">
+      <span class="last-updated" id="lastUpdated">Updated <span id="updated">—</span></span>
+      <div class="user">
+        <span id="welcome" class="muted">Public view</span>
+        <button id="loginBtn" class="ghost">Login</button>
+        <button id="logoutBtn" class="ghost hidden">Logout</button>
+      </div>
     </div>
   </header>
 
@@ -132,6 +134,103 @@
         </div>
       </div>
 
+      <div class="resource-tile hidden" data-kind="swap">
+        <div class="tile-head">
+          <div class="tile-label">💿 Swap</div>
+          <div class="tile-kpi" id="res-swap">—</div>
+        </div>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-swap"></div></div>
+        <div class="tile-sub" id="res-swap-detail">—</div>
+      </div>
+
+      <div class="resource-tile hidden" data-kind="load">
+        <div class="tile-head">
+          <div class="tile-label">📊 Load Average</div>
+          <div class="tile-kpi" id="res-load">—</div>
+        </div>
+        <div class="load-values">
+          <div class="load-item">
+            <span class="load-label">1m</span>
+            <span class="load-value" id="res-load-1">—</span>
+          </div>
+          <div class="load-item">
+            <span class="load-label">5m</span>
+            <span class="load-value" id="res-load-5">—</span>
+          </div>
+          <div class="load-item">
+            <span class="load-label">15m</span>
+            <span class="load-value" id="res-load-15">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="resource-tile hidden" data-kind="gpu">
+        <div class="tile-head">
+          <div class="tile-label">🎮 GPU</div>
+          <div class="tile-kpi" id="res-gpu">—</div>
+        </div>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-gpu"></div></div>
+        <div class="gpu-stats">
+          <div class="gpu-stat">
+            <span class="gpu-stat-label">MEM</span>
+            <span class="gpu-stat-value" id="res-gpu-mem">—</span>
+          </div>
+          <div class="gpu-stat">
+            <span class="gpu-stat-label">TEMP</span>
+            <span class="gpu-stat-value" id="res-gpu-temp">—</span>
+          </div>
+        </div>
+        <div class="gpu-name" id="res-gpu-name">—</div>
+        <div class="tile-sub" id="res-gpu-detail"></div>
+      </div>
+
+      <div class="resource-tile hidden" data-kind="containers">
+        <div class="tile-head">
+          <div class="tile-label">🐳 Containers</div>
+          <div class="tile-kpi" id="res-containers">—</div>
+        </div>
+        <div class="container-stats">
+          <div class="container-stat">
+            <span class="container-stat-label">RUNNING</span>
+            <span class="container-stat-value" id="res-containers-running">—</span>
+          </div>
+          <div class="container-stat">
+            <span class="container-stat-label">TOTAL</span>
+            <span class="container-stat-value total" id="res-containers-total">—</span>
+          </div>
+        </div>
+        <div class="tile-sub" id="res-containers-detail"></div>
+      </div>
+
+      <div class="resource-tile hidden" data-kind="processes">
+        <div class="tile-head">
+          <div class="tile-label">⚙️ Processes</div>
+          <div class="tile-kpi" id="res-processes">—</div>
+        </div>
+        <div class="proc-stats">
+          <div class="proc-stat">
+            <span class="proc-stat-label">Active</span>
+            <span class="proc-stat-value running" id="res-proc-running">—</span>
+          </div>
+          <div class="proc-stat">
+            <span class="proc-stat-label">Sleeping</span>
+            <span class="proc-stat-value sleeping" id="res-proc-sleeping">—</span>
+          </div>
+          <div class="proc-stat">
+            <span class="proc-stat-label">Threads</span>
+            <span class="proc-stat-value threads" id="res-proc-threads">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="resource-tile hidden" data-kind="uptime">
+        <div class="tile-head">
+          <div class="tile-label">⏱️ System Uptime</div>
+        </div>
+        <div class="uptime-display" id="res-uptime">—</div>
+        <div class="tile-sub">Time since last boot</div>
+      </div>
+
     </div>
   </section>
 
@@ -159,61 +258,66 @@
     </div>
   </section>
 
-  <!-- Discreet login modal -->
-  <dialog id="loginModal">
-    <form class="login">
-      <div>
-        <h3>Sign in</h3>
-        <p class="muted">Enter your credentials</p>
+  <!-- Login Modal -->
+  <dialog id="loginModal" class="login-dialog">
+    <div class="login-form">
+      <div class="login-header">
+        <div class="login-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+            <polyline points="10 17 15 12 10 7"/>
+            <line x1="15" y1="12" x2="3" y2="12"/>
+          </svg>
+        </div>
+        <h3>Welcome back</h3>
+        <p>Sign in to access admin panel</p>
       </div>
-      <div>
-        <label for="u">Username</label>
-        <input id="u" type="text" autocomplete="username" placeholder="admin" required>
+      <div class="login-fields">
+        <div class="form-field">
+          <label for="u">Username</label>
+          <input id="u" type="text" autocomplete="username" placeholder="Enter username" required>
+        </div>
+        <div class="form-field">
+          <label for="p">Password</label>
+          <input id="p" type="password" autocomplete="current-password" placeholder="Enter password" required>
+        </div>
       </div>
-      <div>
-        <label for="p">Password</label>
-        <input id="p" type="password" autocomplete="current-password" placeholder="••••••••" required>
+      <div id="loginError" class="login-error hidden"></div>
+      <div class="login-actions">
+        <button id="doLogin" class="btn primary" type="button">Sign In</button>
+        <button id="cancelLogin" class="btn secondary" type="button">Cancel</button>
       </div>
-      <div id="loginError" class="error hidden"></div>
-      <div class="actions">
-        <button id="doLogin" class="btn" type="button">Login</button>
-        <button id="cancelLogin" class="ghost" type="button">Cancel</button>
-      </div>
-    </form>
+    </div>
   </dialog>
 
   {{if .IsAdmin}}
   <!-- Admin Panel with Tabs -->
   <section id="adminPanel" class="card admin-panel admin hidden">
     <div class="admin-tabs">
-      <button class="tab-btn active" data-tab="main">Main</button>
-      <button class="tab-btn" data-tab="services">Services</button>
+      <button class="tab-btn active" data-tab="services">Services</button>
       <button class="tab-btn" data-tab="banners">Banners</button>
+      <button class="tab-btn" data-tab="logs">Logs</button>
       <button class="tab-btn" data-tab="security">Security</button>
       <button class="tab-btn" data-tab="resources">Resources</button>
-      <button class="tab-btn" data-tab="alerts">Email</button>
-    </div>
-
-    <!-- Main Tab -->
-    <div id="tab-main" class="tab-content active">
-      <h2>Admin Controls</h2>
-      <div class="admin-section">
-        <h3>Service Management</h3>
-        <p class="muted">Quick actions for all services</p>
-        <div class="ops">
-          <button id="ingestNowTab" class="btn">Check All Services Now</button>
-          <button id="resetRecentTab" class="btn danger">Reset Recent Incidents</button>
-        </div>
-      </div>
+      <button class="tab-btn" data-tab="alerts">Notifications</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </div>
 
     <!-- Services Tab -->
-    <div id="tab-services" class="tab-content">
+    <div id="tab-services" class="tab-content active">
       <div class="services-header">
         <h2>Manage Services</h2>
         <button id="addServiceBtn" class="btn">+ Add Service</button>
       </div>
       <p class="muted">Add, edit, or remove monitored services. Drag to reorder.</p>
+      
+      <div class="admin-section">
+        <h3>Quick Actions</h3>
+        <div class="ops">
+          <button id="ingestNowTab" class="btn">Check All Services Now</button>
+          <button id="resetRecentTab" class="btn ghost">Reset Recent Incidents</button>
+        </div>
+      </div>
       
       <div id="servicesList" class="services-list">
         <div class="muted">Loading services...</div>
@@ -231,9 +335,7 @@
           <label for="bannerService">Scope</label>
           <select id="bannerService">
             <option value="">Global (top of page)</option>
-            <option value="server">Server</option>
-            <option value="plex">Plex</option>
-            <option value="overseerr">Overseerr</option>
+            <!-- Services populated dynamically -->
           </select>
         </div>
         <div class="form-group">
@@ -279,14 +381,186 @@
       </div>
     </div>
 
+    <!-- Logs Tab -->
+    <div id="tab-logs" class="tab-content">
+      <h2>System Logs</h2>
+      <p class="muted">View system activity, service checks, email alerts, and errors.</p>
+      
+      <!-- Log Stats Summary -->
+      <div class="admin-section log-stats">
+        <div class="log-stats-grid">
+          <div class="log-stat-box total">
+            <div class="log-stat-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+            </div>
+            <div class="log-stat-content">
+              <span class="log-stat-value" id="logTotalCount">0</span>
+              <span class="log-stat-label">Total</span>
+            </div>
+          </div>
+          <div class="log-stat-box errors">
+            <div class="log-stat-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="log-stat-content">
+              <span class="log-stat-value" id="logErrorCount">0</span>
+              <span class="log-stat-label">Errors</span>
+            </div>
+          </div>
+          <div class="log-stat-box warnings">
+            <div class="log-stat-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              </svg>
+            </div>
+            <div class="log-stat-content">
+              <span class="log-stat-value" id="logWarnCount">0</span>
+              <span class="log-stat-label">Warnings</span>
+            </div>
+          </div>
+          <div class="log-stat-box info">
+            <div class="log-stat-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="log-stat-content">
+              <span class="log-stat-value" id="logInfoCount">0</span>
+              <span class="log-stat-label">Info</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Actions Bar -->
+      <div class="admin-section log-actions-bar">
+        <div class="log-filters">
+          <select id="logLevelFilter" class="log-select">
+            <option value="">All Levels</option>
+            <option value="error">Errors</option>
+            <option value="warn">Warnings</option>
+            <option value="info">Info</option>
+            <option value="debug">Debug</option>
+          </select>
+          <select id="logCategoryFilter" class="log-select">
+            <option value="">All Categories</option>
+            <option value="check">Service Checks</option>
+            <option value="email">Email Alerts</option>
+            <option value="security">Security</option>
+            <option value="system">System</option>
+            <option value="schedule">Scheduler</option>
+          </select>
+          <select id="logServiceFilter" class="log-select">
+            <option value="">All Services</option>
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+        <div class="log-buttons">
+          <button id="refreshLogsBtn" class="log-btn refresh" title="Refresh logs">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span class="btn-text">Refresh</span>
+          </button>
+          <button id="clearLogsBtn" class="log-btn danger" title="Clear all logs">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            <span class="btn-text">Clear</span>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Error/Warning Highlights -->
+      <div class="admin-section log-highlights" id="logHighlights">
+        <div class="log-section-header">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          <h3>Recent Errors & Warnings</h3>
+        </div>
+        <div id="errorLogsList" class="logs-list">
+          <div class="logs-empty">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            <p>No errors or warnings</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- All Logs -->
+      <div class="admin-section log-all">
+        <div class="log-section-header">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+          </svg>
+          <h3>All Activity</h3>
+        </div>
+        <div id="allLogsList" class="logs-list">
+          <div class="logs-loading">
+            <div class="spinner"></div>
+            <p>Loading logs...</p>
+          </div>
+        </div>
+        <div class="logs-pagination">
+          <button id="loadMoreLogs" class="log-btn ghost" style="display: none;">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+            <span>Load More</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Security Tab -->
     <div id="tab-security" class="tab-content">
-      <div class="blocks-header">
-        <h2>IP Block Management</h2>
-        <button id="resetBlocks" class="btn danger">Clear All Blocks</button>
+      <!-- Temporary Blocks Section -->
+      <div class="admin-section">
+        <div class="blocks-header">
+          <h3>Temporary Blocks</h3>
+          <button id="resetBlocks" class="btn danger small">Clear All</button>
+        </div>
+        <p class="muted">IPs temporarily blocked due to failed login attempts. These expire automatically.</p>
+        <div id="blocksList" class="blocks-list">
+          <div class="muted">Loading...</div>
+        </div>
       </div>
-      <div id="blocksList" class="blocks-list">
-        <div class="muted">Loading...</div>
+
+      <!-- Whitelist Section -->
+      <div class="admin-section">
+        <h3>Whitelist</h3>
+        <p class="muted">Whitelisted IPs bypass all rate limiting. Use for trusted networks.</p>
+        <div class="ip-add-form">
+          <input type="text" id="whitelistIP" placeholder="IP address (e.g., 192.168.1.100)">
+          <input type="text" id="whitelistNote" placeholder="Note (optional)">
+          <button id="addWhitelist" class="btn small">Add</button>
+        </div>
+        <div id="whitelistList" class="blocks-list">
+          <div class="muted">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Blacklist Section -->
+      <div class="admin-section">
+        <h3>Blacklist</h3>
+        <p class="muted">Blacklisted IPs cannot log in. Permanent bans block all access.</p>
+        <div class="ip-add-form">
+          <input type="text" id="blacklistIP" placeholder="IP address (e.g., 192.168.1.100)">
+          <input type="text" id="blacklistNote" placeholder="Note (optional)">
+          <label class="checkbox-label">
+            <input type="checkbox" id="blacklistPermanent"> Permanent ban
+          </label>
+          <button id="addBlacklist" class="btn danger small">Block</button>
+        </div>
+        <div id="blacklistList" class="blocks-list">
+          <div class="muted">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -328,6 +602,24 @@
             <label>
               <input type="checkbox" id="resourcesStorage" checked> 🗄 Storage
             </label>
+            <label>
+              <input type="checkbox" id="resourcesSwap"> 💿 Swap
+            </label>
+            <label>
+              <input type="checkbox" id="resourcesLoad"> 📊 Load Average
+            </label>
+            <label>
+              <input type="checkbox" id="resourcesGPU"> 🎮 GPU
+            </label>
+            <label>
+              <input type="checkbox" id="resourcesContainers"> 🐳 Containers
+            </label>
+            <label>
+              <input type="checkbox" id="resourcesProcesses"> ⚙️ Processes
+            </label>
+            <label>
+              <input type="checkbox" id="resourcesUptime"> ⏱️ Uptime
+            </label>
           </div>
 
           <div class="ops">
@@ -340,76 +632,191 @@
       </div>
     </div>
 
-    <!-- Alerts Tab -->
+    <!-- Alerts (Notifications) Tab -->
     <div id="tab-alerts" class="tab-content">
-      <h2>Email Alerts Configuration</h2>
-      <p class="muted">Send email notifications when service status changes</p>
+      <h2>Notifications Configuration</h2>
+      <p class="muted">Configure how you want to be notified when service status changes.</p>
+      
+      <!-- Notification Provider Selector -->
+      <div class="notification-selector">
+        <button type="button" class="notification-option active" data-provider="smtp">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
+          SMTP (Email)
+        </button>
+        <button type="button" class="notification-option" data-provider="discord" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+          Discord
+          <span class="coming-soon-badge">Soon</span>
+        </button>
+        <button type="button" class="notification-option" data-provider="pushbullet" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2.824c5.065 0 9.176 4.11 9.176 9.176S17.065 21.176 12 21.176 2.824 17.065 2.824 12 6.935 2.824 12 2.824zm-1.412 4.235v9.882h3.294c2.727 0 4.942-2.214 4.942-4.941s-2.215-4.941-4.942-4.941h-3.294z"/></svg>
+          Pushbullet
+          <span class="coming-soon-badge">Soon</span>
+        </button>
+      </div>
+
+      <!-- SMTP Panel -->
+      <div class="notification-panel active" data-provider="smtp">
+        <div class="admin-section">
+          <form id="alertsForm">
+            <div class="form-group">
+              <label for="alertsEnabled">
+                <input type="checkbox" id="alertsEnabled"> Enable email alerts
+              </label>
+            </div>
+            
+            <div class="form-group">
+              <label for="smtpHost">SMTP Host</label>
+              <input type="text" id="smtpHost" placeholder="smtp.gmail.com" />
+            </div>
+            
+            <div class="form-group">
+              <label for="smtpPort">SMTP Port</label>
+              <input type="number" id="smtpPort" placeholder="587" />
+            </div>
+            
+            <div class="form-group">
+              <label for="smtpUser">SMTP Username</label>
+              <input type="text" id="smtpUser" placeholder="your-email@example.com" />
+            </div>
+            
+            <div class="form-group">
+              <label for="smtpPassword">SMTP Password</label>
+              <input type="password" id="smtpPassword" placeholder="••••••••" />
+            </div>
+            
+            <div class="form-group">
+              <label for="alertEmail">Alert Email (To)</label>
+              <input type="email" id="alertEmail" placeholder="admin@example.com" />
+            </div>
+            
+            <div class="form-group">
+              <label for="alertFromEmail">From Email</label>
+              <input type="email" id="alertFromEmail" placeholder="alerts@example.com" />
+            </div>
+            
+            <div class="form-group">
+              <h4>Alert Conditions</h4>
+              <label>
+                <input type="checkbox" id="alertOnDown" checked> Alert when service goes DOWN
+              </label>
+              <label>
+                <input type="checkbox" id="alertOnDegraded" checked> Alert when service becomes DEGRADED
+              </label>
+              <label>
+                <input type="checkbox" id="alertOnUp"> Alert when service comes back UP
+              </label>
+            </div>
+            
+            <div class="ops">
+              <button type="button" id="saveAlerts" class="btn">Save Configuration</button>
+              <button type="button" id="testEmail" class="btn ghost">Send Test Email</button>
+            </div>
+            
+            <div id="alertStatus" class="status-message hidden"></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Discord Panel (Coming Soon) -->
+      <div class="notification-panel" data-provider="discord">
+        <div class="admin-section coming-soon-panel">
+          <div class="coming-soon-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+            <h3>Discord Notifications</h3>
+            <p class="muted">Coming Soon</p>
+            <p class="muted small">Receive alerts directly in your Discord server via webhooks.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pushbullet Panel (Coming Soon) -->
+      <div class="notification-panel" data-provider="pushbullet">
+        <div class="admin-section coming-soon-panel">
+          <div class="coming-soon-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2.824c5.065 0 9.176 4.11 9.176 9.176S17.065 21.176 12 21.176 2.824 17.065 2.824 12 6.935 2.824 12 2.824zm-1.412 4.235v9.882h3.294c2.727 0 4.942-2.214 4.942-4.941s-2.215-4.941-4.942-4.941h-3.294z"/></svg>
+            <h3>Pushbullet Notifications</h3>
+            <p class="muted">Coming Soon</p>
+            <p class="muted small">Get push notifications on all your devices.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="tab-settings" class="tab-content">
+      <h2>Application Settings</h2>
       
       <div class="admin-section">
-        <h3>SMTP Settings</h3>
-        <form id="alertsForm">
+        <h3>🏷️ App Name</h3>
+        <p class="muted">Customize the name displayed in the header and browser tab</p>
+        <div class="form-group">
+          <label for="appNameInput">Display Name</label>
+          <input type="text" id="appNameInput" placeholder="Service Status" value="{{.AppName}}" maxlength="50">
+        </div>
+        <div class="ops">
+          <button type="button" id="saveAppNameBtn" class="btn">Save Name</button>
+        </div>
+        <div id="appNameStatus" class="status-message hidden"></div>
+      </div>
+
+      <div class="admin-section">
+        <h3>🔐 Change Password</h3>
+        <p class="muted">Update your admin account password</p>
+        <form id="changePasswordForm">
           <div class="form-group">
-            <label for="alertsEnabled">
-              <input type="checkbox" id="alertsEnabled"> Enable email alerts
-            </label>
+            <label for="currentPassword">Current Password</label>
+            <input type="password" id="currentPassword" placeholder="Enter current password" required>
           </div>
-          
           <div class="form-group">
-            <label for="smtpHost">SMTP Host</label>
-            <input type="text" id="smtpHost" placeholder="smtp.gmail.com" />
+            <label for="newPassword">New Password</label>
+            <input type="password" id="newPassword" placeholder="Enter new password" required minlength="6">
           </div>
-          
           <div class="form-group">
-            <label for="smtpPort">SMTP Port</label>
-            <input type="number" id="smtpPort" placeholder="587" />
+            <label for="confirmPassword">Confirm New Password</label>
+            <input type="password" id="confirmPassword" placeholder="Confirm new password" required>
           </div>
-          
-          <div class="form-group">
-            <label for="smtpUser">SMTP Username</label>
-            <input type="text" id="smtpUser" placeholder="your-email@example.com" />
-          </div>
-          
-          <div class="form-group">
-            <label for="smtpPassword">SMTP Password</label>
-            <input type="password" id="smtpPassword" placeholder="••••••••" />
-          </div>
-          
-          <div class="form-group">
-            <label for="alertEmail">Alert Email (To)</label>
-            <input type="email" id="alertEmail" placeholder="admin@example.com" />
-          </div>
-          
-          <div class="form-group">
-            <label for="alertFromEmail">From Email</label>
-            <input type="email" id="alertFromEmail" placeholder="alerts@example.com" />
-          </div>
-          
-          <div class="form-group">
-            <h4>Alert Conditions</h4>
-            <label>
-              <input type="checkbox" id="alertOnDown" checked> Alert when service goes DOWN
-            </label>
-            <label>
-              <input type="checkbox" id="alertOnDegraded" checked> Alert when service becomes DEGRADED
-            </label>
-            <label>
-              <input type="checkbox" id="alertOnUp"> Alert when service comes back UP
-            </label>
-          </div>
-          
           <div class="ops">
-            <button type="button" id="saveAlerts" class="btn">Save Configuration</button>
-            <button type="button" id="testEmail" class="btn ghost">Send Test Email</button>
+            <button type="button" id="changePasswordBtn" class="btn">Change Password</button>
           </div>
-          
-          <div id="alertStatus" class="status-message hidden"></div>
+          <div id="passwordStatus" class="status-message hidden"></div>
         </form>
+      </div>
+
+      <div class="admin-section">
+        <h3>💾 Backup & Restore</h3>
+        <p class="muted">Export or import your database for backup/migration purposes</p>
+        <div class="backup-info">
+          <p>Export includes: services, settings, alert configuration, and historical data.</p>
+        </div>
+        <div class="ops">
+          <button type="button" id="exportDbBtn" class="btn">📤 Export Database</button>
+          <label class="btn ghost file-upload-btn">
+            📥 Import Database
+            <input type="file" id="importDbFile" accept=".json,.db,.sqlite,application/json" hidden>
+          </label>
+        </div>
+        <div id="backupStatus" class="status-message hidden"></div>
+      </div>
+
+      <div class="admin-section danger-zone">
+        <h3>⚠️ Danger Zone</h3>
+        <p class="muted">These actions are irreversible. Use with caution.</p>
+        
+        <div class="danger-action">
+          <div class="danger-info">
+            <strong>Reset Database</strong>
+            <p>Delete all services, settings, and historical data. This will restore the app to initial state.</p>
+          </div>
+          <button type="button" id="resetDbBtn" class="btn danger">Reset Database</button>
+        </div>
       </div>
     </div>
   </section>
   {{end}}
 
-  <!-- Service Add/Edit Modal -->
+  {{if .IsAdmin}}
+  <!-- Service Add/Edit Modal (Admin Only) -->
   <dialog id="serviceModal">
     <form class="service-form">
       <div class="modal-header">
@@ -433,7 +840,7 @@
       <div class="form-group">
         <label for="serviceUrl">URL *</label>
         <input type="text" id="serviceUrl" placeholder="e.g., http://192.168.1.100:32400" required>
-        <small class="help-text">For TCP checks, use: tcp://host:port</small>
+        <small class="help-text">TCP: tcp://host:port | DNS: dns://hostname</small>
       </div>
       
       <div class="form-group" id="tokenGroup">
@@ -459,6 +866,7 @@
           <select id="serviceCheckType">
             <option value="http">HTTP/HTTPS</option>
             <option value="tcp">TCP Port</option>
+            <option value="dns">DNS Lookup</option>
           </select>
         </div>
         
@@ -509,6 +917,38 @@
       <div id="serviceError" class="error hidden"></div>
     </form>
   </dialog>
+
+  <!-- Database Reset Confirmation Dialog (Admin Only) -->
+  <dialog id="confirmResetDialog" class="confirm-dialog">
+    <h3>⚠️ Reset Database</h3>
+    <p>This will permanently delete all services, settings, historical data, and reset the application to its initial state. This action cannot be undone.</p>
+    <form id="confirmResetForm">
+      <div class="form-group">
+        <label for="confirmResetPassword">Enter your password to confirm:</label>
+        <input type="password" id="confirmResetPassword" placeholder="Enter admin password" required>
+      </div>
+      <div id="resetDbError" class="error hidden"></div>
+      <div class="actions">
+        <button type="button" id="cancelResetDb" class="ghost">Cancel</button>
+        <button type="button" id="confirmResetDb" class="btn danger">Reset Database</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import Confirmation Dialog (Admin Only) -->
+  <dialog id="confirmImportDialog" class="confirm-dialog">
+    <h3>📥 Import Database</h3>
+    <p>This will replace your current data with the imported backup. Your current services, settings, and historical data will be overwritten.</p>
+    <div class="form-group">
+      <label>Selected file: <span id="importFileName">-</span></label>
+    </div>
+    <div id="importDbError" class="error hidden"></div>
+    <div class="actions">
+      <button type="button" id="cancelImportDb" class="ghost">Cancel</button>
+      <button type="button" id="confirmImportDb" class="btn">Import & Overwrite</button>
+    </div>
+  </dialog>
+  {{end}}
 
   <footer>Auto-refreshing every 15s. Metrics need a few minutes to populate.</footer>
 </body>

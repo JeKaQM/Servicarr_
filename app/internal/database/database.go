@@ -47,6 +47,23 @@ CREATE TABLE IF NOT EXISTS ip_blocks (
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_ip ON ip_blocks(ip_address);
 CREATE INDEX IF NOT EXISTS idx_ip_blocks_expires ON ip_blocks(expires_at);
 
+CREATE TABLE IF NOT EXISTS ip_whitelist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip_address TEXT NOT NULL UNIQUE,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ip_whitelist_ip ON ip_whitelist(ip_address);
+
+CREATE TABLE IF NOT EXISTS ip_blacklist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip_address TEXT NOT NULL UNIQUE,
+  permanent INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ip_blacklist_ip ON ip_blacklist(ip_address);
+
 CREATE TABLE IF NOT EXISTS service_state (
   service_key TEXT PRIMARY KEY,
   disabled INTEGER NOT NULL DEFAULT 0,
@@ -99,6 +116,12 @@ CREATE TABLE IF NOT EXISTS resources_ui_config (
 	network INTEGER NOT NULL DEFAULT 1,
 	temp INTEGER NOT NULL DEFAULT 1,
 	storage INTEGER NOT NULL DEFAULT 1,
+	swap INTEGER NOT NULL DEFAULT 0,
+	load INTEGER NOT NULL DEFAULT 0,
+	gpu INTEGER NOT NULL DEFAULT 0,
+	containers INTEGER NOT NULL DEFAULT 0,
+	processes INTEGER NOT NULL DEFAULT 0,
+	uptime INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT
 );
 
@@ -123,9 +146,25 @@ CREATE TABLE IF NOT EXISTS app_settings (
   username TEXT,
   password_hash TEXT,
   auth_secret TEXT,
+  app_name TEXT DEFAULT 'Service Status',
   created_at TEXT,
   updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS system_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  level TEXT NOT NULL,
+  category TEXT NOT NULL,
+  service TEXT,
+  message TEXT NOT NULL,
+  details TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON system_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level);
+CREATE INDEX IF NOT EXISTS idx_logs_category ON system_logs(category);
+CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 `)
 	if err != nil {
 		return err
@@ -136,7 +175,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
 	// if the column already exists.
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN storage INTEGER NOT NULL DEFAULT 1;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN glances_url TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN swap INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN load INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN gpu INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN containers INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN processes INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN uptime INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE app_settings ADD COLUMN app_name TEXT DEFAULT 'Service Status';`)
 
 	return nil
 }
@@ -193,9 +239,11 @@ func SaveAlertConfig(config *models.AlertConfig) error {
 func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 	var config models.ResourcesUIConfig
 	var glancesURL sql.NullString
-	err := DB.QueryRow(`SELECT enabled, COALESCE(glances_url, ''), cpu, memory, network, temp, storage
+	err := DB.QueryRow(`SELECT enabled, COALESCE(glances_url, ''), cpu, memory, network, temp, storage,
+		COALESCE(swap, 0), COALESCE(load, 0), COALESCE(gpu, 0), COALESCE(containers, 0), COALESCE(processes, 0), COALESCE(uptime, 0)
 		FROM resources_ui_config WHERE id = 1`).Scan(
 		&config.Enabled, &glancesURL, &config.CPU, &config.Memory, &config.Network, &config.Temp, &config.Storage,
+		&config.Swap, &config.Load, &config.GPU, &config.Containers, &config.Processes, &config.Uptime,
 	)
 
 	if err == sql.ErrNoRows {
@@ -210,12 +258,14 @@ func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 
 // SaveResourcesUIConfig saves resources UI configuration to database
 func SaveResourcesUIConfig(config *models.ResourcesUIConfig) error {
-	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, cpu, memory, network, temp, storage, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, cpu, memory, network, temp, storage, swap, load, gpu, containers, processes, uptime, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
-			enabled=?, glances_url=?, cpu=?, memory=?, network=?, temp=?, storage=?, updated_at=datetime('now')`,
+			enabled=?, glances_url=?, cpu=?, memory=?, network=?, temp=?, storage=?, swap=?, load=?, gpu=?, containers=?, processes=?, uptime=?, updated_at=datetime('now')`,
 		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime,
 		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime,
 	)
 	return err
 }
@@ -447,17 +497,20 @@ func IsSetupComplete() (bool, error) {
 // LoadAppSettings loads application settings from database
 func LoadAppSettings() (*models.AppSettings, error) {
 	row := DB.QueryRow(`SELECT setup_complete, username, password_hash, auth_secret, 
-		COALESCE(created_at, ''), COALESCE(updated_at, '')
+		COALESCE(app_name, 'Service Status'), COALESCE(created_at, ''), COALESCE(updated_at, '')
 		FROM app_settings WHERE id = 1`)
 	
 	var settings models.AppSettings
 	var setupComplete int
 	err := row.Scan(&setupComplete, &settings.Username, &settings.PasswordHash, 
-		&settings.AuthSecret, &settings.CreatedAt, &settings.UpdatedAt)
+		&settings.AuthSecret, &settings.AppName, &settings.CreatedAt, &settings.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	settings.SetupComplete = setupComplete == 1
+	if settings.AppName == "" {
+		settings.AppName = "Service Status"
+	}
 	return &settings, nil
 }
 
@@ -467,15 +520,122 @@ func SaveAppSettings(settings *models.AppSettings) error {
 	if settings.SetupComplete {
 		setupComplete = 1
 	}
+	if settings.AppName == "" {
+		settings.AppName = "Service Status"
+	}
 	
-	_, err := DB.Exec(`INSERT INTO app_settings (id, setup_complete, username, password_hash, auth_secret, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?, datetime('now'), datetime('now'))
+	_, err := DB.Exec(`INSERT INTO app_settings (id, setup_complete, username, password_hash, auth_secret, app_name, created_at, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 		setup_complete = excluded.setup_complete,
 		username = excluded.username,
 		password_hash = excluded.password_hash,
 		auth_secret = excluded.auth_secret,
+		app_name = excluded.app_name,
 		updated_at = datetime('now')`,
-		setupComplete, settings.Username, settings.PasswordHash, settings.AuthSecret)
+		setupComplete, settings.Username, settings.PasswordHash, settings.AuthSecret, settings.AppName)
+	return err
+}
+
+// ============================================
+// Logging Functions
+// ============================================
+
+// LogLevel constants
+const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+)
+
+// LogCategory constants
+const (
+	LogCategoryCheck    = "check"
+	LogCategoryEmail    = "email"
+	LogCategorySecurity = "security"
+	LogCategorySystem   = "system"
+	LogCategorySchedule = "schedule"
+)
+
+// InsertLog adds a new log entry
+func InsertLog(level, category, service, message, details string) error {
+	_, err := DB.Exec(`INSERT INTO system_logs (timestamp, level, category, service, message, details)
+		VALUES (datetime('now'), ?, ?, ?, ?, ?)`,
+		level, category, service, message, details)
+	return err
+}
+
+// GetLogs retrieves logs with optional filtering
+func GetLogs(limit int, level, category, service string, offset int) ([]models.LogEntry, error) {
+	query := `SELECT id, timestamp, level, category, COALESCE(service, ''), message, COALESCE(details, '')
+		FROM system_logs WHERE 1=1`
+	args := []interface{}{}
+
+	if level != "" {
+		query += " AND level = ?"
+		args = append(args, level)
+	}
+	if category != "" {
+		query += " AND category = ?"
+		args = append(args, category)
+	}
+	if service != "" {
+		query += " AND service = ?"
+		args = append(args, service)
+	}
+
+	query += " ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.LogEntry
+	for rows.Next() {
+		var log models.LogEntry
+		if err := rows.Scan(&log.ID, &log.Timestamp, &log.Level, &log.Category, &log.Service, &log.Message, &log.Details); err != nil {
+			return nil, err
+		}
+		logs = append(logs, log)
+	}
+	return logs, nil
+}
+
+// GetLogStats returns statistics about logs
+func GetLogStats() (*models.LogStats, error) {
+	var stats models.LogStats
+	
+	err := DB.QueryRow(`SELECT COUNT(*) FROM system_logs`).Scan(&stats.TotalLogs)
+	if err != nil {
+		return nil, err
+	}
+	
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'error'`).Scan(&stats.ErrorCount)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'warn'`).Scan(&stats.WarnCount)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'info'`).Scan(&stats.InfoCount)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'debug'`).Scan(&stats.DebugCount)
+	
+	return &stats, nil
+}
+
+// ClearLogs clears logs older than specified days, or all logs if days is 0
+func ClearLogs(days int) error {
+	if days == 0 {
+		_, err := DB.Exec(`DELETE FROM system_logs`)
+		return err
+	}
+	_, err := DB.Exec(`DELETE FROM system_logs WHERE timestamp < datetime('now', '-' || ? || ' days')`, days)
+	return err
+}
+
+// PruneLogs removes old logs to keep the database size manageable (keeps last N logs)
+func PruneLogs(keepCount int) error {
+	_, err := DB.Exec(`DELETE FROM system_logs WHERE id NOT IN (
+		SELECT id FROM system_logs ORDER BY timestamp DESC, id DESC LIMIT ?
+	)`, keepCount)
 	return err
 }

@@ -11,6 +11,7 @@ import (
 
 // HTTPCheck performs a health check on a service
 func HTTPCheck(url string, timeout time.Duration, minOK, maxOK int) (ok bool, code int, ms *int, errStr string) {
+	// Handle TCP checks
 	if strings.HasPrefix(url, "tcp://") {
 		addr := strings.TrimPrefix(url, "tcp://")
 		t0 := time.Now()
@@ -22,6 +23,25 @@ func HTTPCheck(url string, timeout time.Duration, minOK, maxOK int) (ok bool, co
 			return false, 0, nil, err.Error()
 		}
 		_ = conn.Close()
+		return true, 0, ms, ""
+	}
+
+	// Handle DNS checks
+	if strings.HasPrefix(url, "dns://") {
+		hostname := strings.TrimPrefix(url, "dns://")
+		t0 := time.Now()
+		addrs, err := net.LookupHost(hostname)
+		d := int(time.Since(t0).Milliseconds())
+		ms = &d
+		if err != nil {
+			log.Printf("dns check error hostname=%s err=%v", hostname, err)
+			return false, 0, ms, err.Error()
+		}
+		if len(addrs) == 0 {
+			log.Printf("dns check error hostname=%s no addresses returned", hostname)
+			return false, 0, ms, "no addresses returned"
+		}
+		log.Printf("dns check success hostname=%s resolved to %v", hostname, addrs)
 		return true, 0, ms, ""
 	}
 

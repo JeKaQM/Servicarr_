@@ -79,7 +79,16 @@ func (m *Manager) SendEmail(subject, body string) error {
 	auth := smtp.PlainAuth("", m.config.SMTPUser, m.config.SMTPPassword, m.config.SMTPHost)
 	addr := fmt.Sprintf("%s:%d", m.config.SMTPHost, m.config.SMTPPort)
 
-	return smtp.SendMail(addr, auth, from, []string{m.config.AlertEmail}, []byte(msg))
+	err := smtp.SendMail(addr, auth, from, []string{m.config.AlertEmail}, []byte(msg))
+	
+	// Log email send attempt
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, "", "Failed to send email", fmt.Sprintf("to=%s, subject=%s, error=%v", m.config.AlertEmail, subject, err))
+	} else {
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, "", "Email sent successfully", fmt.Sprintf("to=%s, subject=%s", m.config.AlertEmail, subject))
+	}
+	
+	return err
 }
 
 // CheckAndSendAlerts checks for service status changes and sends alerts
@@ -106,18 +115,21 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 	// Check for status changes
 	if !ok && prevOKBool && m.config.AlertOnDown {
 		// Service went down
+		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert", serviceName)
 		subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", serviceName)
 		body := CreateHTMLEmail(subject, "down", serviceName, serviceKey, message, m.statusPageURL)
 		go m.SendEmail(subject, body)
 	} else if ok && !prevOKBool && m.config.AlertOnUp {
 		// Service came back up
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey, "Service RECOVERED - sending alert", serviceName)
 		subject := fmt.Sprintf("✅ Service Recovered: %s", serviceName)
 		message := fmt.Sprintf("Great news! The service <strong>%s</strong> has recovered and is now responding normally to health checks.", serviceName)
 		body := CreateHTMLEmail(subject, "up", serviceName, serviceKey, message, m.statusPageURL)
 		go m.SendEmail(subject, body)
 	} else if ok && degraded && !prevDegradedBool && m.config.AlertOnDegraded {
 		// Service became degraded
+		_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert", serviceName)
 		subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", serviceName)
 		body := CreateHTMLEmail(subject, "degraded", serviceName, serviceKey, message, m.statusPageURL)

@@ -4,12 +4,14 @@ import (
 	"html/template"
 	"net/http"
 	"status/app/internal/auth"
+	"status/app/internal/database"
 	"strings"
 )
 
 // PageData holds template data for the index page
 type PageData struct {
 	IsAdmin bool
+	AppName string
 }
 
 // HandleIndex serves the main HTML page with conditional admin rendering
@@ -19,14 +21,20 @@ func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
 	
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set CSRF token cookie on every page load (for login form)
-		_, _ = authMgr.SetCSRFCookie(w)
+		authMgr.SetCSRFCookie(w)
 		
 		// Check if user is authenticated
 		session, err := authMgr.ParseSession(r)
 		isAdmin := err == nil && session != nil
 		
+		// Get app name from settings
+		appName := "Service Status"
+		if settings, err := database.LoadAppSettings(); err == nil && settings != nil && settings.AppName != "" {
+			appName = settings.AppName
+		}
+		
 		// Render template with auth state
-		data := PageData{IsAdmin: isAdmin}
+		data := PageData{IsAdmin: isAdmin, AppName: appName}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.Execute(w, data); err != nil {
 			http.Error(w, "Template error", http.StatusInternalServerError)

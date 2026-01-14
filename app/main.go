@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"status/app/internal/models"
 	"status/app/internal/resources"
 	"status/app/internal/security"
+	"status/app/internal/stats"
 )
 
 // ServiceManager manages the list of services and their state
@@ -37,6 +39,14 @@ func main() {
 	if err := database.Init(cfg.DBPath); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
+
+	// Initialize statistics schema
+	if err := stats.EnsureStatsSchema(); err != nil {
+		log.Printf("Warning: Failed to initialize stats schema: %v", err)
+	}
+
+	// Start stats aggregator for efficient historical data
+	stats.StartStatsAggregator()
 
 	// Check if setup is complete and load auth accordingly
 	authMgr := createAuthManager(cfg)
@@ -213,6 +223,16 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Batch check results for efficient DB operations
+	type checkResult struct {
+		Key        string
+		OK         bool
+		Code       int
+		MS         *int
+		ErrMsg     string
+		Degraded   bool
+	}
+
 	for range ticker.C {
 		// Reload services from DB on each tick to pick up changes
 		dbServices, err := database.GetAllServices()
@@ -255,6 +275,9 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 		}
 		svcManager.services = updatedServices
 		svcManager.mu.Unlock()
+
+		// Collect results for batch processing
+		results := make([]checkResult, 0, len(dbServices))
 
 		for _, sc := range dbServices {
 			// Check disabled state
@@ -301,19 +324,66 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 			}
 			ok := checkOK || consecutiveFailures < 2
 
-			// Record sample in database
-			database.InsertSample(time.Now(), sc.Key, ok, code, msPtr)
-
 			// Check if service is degraded (slow response)
 			degraded := ok && msPtr != nil && *msPtr > 200
 
-			// Send alerts if status changed
-			alertMgr.CheckAndSendAlerts(sc.Key, sc.Name, ok, degraded)
+			results = append(results, checkResult{
+				Key:      sc.Key,
+				OK:       ok,
+				Code:     code,
+				MS:       msPtr,
+				ErrMsg:   errMsg,
+				Degraded: degraded,
+			})
 
 			// Log if there was an error
 			if errMsg != "" {
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
 		}
+
+		// Batch process results
+		for _, r := range results {
+			// Record in new efficient stats system
+			stats.RecordHeartbeat(r.Key, r.OK, r.MS, r.Code, r.ErrMsg)
+			
+			// Also record in legacy samples table for backward compatibility
+			database.InsertSample(time.Now(), r.Key, r.OK, r.Code, r.MS)
+			
+			// Log the check result
+			logLevel := database.LogLevelInfo
+			logMsg := "Service check passed"
+			logDetails := ""
+			
+			if r.MS != nil {
+				logDetails = fmt.Sprintf("status=%d, latency=%dms", r.Code, *r.MS)
+			} else {
+				logDetails = fmt.Sprintf("status=%d", r.Code)
+			}
+			
+			if !r.OK {
+				logLevel = database.LogLevelError
+				logMsg = "Service check failed"
+				if r.ErrMsg != "" {
+					logDetails += ", error=" + r.ErrMsg
+				}
+			} else if r.Degraded {
+				logLevel = database.LogLevelWarn
+				logMsg = "Service degraded (slow response)"
+			}
+			
+			_ = database.InsertLog(logLevel, database.LogCategoryCheck, r.Key, logMsg, logDetails)
+			
+			// Send alerts if status changed
+			svcConfig, _ := database.GetServiceByKey(r.Key)
+			name := r.Key
+			if svcConfig != nil {
+				name = svcConfig.Name
+			}
+			alertMgr.CheckAndSendAlerts(r.Key, name, r.OK, r.Degraded)
+		}
+		
+		// Prune old logs to prevent database bloat (keep last 10000 entries)
+		_ = database.PruneLogs(10000)
 	}
 }

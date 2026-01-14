@@ -62,7 +62,7 @@ Edit the `.env` file to customize:
 - `PORT` - Server port (default: 3000)
 - `ADMIN_PASSWORD` - Login password
 - `SERVICES` - Comma-separated service list (format: `name:url`)
-- `INSECURE_DEV` - Set to `true` for development HTTP cookies, `false` for production HTTPS
+- `INSECURE_DEV` - Set to `true` for HTTP access (default), `false` only if using HTTPS
 
 ## Default Credentials
 

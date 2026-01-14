@@ -19,6 +19,7 @@ type Config struct {
 	HmacSecret     []byte
 	InsecureDev    bool
 	SessionMaxAgeS int
+	UnblockToken   string // Recovery token for self-unblocking
 
 	// Server
 	Port            string
@@ -53,6 +54,7 @@ func LoadBasic() (*Config, error) {
 		AuthUser:        getenv("AUTH_USER", ""),
 		InsecureDev:     envBool("INSECURE_DEV", true),
 		SessionMaxAgeS:  envInt("SESSION_MAX_AGE_SECONDS", 86400),
+		UnblockToken:    getenv("UNBLOCK_TOKEN", ""),
 		Port:            getenv("PORT", "4555"),
 		DBPath:          getenv("DB_PATH", "./uptime.db"),
 		EnableScheduler: strings.ToLower(getenv("ENABLE_SCHEDULER", "true")) == "true",
@@ -91,6 +93,7 @@ func Load() (*Config, error) {
 		AuthUser:        getenv("AUTH_USER", "admin"),
 		InsecureDev:     envBool("INSECURE_DEV", true),
 		SessionMaxAgeS:  envInt("SESSION_MAX_AGE_SECONDS", 86400),
+		UnblockToken:    getenv("UNBLOCK_TOKEN", ""),
 		Port:            getenv("PORT", "4555"),
 		DBPath:          getenv("DB_PATH", "./uptime.db"),
 		EnableScheduler: strings.ToLower(getenv("ENABLE_SCHEDULER", "true")) == "true",

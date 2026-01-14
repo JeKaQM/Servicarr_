@@ -6,10 +6,23 @@ import (
 	"status/app/internal/auth"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"status/app/internal/ratelimit"
 	"status/app/internal/resources"
 	"status/app/internal/security"
 	"strings"
 )
+
+// RateLimitMiddleware applies the appropriate rate limiter based on request type
+func RateLimitMiddleware(limiter *ratelimit.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := security.ClientIP(r)
+		if !limiter.Allow(ip) {
+			http.Error(w, limiter.ErrorMessage(), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // SetupRoutes configures all HTTP routes and middlewares
 func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*models.Service, gl *resources.Client) http.Handler {
@@ -17,6 +30,8 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	api := http.NewServeMux()
 	api.HandleFunc("/api/check", HandleCheck(services))
 	api.HandleFunc("/api/metrics", HandleMetrics())
+	api.HandleFunc("/api/uptime", HandleUptimeStats())        // New efficient uptime stats
+	api.HandleFunc("/api/heartbeats", HandleRecentHeartbeats()) // New recent heartbeats
 	api.HandleFunc("/api/resources", HandleResources(gl))
 	api.HandleFunc("/api/resources/config", HandleGetResourcesUIConfig())
 	api.HandleFunc("/api/services", HandleGetServices) // Public services list
@@ -31,6 +46,33 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	authAPI.HandleFunc("/api/admin/blocks", authMgr.RequireAuth(HandleListBlocks()))
 	authAPI.HandleFunc("/api/admin/unblock", authMgr.RequireAuth(HandleUnblockIP()))
 	authAPI.HandleFunc("/api/admin/clear-blocks", authMgr.RequireAuth(HandleClearAllBlocks()))
+	
+	// Whitelist/Blacklist routes
+	authAPI.HandleFunc("/api/admin/whitelist", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			HandleListWhitelist()(w, r)
+		case http.MethodPost:
+			HandleAddToWhitelist()(w, r)
+		case http.MethodDelete:
+			HandleRemoveFromWhitelist()(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	authAPI.HandleFunc("/api/admin/blacklist", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			HandleListBlacklist()(w, r)
+		case http.MethodPost:
+			HandleAddToBlacklist()(w, r)
+		case http.MethodDelete:
+			HandleRemoveFromBlacklist()(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	
 	authAPI.HandleFunc("/api/admin/alerts/config", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			HandleGetAlertsConfig(alertMgr)(w, r)
@@ -62,6 +104,26 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+
+	// Settings routes (admin only)
+	authAPI.HandleFunc("/api/admin/settings/app-name", authMgr.RequireAuth(HandleUpdateAppName()))
+	authAPI.HandleFunc("/api/admin/settings/password", authMgr.RequireAuth(HandleChangePassword(authMgr)))
+	authAPI.HandleFunc("/api/admin/settings/export", authMgr.RequireAuth(HandleExportDatabase()))
+	authAPI.HandleFunc("/api/admin/settings/import", authMgr.RequireAuth(HandleImportDatabase()))
+	authAPI.HandleFunc("/api/admin/settings/reset", authMgr.RequireAuth(HandleResetDatabase(authMgr)))
+
+	// Logging routes (admin only)
+	authAPI.HandleFunc("/api/admin/logs", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			HandleGetLogs()(w, r)
+		case http.MethodDelete:
+			HandleClearLogs()(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	authAPI.HandleFunc("/api/admin/logs/stats", authMgr.RequireAuth(HandleGetLogStats()))
 
 	// Service management routes (admin only)
 	authAPI.HandleFunc("/api/admin/services", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -151,13 +213,27 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	mux.HandleFunc("/api/setup", HandleCompleteSetup(authMgr))
 	mux.HandleFunc("/api/setup/status", HandleSetupStatus)
 	mux.HandleFunc("/api/setup/service", HandleAddFirstService)
+	mux.HandleFunc("/api/setup/import", HandleSetupImport(authMgr))
 	
-	mux.Handle("/api/admin/", security.RateLimit(authAPI))
-	mux.Handle("/api/login", security.RateLimit(http.HandlerFunc(HandleLogin(authMgr))))
-	mux.Handle("/api/logout", security.RateLimit(http.HandlerFunc(HandleLogout(authMgr))))
-	mux.Handle("/api/me", security.RateLimit(http.HandlerFunc(HandleWhoAmI(authMgr))))
+	// Self-unblock endpoint (accessible even when blocked)
+	mux.HandleFunc("/api/self-unblock", HandleSelfUnblock())
+	
+	// Apply rate limiting based on endpoint type
+	// Login endpoints: 20 requests/minute (prevents brute force)
+	mux.Handle("/api/login", RateLimitMiddleware(ratelimit.LoginLimiter, http.HandlerFunc(HandleLogin(authMgr))))
+	mux.Handle("/api/logout", RateLimitMiddleware(ratelimit.LoginLimiter, http.HandlerFunc(HandleLogout(authMgr))))
+	mux.Handle("/api/me", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleWhoAmI(authMgr))))
+	
+	// Admin API: 60 requests/minute
+	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, authAPI))
+	
+	// Public API: 30 requests/minute for check endpoint (prevents abuse)
+	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(services))))
+	
+	// Other public API endpoints: standard rate limit
 	mux.HandleFunc("/api/status-alerts", HandleGetStatusAlerts()) // Public, no rate limit
-	mux.Handle("/api/", security.RateLimit(api))
+	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
+	
 	mux.HandleFunc("/static/", HandleStatic())
 	mux.HandleFunc("/favicon.ico", HandleFavicon())
 	mux.Handle("/", security.CheckIPBlock(http.HandlerFunc(HandleIndex(authMgr))))

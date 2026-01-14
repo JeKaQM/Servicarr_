@@ -9,31 +9,275 @@
     <link rel="stylesheet" href="/static/css/main.css"/>
     <style>
         .blocked-container {
-            max-width: 400px;
-            margin: 100px auto;
+            max-width: 420px;
+            margin: 60px auto;
+            padding: 0 20px;
             text-align: center;
         }
         .blocked-icon {
-            font-size: 48px;
-            margin-bottom: 20px;
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            background: rgba(239, 68, 68, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .blocked-icon svg {
+            width: 32px;
+            height: 32px;
             color: var(--down);
         }
         .blocked-title {
             font-size: 24px;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
+            font-weight: 600;
         }
         .blocked-message {
             color: var(--muted);
-            margin-bottom: 24px;
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+        .countdown-section {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+        .countdown-label {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .countdown-timer {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: monospace;
+            color: var(--warn);
+        }
+        .countdown-expired {
+            color: var(--up);
+        }
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 24px 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .unblock-section {
+            text-align: left;
+        }
+        .unblock-section h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        .unblock-section p {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+        .unblock-form {
+            display: flex;
+            gap: 8px;
+        }
+        .unblock-form input {
+            flex: 1;
+            padding: 12px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: inherit;
+            font-size: 14px;
+        }
+        .unblock-form input:focus {
+            outline: none;
+            border-color: var(--muted);
+        }
+        .unblock-form button {
+            padding: 12px 20px;
+            background: #22c55e;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .unblock-form button:hover {
+            background: #16a34a;
+        }
+        .unblock-form button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .unblock-result {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .unblock-result.success {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--up);
+        }
+        .unblock-result.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--down);
+        }
+        .retry-btn {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 24px;
+            background: var(--up);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .retry-btn:hover {
+            opacity: 0.9;
+        }
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 <body>
     <div class="blocked-container">
-        <div class="blocked-icon">⚠️</div>
+        <div class="blocked-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+            </svg>
+        </div>
         <h1 class="blocked-title">Access Blocked</h1>
-        <p class="blocked-message">Your access has been temporarily blocked due to too many failed login attempts.</p>
-        <p class="blocked-message">Please try again later.</p>
+        <p class="blocked-message">Your IP address has been temporarily blocked due to too many failed login attempts.</p>
+        
+        <div class="countdown-section">
+            <div class="countdown-label">Block expires in</div>
+            <div class="countdown-timer" id="countdown">--:--:--</div>
+        </div>
+        
+        <a href="/" class="retry-btn hidden" id="retryBtn">Try Again</a>
+
+        <div class="divider">or</div>
+        
+        <div class="unblock-section">
+            <h3>Have a recovery token?</h3>
+            <p>Contact the site owner for a recovery token, then enter it below to unblock yourself immediately.</p>
+            <div class="unblock-form">
+                <input type="password" id="unblockToken" placeholder="Enter recovery token">
+                <button type="button" id="unblockBtn" onclick="attemptUnblock()">Unblock</button>
+            </div>
+            <div id="unblockResult" class="unblock-result hidden"></div>
+        </div>
     </div>
+
+    <script>
+        // Parse URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const expiresAt = params.get('expires');
+        
+        function updateCountdown() {
+            const countdownEl = document.getElementById('countdown');
+            const retryBtn = document.getElementById('retryBtn');
+            
+            if (!expiresAt) {
+                countdownEl.textContent = '24:00:00';
+                return;
+            }
+            
+            const expiry = new Date(expiresAt).getTime();
+            const now = Date.now();
+            const remaining = expiry - now;
+            
+            if (remaining <= 0) {
+                countdownEl.textContent = 'Expired!';
+                countdownEl.classList.add('countdown-expired');
+                retryBtn.classList.remove('hidden');
+                return;
+            }
+            
+            const hours = Math.floor(remaining / (1000 * 60 * 60));
+            const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+            
+            countdownEl.textContent = 
+                String(hours).padStart(2, '0') + ':' +
+                String(minutes).padStart(2, '0') + ':' +
+                String(seconds).padStart(2, '0');
+        }
+        
+        // Update countdown every second
+        updateCountdown();
+        setInterval(updateCountdown, 1000);
+        
+        async function attemptUnblock() {
+            const token = document.getElementById('unblockToken').value.trim();
+            const resultEl = document.getElementById('unblockResult');
+            const btn = document.getElementById('unblockBtn');
+            
+            if (!token) {
+                resultEl.textContent = 'Please enter a recovery token';
+                resultEl.className = 'unblock-result error';
+                resultEl.classList.remove('hidden');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Verifying...';
+            
+            try {
+                const resp = await fetch('/api/self-unblock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                
+                const data = await resp.json();
+                
+                if (resp.ok && data.ok) {
+                    resultEl.textContent = data.message || 'Successfully unblocked! Redirecting...';
+                    resultEl.className = 'unblock-result success';
+                    resultEl.classList.remove('hidden');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1500);
+                } else {
+                    resultEl.textContent = data.message || 'Failed to unblock. Check your token.';
+                    resultEl.className = 'unblock-result error';
+                    resultEl.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = 'Unblock';
+                }
+            } catch (err) {
+                resultEl.textContent = 'Network error. Please try again.';
+                resultEl.className = 'unblock-result error';
+                resultEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.textContent = 'Unblock';
+            }
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('unblockToken').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                attemptUnblock();
+            }
+        });
+    </script>
 </body>
 </html>
