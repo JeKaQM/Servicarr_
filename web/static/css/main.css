@@ -138,6 +138,37 @@ small, .muted {
 /* Entrance animation for cards */
 #services-container .card {
   animation: fadeSlideUp 0.35s ease-out both;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Status accent bar on left edge */
+#services-container .card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--muted);
+  transition: background 0.3s ease;
+}
+
+#services-container .card.status-up::after {
+  background: var(--ok);
+}
+
+#services-container .card.status-down::after {
+  background: var(--down);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+#services-container .card.status-degraded::after {
+  background: var(--warn);
+}
+
+#services-container .card.status-disabled::after {
+  background: #475569;
 }
 
 #services-container .card:nth-child(1)  { animation-delay: 0.03s; }
@@ -338,11 +369,11 @@ small, .muted {
 
 /* Stats Grid for Service Cards */
 .stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 14px;
-  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -351,93 +382,64 @@ small, .muted {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 3px;
-  padding: 8px 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  gap: 2px;
+  flex: 1;
+  padding: 4px 0;
   position: relative;
-  overflow: hidden;
-  transition: all 0.2s ease;
 }
 
-.stat-item::before {
+/* Vertical dividers between stat items */
+.stat-item + .stat-item::before {
   content: '';
   position: absolute;
-  top: 0;
   left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.stat-item:hover {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
-  border-color: rgba(255, 255, 255, 0.1);
-  transform: translateY(-1px);
-}
-
-.stat-item:hover::before {
-  opacity: 1;
+  top: 15%;
+  bottom: 15%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .stat-label {
   font-size: 9px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  font-weight: 700;
-  opacity: 0.8;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  opacity: 0.7;
 }
 
 .stat-value {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text);
   letter-spacing: -0.2px;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  line-height: 1.2;
 }
 
-/* Color coding for stat values */
-.stat-value.good,
-.stat-item:nth-child(1) .stat-value {
-  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+/* Color coding for stat values — dynamic classes override defaults */
+.stat-value.good {
+  color: #34d399;
+  -webkit-text-fill-color: #34d399;
 }
 
 .stat-value.warning {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #fbbf24;
+  -webkit-text-fill-color: #fbbf24;
 }
 
 .stat-value.bad {
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #f87171;
+  -webkit-text-fill-color: #f87171;
 }
 
-/* Second stat item (Avg Response) - blue gradient */
+/* Default stat value colors per position */
 .stat-item:nth-child(2) .stat-value {
-  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #60a5fa;
 }
 
-/* Third stat item (Last Check) - purple gradient */
 .stat-item:nth-child(3) .stat-value {
-  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #a78bfa;
 }
 
 .stat-sub {
@@ -2425,10 +2427,10 @@ dialog::backdrop {
     padding-right: 32px;
   }
   
-  /* Stats grid - better mobile layout */
+  /* Stats grid - stack on mobile */
   .stats-grid {
-    grid-template-columns: 1fr;
-    gap: 8px;
+    flex-direction: column;
+    gap: 0;
     margin-top: 10px;
   }
   
@@ -2436,7 +2438,15 @@ dialog::backdrop {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 12px;
+    padding: 6px 0;
+  }
+
+  .stat-item + .stat-item::before {
+    display: none;
+  }
+
+  .stat-item + .stat-item {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
   }
   
   .stat-label {
@@ -2444,7 +2454,7 @@ dialog::backdrop {
   }
   
   .stat-value {
-    font-size: 16px;
+    font-size: 14px;
   }
   
   /* KPI values */
@@ -2677,13 +2687,13 @@ dialog::backdrop {
     gap: 8px;
   }
   
-  /* Stats - stack vertically for tiny screens */
+  /* Stats - compact for tiny screens */
   .stats-grid {
     margin-top: 8px;
   }
   
   .stat-item {
-    padding: 8px 10px;
+    padding: 5px 0;
   }
   
   .stat-label {
@@ -2691,7 +2701,7 @@ dialog::backdrop {
   }
   
   .stat-value {
-    font-size: 15px;
+    font-size: 13px;
   }
   
   /* Icons */

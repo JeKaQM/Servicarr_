@@ -678,6 +678,8 @@ function updCard(id, data) {
   if (data.disabled) {
     pill.textContent = 'DISABLED';
     pill.className = 'pill warn';
+    el.classList.remove('status-up', 'status-down', 'status-degraded');
+    el.classList.add('status-disabled');
     k.textContent = '—';
     h.textContent = 'Monitoring disabled';
     return;
@@ -689,6 +691,12 @@ function updCard(id, data) {
     pill.textContent = data.ok ? 'UP' : 'DOWN';
   }
   pill.className = cls(data.ok, data.status, data.degraded);
+
+  // Update the left accent bar
+  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
+  if (data.degraded)  el.classList.add('status-degraded');
+  else if (data.ok)   el.classList.add('status-up');
+  else                el.classList.add('status-down');
   k.textContent = fmtMs(data.ms);
   
   // Show appropriate status message based on check type
@@ -2207,19 +2215,22 @@ function renderServiceCards(services) {
         </div>
         <span class="pill warn">—</span>
       </div>
-      <div class="row kpirow"><div class="kpi">—</div><div class="label">—</div></div>
+      <div class="row kpirow">
+        <div class="kpi">—</div>
+        <div class="label kpi-status">—</div>
+      </div>
       
       <div class="stats-grid">
         <div class="stat-item">
-          <div class="stat-label">24h Uptime</div>
+          <div class="stat-label">Uptime</div>
           <div class="stat-value" id="uptime-24h-${svc.key}">—</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Avg Response</div>
+          <div class="stat-label">Response</div>
           <div class="stat-value" id="avg-response-${svc.key}">—</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Last Check</div>
+          <div class="stat-label">Checked</div>
           <div class="stat-value" id="last-check-${svc.key}">—</div>
         </div>
       </div>
