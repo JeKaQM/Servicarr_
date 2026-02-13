@@ -4576,141 +4576,199 @@ dialog.confirm-dialog::backdrop {
   border-color: #22c55e;
 }
 
-/* ── Hive Overview ───────────────────────────────────────── */
-.hive-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  padding: 24px 16px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(0, 0, 0, 0.3));
+/* ── Matrix Network Graph ────────────────────────────────── */
+.matrix-container {
+  position: relative;
+  width: 100%;
+  min-height: 420px;
+  background: linear-gradient(135deg, rgba(5, 10, 20, 0.85), rgba(0, 0, 0, 0.6));
   border: 1px solid var(--border);
   border-radius: 16px;
   margin-bottom: 24px;
+  overflow: hidden;
 }
 
-.hive-cell {
-  position: relative;
-  width: 80px;
-  height: 92px;
-  cursor: pointer;
-  transition: transform 0.2s, filter 0.2s;
-  /* offset every other row */
-}
-
-.hive-cell:hover {
-  transform: scale(1.12);
-  z-index: 2;
-  filter: brightness(1.2);
-}
-
-.hive-hex {
+.matrix-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+.matrix-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.matrix-node {
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 14px 6px;
-  transition: background 0.3s;
+  gap: 4px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: filter 0.2s;
+  z-index: 2;
 }
 
-.hive-hex.up {
-  background: linear-gradient(160deg, rgba(34, 197, 94, 0.5), rgba(34, 197, 94, 0.25));
-  border-color: rgba(34, 197, 94, 0.6);
+.matrix-node:hover {
+  filter: brightness(1.3);
+  z-index: 10;
 }
 
-.hive-hex.down {
-  background: linear-gradient(160deg, rgba(248, 113, 113, 0.55), rgba(248, 113, 113, 0.3));
-  border-color: rgba(248, 113, 113, 0.6);
-}
-
-.hive-hex.degraded {
-  background: linear-gradient(160deg, rgba(251, 191, 36, 0.5), rgba(251, 191, 36, 0.25));
-  border-color: rgba(251, 191, 36, 0.6);
-}
-
-.hive-hex.disabled {
-  background: linear-gradient(160deg, rgba(100, 116, 139, 0.25), rgba(100, 116, 139, 0.12));
-  border-color: rgba(100, 116, 139, 0.3);
-}
-
-.hive-hex.unknown {
-  background: linear-gradient(160deg, rgba(100, 116, 139, 0.25), rgba(100, 116, 139, 0.12));
-  border-color: rgba(100, 116, 139, 0.3);
-}
-
-.hive-icon {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.hive-icon-placeholder {
-  width: 22px;
-  height: 22px;
+.matrix-node-ring {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  flex-shrink: 0;
+  position: relative;
+  transition: box-shadow 0.3s;
 }
 
-.hive-name {
-  font-size: 9px;
+.matrix-node-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  animation: matrix-ring-pulse 2.5s ease-in-out infinite;
+}
+
+.matrix-node-ring.up {
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.5), rgba(34, 197, 94, 0.18));
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.35);
+}
+.matrix-node-ring.up::before {
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.matrix-node-ring.down {
+  background: radial-gradient(circle, rgba(248, 113, 113, 0.55), rgba(248, 113, 113, 0.2));
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.4);
+}
+.matrix-node-ring.down::before {
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+.matrix-node-ring.degraded {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.5), rgba(251, 191, 36, 0.18));
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+}
+.matrix-node-ring.degraded::before {
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.matrix-node-ring.disabled,
+.matrix-node-ring.unknown {
+  background: radial-gradient(circle, rgba(100, 116, 139, 0.3), rgba(100, 116, 139, 0.1));
+  box-shadow: 0 0 10px rgba(100, 116, 139, 0.15);
+}
+.matrix-node-ring.disabled::before,
+.matrix-node-ring.unknown::before {
+  border-color: rgba(100, 116, 139, 0.25);
+}
+
+.matrix-node-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.matrix-node-icon-placeholder {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.matrix-node-label {
+  font-size: 10px;
   font-weight: 600;
   color: #e5e7eb;
   text-align: center;
-  line-height: 1.1;
-  max-width: 60px;
+  max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7);
 }
 
-.hive-ms {
-  font-size: 8px;
+.matrix-node-ms {
+  font-size: 9px;
   color: #9ca3af;
   font-weight: 500;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 
-.hive-tooltip {
+/* Centre hub */
+.matrix-hub {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.6), rgba(99, 102, 241, 0.15));
+  border: 2px solid rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.3), 0 0 60px rgba(99, 102, 241, 0.1);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: matrix-hub-glow 3s ease-in-out infinite;
+}
+
+.matrix-hub svg {
+  width: 18px;
+  height: 18px;
+  color: rgba(199, 210, 254, 0.85);
+}
+
+/* Tooltip */
+.matrix-tooltip {
+  position: fixed;
   background: rgba(0, 0, 0, 0.92);
   color: #e5e7eb;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
   font-size: 12px;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
-.hive-cell:hover .hive-tooltip {
+.matrix-tooltip.visible {
   opacity: 1;
 }
 
-/* Responsive hive */
+/* Animations */
+@keyframes matrix-ring-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50%      { transform: scale(1.15); opacity: 0.3; }
+}
+
+@keyframes matrix-hub-glow {
+  0%, 100% { box-shadow: 0 0 24px rgba(99, 102, 241, 0.3), 0 0 60px rgba(99, 102, 241, 0.1); }
+  50%      { box-shadow: 0 0 32px rgba(99, 102, 241, 0.5), 0 0 80px rgba(99, 102, 241, 0.2); }
+}
+
+/* Responsive matrix */
 @media (max-width: 600px) {
-  .hive-cell {
-    width: 64px;
-    height: 74px;
-  }
-  .hive-icon, .hive-icon-placeholder {
-    width: 18px;
-    height: 18px;
-    font-size: 12px;
-  }
-  .hive-name { font-size: 8px; max-width: 48px; }
-  .hive-ms { font-size: 7px; }
+  .matrix-container { min-height: 320px; }
+  .matrix-node-ring { width: 38px; height: 38px; }
+  .matrix-node-icon { width: 18px; height: 18px; }
+  .matrix-node-label { font-size: 8px; max-width: 60px; }
+  .matrix-node-ms { font-size: 7px; }
+  .matrix-hub { width: 28px; height: 28px; }
 }

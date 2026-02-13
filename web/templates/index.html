@@ -41,16 +41,16 @@
       <button class="view-toggle-btn active" id="viewCards" title="Card view">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       </button>
-      <button class="view-toggle-btn" id="viewHive" title="Hive overview">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l3 1.7v3.6L8 8 5 6.3V2.7L8 1zm-5 4.3l3 1.7v3.6L3 12.3 0 10.6V7L3 5.3zm10 0l3 1.7v3.6l-3 1.7-3-1.7V7l3-1.7z"/></svg>
+      <button class="view-toggle-btn" id="viewMatrix" title="Matrix overview">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="2"/><circle cx="3" cy="3" r="1.5"/><circle cx="13" cy="3" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="13" cy="13" r="1.5"/><line x1="8" y1="8" x2="3" y2="3" stroke="currentColor" stroke-width="0.7"/><line x1="8" y1="8" x2="13" y2="3" stroke="currentColor" stroke-width="0.7"/><line x1="8" y1="8" x2="3" y2="13" stroke="currentColor" stroke-width="0.7"/><line x1="8" y1="8" x2="13" y2="13" stroke="currentColor" stroke-width="0.7"/></svg>
       </button>
     </div>
 
     <!-- Dynamic service cards will be rendered here by JavaScript -->
     <div id="services-container"></div>
 
-    <!-- Hive overview (hidden by default) -->
-    <div id="hive-container" class="hive-container hidden"></div>
+    <!-- Matrix network graph (hidden by default) -->
+    <div id="matrix-container" class="matrix-container hidden"></div>
 
     <section class="card">
       <div class="row"><div><strong>Recent incidents</strong><div class="label">Last 24h</div></div></div>

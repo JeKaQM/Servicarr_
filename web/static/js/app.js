@@ -1080,7 +1080,7 @@ async function refresh() {
 
     // Update cards dynamically based on services returned from API
     if (live.status) {
-      latestLiveStatus = live.status;  // cache for hive view
+      latestLiveStatus = live.status;  // cache for matrix view
 
       Object.keys(live.status).forEach(key => {
         const cardEl = document.getElementById(`card-${key}`);
@@ -1089,8 +1089,8 @@ async function refresh() {
         }
       });
 
-      // Re-render hive if active
-      if (currentView === 'hive') renderHive();
+      // Re-render matrix if active
+      if (currentView === 'matrix') renderMatrix();
     }
   } catch (e) {
     console.error('live check failed', e);
@@ -2285,99 +2285,258 @@ function toggleMonitoringHandler(e) {
   toggleMonitoring(e.target.closest('.card'), e.target.checked);
 }
 
-/* ── View Toggle (Cards ↔ Hive) ────────────────────────── */
-let currentView = 'cards';   // 'cards' | 'hive'
-let latestLiveStatus = null;  // cache last /api/check result for hive
+/* ── View Toggle (Cards ↔ Matrix) ──────────────────────── */
+let currentView = 'cards';       // 'cards' | 'matrix'
+let latestLiveStatus = null;     // cache last /api/check result for matrix
+let matrixAnimFrame = null;      // requestAnimationFrame id
+let matrixTooltipEl = null;      // shared tooltip element
 
 function initViewToggle() {
-  const btnCards = $('#viewCards');
-  const btnHive  = $('#viewHive');
-  if (!btnCards || !btnHive) return;
+  const btnCards  = $('#viewCards');
+  const btnMatrix = $('#viewMatrix');
+  if (!btnCards || !btnMatrix) return;
 
-  btnCards.addEventListener('click', () => switchView('cards'));
-  btnHive.addEventListener('click',  () => switchView('hive'));
+  btnCards.addEventListener('click',  () => switchView('cards'));
+  btnMatrix.addEventListener('click', () => switchView('matrix'));
 }
 
 function switchView(view) {
   currentView = view;
-  const cards = $('#services-container');
-  const hive  = $('#hive-container');
-  const btnC  = $('#viewCards');
-  const btnH  = $('#viewHive');
+  const cards  = $('#services-container');
+  const matrix = $('#matrix-container');
+  const btnC   = $('#viewCards');
+  const btnM   = $('#viewMatrix');
 
-  if (view === 'hive') {
-    cards && cards.classList.add('hidden');
-    hive  && hive.classList.remove('hidden');
-    btnC  && btnC.classList.remove('active');
-    btnH  && btnH.classList.add('active');
-    renderHive();
+  if (view === 'matrix') {
+    cards  && cards.classList.add('hidden');
+    matrix && matrix.classList.remove('hidden');
+    btnC   && btnC.classList.remove('active');
+    btnM   && btnM.classList.add('active');
+    renderMatrix();
   } else {
-    hive  && hive.classList.add('hidden');
-    cards && cards.classList.remove('hidden');
-    btnH  && btnH.classList.remove('active');
-    btnC  && btnC.classList.add('active');
+    matrix && matrix.classList.add('hidden');
+    cards  && cards.classList.remove('hidden');
+    btnM   && btnM.classList.remove('active');
+    btnC   && btnC.classList.add('active');
+    stopMatrixAnimation();
   }
 }
 
-function renderHive() {
-  const container = $('#hive-container');
+/* ── Matrix status helpers ──────────────────────────────── */
+function matrixStatusOf(svc) {
+  let statusClass = 'unknown', statusLabel = 'Unknown', ms = null;
+  if (latestLiveStatus && latestLiveStatus[svc.key]) {
+    const s = latestLiveStatus[svc.key];
+    if (s.disabled)       { statusClass = 'disabled'; statusLabel = 'Disabled'; }
+    else if (!s.ok)       { statusClass = 'down';     statusLabel = 'Down';     }
+    else if (s.degraded)  { statusClass = 'degraded'; statusLabel = 'Degraded'; }
+    else                  { statusClass = 'up';       statusLabel = 'Operational'; }
+    if (s.ms != null) ms = s.ms;
+  }
+  return { statusClass, statusLabel, ms };
+}
+
+const MATRIX_COLORS = {
+  up:       { r: 34,  g: 197, b: 94  },
+  down:     { r: 248, g: 113, b: 113 },
+  degraded: { r: 251, g: 191, b: 36  },
+  disabled: { r: 100, g: 116, b: 139 },
+  unknown:  { r: 100, g: 116, b: 139 },
+  hub:      { r: 99,  g: 102, b: 241 }
+};
+
+/* ── Canvas line animation engine ───────────────────────── */
+function stopMatrixAnimation() {
+  if (matrixAnimFrame) { cancelAnimationFrame(matrixAnimFrame); matrixAnimFrame = null; }
+}
+
+function animateMatrixLines(canvas, nodePositions) {
+  stopMatrixAnimation();
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+
+  function frame(t) {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width  = w * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // Draw lines from each node to the centre hub
+    nodePositions.forEach(n => {
+      const col = MATRIX_COLORS[n.status] || MATRIX_COLORS.unknown;
+
+      // Gradient along the line
+      const grad = ctx.createLinearGradient(n.x, n.y, cx, cy);
+      grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.55)');
+      grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.25)');
+
+      ctx.beginPath();
+      ctx.moveTo(n.x, n.y);
+      ctx.lineTo(cx, cy);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Pulsating particle travelling node → hub
+      const speed  = 4000; // ms per full trip
+      const prog   = ((t + n.phase) % speed) / speed;
+      const px     = n.x + (cx - n.x) * prog;
+      const py     = n.y + (cy - n.y) * prog;
+      const pulse  = 0.5 + 0.5 * Math.sin(prog * Math.PI);
+      const radius = 2 + pulse * 2;
+
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',' + (0.6 + pulse * 0.4) + ')';
+      ctx.fill();
+
+      // Soft glow around particle
+      ctx.beginPath();
+      ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, radius + 4);
+      glow.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.3)');
+      glow.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0)');
+      ctx.fillStyle = glow;
+      ctx.fill();
+    });
+
+    // Draw faint interconnect lines between adjacent nodes
+    for (let i = 0; i < nodePositions.length; i++) {
+      const j = (i + 1) % nodePositions.length;
+      const a = nodePositions[i];
+      const b = nodePositions[j];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = 'rgba(99,102,241,0.08)';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    }
+
+    matrixAnimFrame = requestAnimationFrame(frame);
+  }
+
+  matrixAnimFrame = requestAnimationFrame(frame);
+}
+
+/* ── Render the full matrix view ────────────────────────── */
+function renderMatrix() {
+  const container = $('#matrix-container');
   if (!container) return;
+
   if (!servicesData || servicesData.length === 0) {
-    container.innerHTML = '<div style="color:#9ca3af;text-align:center;padding:32px;">No services configured</div>';
+    container.innerHTML = '<div style="color:#9ca3af;text-align:center;padding:48px;">No services configured</div>';
+    stopMatrixAnimation();
     return;
   }
 
   container.innerHTML = '';
 
-  servicesData.forEach(svc => {
-    const cell = document.createElement('div');
-    cell.className = 'hive-cell';
+  // Canvas for animated lines
+  const canvas = document.createElement('canvas');
+  canvas.className = 'matrix-canvas';
+  container.appendChild(canvas);
 
-    // Determine status from cached live data
-    let statusClass = 'unknown';
-    let statusLabel = 'Unknown';
-    let msText = '';
-    if (latestLiveStatus && latestLiveStatus[svc.key]) {
-      const s = latestLiveStatus[svc.key];
-      if (s.disabled) {
-        statusClass = 'disabled';
-        statusLabel = 'Disabled';
-      } else if (!s.ok) {
-        statusClass = 'down';
-        statusLabel = 'Down';
-      } else if (s.degraded) {
-        statusClass = 'degraded';
-        statusLabel = 'Degraded';
+  // Centre hub
+  const hub = document.createElement('div');
+  hub.className = 'matrix-hub';
+  hub.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9.5-9.5h4m14 0h4M4.2 4.2l2.8 2.8m10 10l2.8 2.8M4.2 19.8l2.8-2.8m10-10l2.8-2.8"/></svg>';
+  container.appendChild(hub);
+
+  // Nodes layer
+  const nodesLayer = document.createElement('div');
+  nodesLayer.className = 'matrix-nodes';
+  container.appendChild(nodesLayer);
+
+  // Tooltip
+  if (!matrixTooltipEl) {
+    matrixTooltipEl = document.createElement('div');
+    matrixTooltipEl.className = 'matrix-tooltip';
+    document.body.appendChild(matrixTooltipEl);
+  }
+
+  // Lay nodes out after container is visible and sized
+  requestAnimationFrame(() => {
+    const rect = container.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+    const cx = W / 2;
+    const cy = H / 2;
+
+    // Position hub
+    hub.style.left = cx + 'px';
+    hub.style.top  = cy + 'px';
+
+    // Calculate positions — elliptical ring around centre
+    const count = servicesData.length;
+    const rx = Math.min(cx - 50, 260);  // horizontal radius
+    const ry = Math.min(cy - 50, 180);  // vertical radius
+    const nodePositions = [];
+
+    servicesData.forEach((svc, i) => {
+      const angle = (2 * Math.PI * i / count) - Math.PI / 2;
+      const nx = cx + rx * Math.cos(angle);
+      const ny = cy + ry * Math.sin(angle);
+      const { statusClass, statusLabel, ms } = matrixStatusOf(svc);
+
+      // Build icon HTML
+      let iconHtml = '';
+      if (svc.icon_url) {
+        iconHtml = '<img src="' + svc.icon_url + '" class="matrix-node-icon" alt="" onerror="this.style.display=\'none\'">';
       } else {
-        statusClass = 'up';
-        statusLabel = 'Operational';
+        const raw = getServiceIconHtml(svc);
+        if (raw.includes('<img')) {
+          iconHtml = raw.replace(/class="icon[^"]*"/g, 'class="matrix-node-icon"');
+        } else {
+          iconHtml = '<span class="matrix-node-icon-placeholder">' + raw.replace(/<\/?span[^>]*>/g, '') + '</span>';
+        }
       }
-      if (s.ms != null) msText = s.ms + 'ms';
-    }
 
-    // Build icon for hive cell — smaller, centered
-    let hiveIconHtml = '';
-    if (svc.icon_url) {
-      hiveIconHtml = `<img src="${svc.icon_url}" class="hive-icon" alt="${escapeHtml(svc.service_type || '')}" onerror="this.style.display='none'"/>`;
-    } else {
-      const raw = getServiceIconHtml(svc);
-      if (raw.includes('<img')) {
-        hiveIconHtml = raw.replace(/class="icon[^"]*"/g, 'class="hive-icon"');
-      } else {
-        hiveIconHtml = `<span class="hive-icon-placeholder">${raw.replace(/<\/?span[^>]*>/g, '')}</span>`;
-      }
-    }
+      const name = escapeHtml(svc.display_name || svc.name || svc.key || '');
+      const msText = ms != null ? ms + 'ms' : '';
 
-    cell.innerHTML = `
-      <div class="hive-hex ${statusClass}">
-        ${hiveIconHtml}
-        <span class="hive-name">${name}</span>
-        ${msText ? `<span class="hive-ms">${msText}</span>` : ''}
-      </div>
-      <div class="hive-tooltip">${name} — ${statusLabel}${msText ? ' (' + msText + ')' : ''}</div>
-    `;
+      const node = document.createElement('div');
+      node.className = 'matrix-node';
+      node.style.left = nx + 'px';
+      node.style.top  = ny + 'px';
+      node.innerHTML =
+        '<div class="matrix-node-ring ' + statusClass + '">' + iconHtml + '</div>' +
+        '<span class="matrix-node-label">' + name + '</span>' +
+        (msText ? '<span class="matrix-node-ms">' + msText + '</span>' : '');
 
-    container.appendChild(cell);
+      // Tooltip on hover
+      const tipText = name + ' — ' + statusLabel + (msText ? ' (' + msText + ')' : '');
+      node.addEventListener('mouseenter', function(e) {
+        matrixTooltipEl.textContent = tipText;
+        matrixTooltipEl.classList.add('visible');
+      });
+      node.addEventListener('mousemove', function(e) {
+        matrixTooltipEl.style.left = e.clientX + 12 + 'px';
+        matrixTooltipEl.style.top  = e.clientY - 30 + 'px';
+      });
+      node.addEventListener('mouseleave', function() {
+        matrixTooltipEl.classList.remove('visible');
+      });
+
+      nodesLayer.appendChild(node);
+
+      nodePositions.push({
+        x: nx,
+        y: ny,
+        status: statusClass,
+        phase: i * 600  // stagger pulse per node
+      });
+    });
+
+    // Start canvas animation
+    animateMatrixLines(canvas, nodePositions);
   });
 }
 
