@@ -331,6 +331,8 @@ func HandleCreateService(w http.ResponseWriter, r *http.Request) {
 		s.ExpectedMax = 399
 	}
 	s.Visible = true
+	// Auto-append to the end of the list
+	s.DisplayOrder = -1
 
 	id, err := database.CreateService(&s)
 	if err != nil {
@@ -383,6 +385,8 @@ func HandleUpdateService(w http.ResponseWriter, r *http.Request) {
 
 	// Keep the original key
 	s.Key = existing.Key
+	// Preserve display order (reordering handled separately)
+	s.DisplayOrder = existing.DisplayOrder
 
 	if err := database.UpdateService(&s); err != nil {
 		http.Error(w, "Failed to update service", http.StatusInternalServerError)
@@ -530,6 +534,16 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 			}
 			return nil
 		},
+	}
+
+	// Always-up demo check
+	if checkType == "always_up" || checkType == "demo" {
+		return map[string]any{
+			"success":     true,
+			"status":      "Always up",
+			"status_code": 200,
+			"latency_ms":  0,
+		}
 	}
 
 	// Handle TCP checks

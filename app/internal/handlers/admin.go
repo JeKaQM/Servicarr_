@@ -9,31 +9,50 @@ import (
 	"status/app/internal/checker"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"status/app/internal/monitor"
 	"status/app/internal/security"
+	"status/app/internal/stats"
+	"strings"
 	"time"
 )
 
 // HandleIngestNow forces an immediate check of all services
-func HandleIngestNow(services []*models.Service) http.HandlerFunc {
+func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
-		for _, s := range services {
+		dbServices, err := database.GetAllServices()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		for _, sc := range dbServices {
 			// Skip disabled services
-			if s.Disabled {
+			disabled, _ := database.GetServiceDisabledState(sc.Key)
+			if disabled {
 				continue
 			}
-			checkOK, code, ms, _ := checker.HTTPCheck(s.URL, s.Timeout, s.MinOK, s.MaxOK)
 
-			// Update consecutive failure count
-			if checkOK {
-				s.ConsecutiveFailures = 0
-			} else {
-				s.ConsecutiveFailures++
+			timeout := time.Duration(sc.Timeout) * time.Second
+			if timeout == 0 {
+				timeout = 5 * time.Second
 			}
 
-			// Service is only DOWN after 2 consecutive failures
-			ok := checkOK || s.ConsecutiveFailures < 2
-			database.InsertSample(now, s.Key, ok, code, ms)
+			checkOK, code, ms, errMsg := checker.Check(checker.CheckOptions{
+				URL:         sc.URL,
+				Timeout:     timeout,
+				ExpectedMin: sc.ExpectedMin,
+				ExpectedMax: sc.ExpectedMax,
+				CheckType:   sc.CheckType,
+				ServiceType: sc.ServiceType,
+				APIToken:    sc.APIToken,
+			})
+
+			failures := tracker.Update(sc.Key, checkOK)
+			ok := checkOK || failures < 2
+
+			stats.RecordHeartbeat(sc.Key, ok, ms, code, errMsg)
+			database.InsertSample(now, sc.Key, ok, code, ms)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"saved": true, "t": now})
@@ -43,8 +62,12 @@ func HandleIngestNow(services []*models.Service) http.HandlerFunc {
 // HandleResetRecent clears recent failure incidents
 func HandleResetRecent() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, err := database.DB.Exec(`DELETE FROM samples WHERE ok=0 AND taken_at >= datetime('now','-24 hours')`)
-		if err != nil {
+		cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+		if _, err := database.DB.Exec(`DELETE FROM heartbeats WHERE status = 0 AND time >= ?`, cutoff); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if _, err := database.DB.Exec(`DELETE FROM samples WHERE ok = 0 AND taken_at >= ?`, cutoff); err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
@@ -54,7 +77,7 @@ func HandleResetRecent() http.HandlerFunc {
 }
 
 // HandleAdminCheck performs a forced check on a specific service
-func HandleAdminCheck(services []*models.Service) http.HandlerFunc {
+func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Service string `json:"service"`
@@ -64,39 +87,52 @@ func HandleAdminCheck(services []*models.Service) http.HandlerFunc {
 			return
 		}
 
-		s := checker.FindServiceByKey(services, req.Service)
-		if s == nil {
+		sc, err := database.GetServiceByKey(req.Service)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if sc == nil {
 			http.Error(w, "unknown service", http.StatusNotFound)
 			return
 		}
-		if s.Disabled {
+
+		disabled, _ := database.GetServiceDisabledState(req.Service)
+		if disabled {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(models.LiveResult{Label: s.Label, OK: false, Status: 0, Degraded: false})
+			_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: false, Status: 0, Degraded: false, Disabled: true, CheckType: sc.CheckType})
 			return
 		}
 
 		now := time.Now().UTC()
-		checkOK, code, ms, _ := checker.HTTPCheck(s.URL, s.Timeout, s.MinOK, s.MaxOK)
-
-		// Update consecutive failure count
-		if checkOK {
-			s.ConsecutiveFailures = 0
-		} else {
-			s.ConsecutiveFailures++
+		timeout := time.Duration(sc.Timeout) * time.Second
+		if timeout == 0 {
+			timeout = 5 * time.Second
 		}
 
-		// Service is only DOWN after 2 consecutive failures
-		ok := checkOK || s.ConsecutiveFailures < 2
-		database.InsertSample(now, s.Key, ok, code, ms)
+		checkOK, code, ms, errMsg := checker.Check(checker.CheckOptions{
+			URL:         sc.URL,
+			Timeout:     timeout,
+			ExpectedMin: sc.ExpectedMin,
+			ExpectedMax: sc.ExpectedMax,
+			CheckType:   sc.CheckType,
+			ServiceType: sc.ServiceType,
+			APIToken:    sc.APIToken,
+		})
+
+		failures := tracker.Update(sc.Key, checkOK)
+		ok := checkOK || failures < 2
+		stats.RecordHeartbeat(sc.Key, ok, ms, code, errMsg)
+		database.InsertSample(now, sc.Key, ok, code, ms)
 
 		degraded := ok && ms != nil && *ms > 200
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: s.Label, OK: ok, Status: code, MS: ms, Degraded: degraded})
+		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: ok, Status: code, MS: ms, Degraded: degraded, CheckType: sc.CheckType})
 	}
 }
 
 // HandleToggleMonitoring enables or disables monitoring for a service
-func HandleToggleMonitoring(services []*models.Service) http.HandlerFunc {
+func HandleToggleMonitoring(tracker *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Service string `json:"service"`
@@ -107,22 +143,30 @@ func HandleToggleMonitoring(services []*models.Service) http.HandlerFunc {
 			return
 		}
 
-		s := checker.FindServiceByKey(services, req.Service)
-		if s == nil {
+		sc, err := database.GetServiceByKey(req.Service)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if sc == nil {
 			http.Error(w, "unknown service", http.StatusNotFound)
 			return
 		}
 
-		s.Disabled = !req.Enable
-		if err := database.SetServiceDisabledState(req.Service, s.Disabled); err != nil {
+		disabled := !req.Enable
+		if err := database.SetServiceDisabledState(req.Service, disabled); err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
 
+		if disabled {
+			tracker.Reset(req.Service)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"service": s.Key,
-			"enabled": !s.Disabled,
+			"service": sc.Key,
+			"enabled": !disabled,
 		})
 	}
 }
@@ -378,13 +422,14 @@ func HandleTestEmail(alertMgr *alerts.Manager) http.HandlerFunc {
 		}
 
 		subject := "Test Alert from Servicarr"
+		statusURL := alertMgr.ResolveStatusPageURL(inferRequestBaseURL(r))
 		body := alerts.CreateHTMLEmail(
 			subject,
 			"up",
 			"Test Service",
 			"test",
 			"This is a test email from your Servicarr monitoring system. If you received this, your email configuration is working correctly!",
-			alertMgr.GetStatusPageURL(),
+			statusURL,
 		)
 
 		err := alertMgr.SendEmail(subject, body)
@@ -404,6 +449,28 @@ func HandleTestEmail(alertMgr *alerts.Manager) http.HandlerFunc {
 			"message": "Test email sent successfully to " + config.AlertEmail,
 		})
 	}
+}
+
+func inferRequestBaseURL(r *http.Request) string {
+	host := r.Host
+	if xfHost := r.Header.Get("X-Forwarded-Host"); xfHost != "" {
+		host = strings.TrimSpace(strings.Split(xfHost, ",")[0])
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if proto != "" {
+		proto = strings.TrimSpace(strings.Split(proto, ",")[0])
+	}
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s", proto, host)
 }
 
 // HandleGetStatusAlerts returns all status alerts

@@ -5,6 +5,7 @@
 *.dylib
 *.test
 *.out
+.gocache
 /bin/
 /dist/
 

@@ -208,7 +208,7 @@ func LogFailedLoginAttempt(ip string) {
 		// Update existing record, block after 3 attempts
 		_, _ = database.DB.Exec(`UPDATE ip_blocks 
 			SET attempts = ?,
-				blocked_at = CASE WHEN ? > 3 THEN datetime('now') ELSE NULL END,
+				blocked_at = CASE WHEN ? >= 3 THEN datetime('now') ELSE NULL END,
 				expires_at = datetime('now', '+24 hours'),
 				reason = 'Failed login attempts'
 			WHERE ip_address = ?`, newAttempts, newAttempts, ip)

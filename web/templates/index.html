@@ -520,46 +520,55 @@
 
     <!-- Security Tab -->
     <div id="tab-security" class="tab-content">
-      <!-- Temporary Blocks Section -->
-      <div class="admin-section">
-        <div class="blocks-header">
-          <h3>Temporary Blocks</h3>
-          <button id="resetBlocks" class="btn danger small">Clear All</button>
-        </div>
-        <p class="muted">IPs temporarily blocked due to failed login attempts. These expire automatically.</p>
-        <div id="blocksList" class="blocks-list">
-          <div class="muted">Loading...</div>
+      <div class="security-header">
+        <div>
+          <h2>Security & Access</h2>
+          <p class="muted">Manage blocked IPs and access lists for trusted networks.</p>
         </div>
       </div>
 
-      <!-- Whitelist Section -->
-      <div class="admin-section">
-        <h3>Whitelist</h3>
-        <p class="muted">Whitelisted IPs bypass all rate limiting. Use for trusted networks.</p>
-        <div class="ip-add-form">
-          <input type="text" id="whitelistIP" placeholder="IP address (e.g., 192.168.1.100)">
-          <input type="text" id="whitelistNote" placeholder="Note (optional)">
-          <button id="addWhitelist" class="btn small">Add</button>
+      <div class="security-grid">
+        <!-- Temporary Blocks Section -->
+        <div class="admin-section security-card security-blocks">
+          <div class="blocks-header">
+            <h3>Temporary Blocks</h3>
+            <button id="resetBlocks" class="btn danger small">Clear All</button>
+          </div>
+          <p class="muted">IPs temporarily blocked due to failed login attempts. These expire automatically.</p>
+          <div id="blocksList" class="blocks-list">
+            <div class="muted">Loading...</div>
+          </div>
         </div>
-        <div id="whitelistList" class="blocks-list">
-          <div class="muted">Loading...</div>
-        </div>
-      </div>
 
-      <!-- Blacklist Section -->
-      <div class="admin-section">
-        <h3>Blacklist</h3>
-        <p class="muted">Blacklisted IPs cannot log in. Permanent bans block all access.</p>
+        <!-- Whitelist Section -->
+        <div class="admin-section security-card">
+          <h3>Whitelist</h3>
+          <p class="muted">Whitelisted IPs bypass all rate limiting. Use for trusted networks.</p>
+          <div class="ip-add-form">
+            <input type="text" id="whitelistIP" placeholder="IP address (e.g., 192.168.1.100)">
+            <input type="text" id="whitelistNote" placeholder="Note (optional)">
+            <button id="addWhitelist" class="btn small">Add</button>
+          </div>
+          <div id="whitelistList" class="blocks-list">
+            <div class="muted">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Blacklist Section -->
+        <div class="admin-section security-card">
+          <h3>Blacklist</h3>
+          <p class="muted">Blacklisted IPs cannot log in. Permanent bans block all access.</p>
         <div class="ip-add-form">
           <input type="text" id="blacklistIP" placeholder="IP address (e.g., 192.168.1.100)">
           <input type="text" id="blacklistNote" placeholder="Note (optional)">
+          <button id="addBlacklist" class="btn danger small">Block</button>
           <label class="checkbox-label">
             <input type="checkbox" id="blacklistPermanent"> Permanent ban
           </label>
-          <button id="addBlacklist" class="btn danger small">Block</button>
         </div>
-        <div id="blacklistList" class="blocks-list">
-          <div class="muted">Loading...</div>
+          <div id="blacklistList" class="blocks-list">
+            <div class="muted">Loading...</div>
+          </div>
         </div>
       </div>
     </div>
@@ -693,6 +702,19 @@
             <div class="form-group">
               <label for="alertFromEmail">From Email</label>
               <input type="email" id="alertFromEmail" placeholder="alerts@example.com" />
+            </div>
+
+            <div class="form-group">
+              <label for="statusPageUrl">Dashboard URL</label>
+              <input type="text" id="statusPageUrl" placeholder="https://status.example.com" />
+              <small class="help-text">Used for the "View Status Dashboard" link in alert emails.</small>
+            </div>
+
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="smtpSkipVerify">
+                Allow self-signed certificates (skip TLS verification)
+              </label>
             </div>
             
             <div class="form-group">
@@ -867,6 +889,7 @@
             <option value="http">HTTP/HTTPS</option>
             <option value="tcp">TCP Port</option>
             <option value="dns">DNS Lookup</option>
+            <option value="always_up">Always Up (Demo)</option>
           </select>
         </div>
         

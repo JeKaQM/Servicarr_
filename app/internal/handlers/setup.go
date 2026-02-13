@@ -180,12 +180,12 @@ func createDummyService() {
 	dummyService := &models.ServiceConfig{
 		Key:           "demo-service",
 		Name:          "Demo Service",
-		URL:           "https://httpstat.us/200",
+		URL:           "http://localhost",
 		ServiceType:   "custom",
 		Icon:          "custom",
-		DisplayOrder:  0,
+		DisplayOrder:  -1,
 		Visible:       true,
-		CheckType:     "http",
+		CheckType:     "always_up",
 		CheckInterval: 60,
 		Timeout:       5,
 		ExpectedMin:   200,
@@ -242,7 +242,7 @@ func HandleAddFirstService(w http.ResponseWriter, r *http.Request) {
 		Icon:          req.ServiceType,
 		IconURL:       req.IconURL,
 		APIToken:      req.APIToken,
-		DisplayOrder:  0,
+		DisplayOrder:  -1,
 		Visible:       true,
 		CheckType:     "http",
 		CheckInterval: 60,
@@ -331,6 +331,12 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		// Import services
 		if len(export.Services) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM services`)
+			_, _ = database.DB.Exec(`DELETE FROM service_state`)
+			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
+			_, _ = database.DB.Exec(`DELETE FROM heartbeats`)
 			for _, s := range export.Services {
 				svc := &models.ServiceConfig{
 					Key:           s.Key,
@@ -360,6 +366,8 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				SMTPUser:        export.AlertConfig.SMTPUser,
 				AlertEmail:      export.AlertConfig.AlertEmail,
 				FromEmail:       export.AlertConfig.FromEmail,
+				StatusPageURL:   export.AlertConfig.StatusPageURL,
+				SMTPSkipVerify:  export.AlertConfig.SMTPSkipVerify,
 				AlertOnDown:     export.AlertConfig.AlertOnDown,
 				AlertOnDegraded: export.AlertConfig.AlertOnDegraded,
 				AlertOnUp:       export.AlertConfig.AlertOnUp,
@@ -377,6 +385,12 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				Network:    export.Resources.Network,
 				Temp:       export.Resources.Temp,
 				Storage:    export.Resources.Storage,
+				Swap:       export.Resources.Swap,
+				Load:       export.Resources.Load,
+				GPU:        export.Resources.GPU,
+				Containers: export.Resources.Containers,
+				Processes:  export.Resources.Processes,
+				Uptime:     export.Resources.Uptime,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}

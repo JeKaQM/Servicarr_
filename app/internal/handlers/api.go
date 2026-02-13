@@ -9,122 +9,70 @@ import (
 	"status/app/internal/checker"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"status/app/internal/monitor"
 	"status/app/internal/stats"
 	"strconv"
 	"time"
 )
 
 // HandleCheck returns current status of all services
-func HandleCheck(services []*models.Service) http.HandlerFunc {
+func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
 		out := models.LivePayload{T: now, Status: map[string]models.LiveResult{}}
 
 		// Load services dynamically from database to pick up new services
-		dbServices, err := database.GetAllServices()
+		dbServices, err := database.GetVisibleServices()
 		if err != nil {
-			// Fall back to in-memory services if DB fails
-			dbServices = nil
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(out)
+			return
 		}
 
-		// Build a map of in-memory services for consecutive failure tracking
-		svcMap := make(map[string]*models.Service)
-		for _, s := range services {
-			svcMap[s.Key] = s
-		}
-
-		// If we have DB services, use those; otherwise fall back to in-memory
-		if len(dbServices) > 0 {
-			for _, sc := range dbServices {
-				// Check if monitoring is disabled
-				disabled, _ := database.GetServiceDisabledState(sc.Key)
-				if disabled {
-					out.Status[sc.Key] = models.LiveResult{
-						Label:     sc.Name,
-						OK:        false,
-						Status:    0,
-						MS:        nil,
-						Disabled:  true,
-						Degraded:  false,
-						CheckType: sc.CheckType,
-					}
-					continue
-				}
-
-				timeout := time.Duration(sc.Timeout) * time.Second
-				if timeout == 0 {
-					timeout = 5 * time.Second
-				}
-
-				checkOK, code, ms, _ := checker.HTTPCheck(sc.URL, timeout, sc.ExpectedMin, sc.ExpectedMax)
-
-				// Get or create in-memory service for consecutive failure tracking
-				svc := svcMap[sc.Key]
-				if svc == nil {
-					svc = &models.Service{
-						Key:     sc.Key,
-						Label:   sc.Name,
-						URL:     sc.URL,
-						Timeout: timeout,
-						MinOK:   sc.ExpectedMin,
-						MaxOK:   sc.ExpectedMax,
-					}
-					svcMap[sc.Key] = svc
-				}
-
-				// Update consecutive failure count
-				if checkOK {
-					svc.ConsecutiveFailures = 0
-				} else {
-					svc.ConsecutiveFailures++
-				}
-
-				// Service is only DOWN after 2 consecutive failures
-				ok := checkOK || svc.ConsecutiveFailures < 2
-				degraded := ok && ms != nil && *ms > 200
+		for _, sc := range dbServices {
+			// Check if monitoring is disabled
+			disabled, _ := database.GetServiceDisabledState(sc.Key)
+			if disabled {
 				out.Status[sc.Key] = models.LiveResult{
 					Label:     sc.Name,
-					OK:        ok,
-					Status:    code,
-					MS:        ms,
-					Disabled:  false,
-					Degraded:  degraded,
+					OK:        false,
+					Status:    0,
+					MS:        nil,
+					Disabled:  true,
+					Degraded:  false,
 					CheckType: sc.CheckType,
 				}
+				continue
 			}
-		} else {
-			// Fallback to in-memory services
-			for _, s := range services {
-				if s.Disabled {
-					out.Status[s.Key] = models.LiveResult{
-						Label:    s.Label,
-						OK:       false,
-						Status:   0,
-						MS:       nil,
-						Disabled: true,
-						Degraded: false,
-					}
-					continue
-				}
-				checkOK, code, ms, _ := checker.HTTPCheck(s.URL, s.Timeout, s.MinOK, s.MaxOK)
 
-				if checkOK {
-					s.ConsecutiveFailures = 0
-				} else {
-					s.ConsecutiveFailures++
-				}
+			timeout := time.Duration(sc.Timeout) * time.Second
+			if timeout == 0 {
+				timeout = 5 * time.Second
+			}
 
-				ok := checkOK || s.ConsecutiveFailures < 2
-				degraded := ok && ms != nil && *ms > 200
-				out.Status[s.Key] = models.LiveResult{
-					Label:     s.Label,
-					OK:        ok,
-					Status:    code,
-					MS:        ms,
-					Disabled:  false,
-					Degraded:  degraded,
-					CheckType: s.CheckType,
-				}
+			checkOK, code, ms, _ := checker.Check(checker.CheckOptions{
+				URL:         sc.URL,
+				Timeout:     timeout,
+				ExpectedMin: sc.ExpectedMin,
+				ExpectedMax: sc.ExpectedMax,
+				CheckType:   sc.CheckType,
+				ServiceType: sc.ServiceType,
+				APIToken:    sc.APIToken,
+			})
+
+			failures := tracker.Update(sc.Key, checkOK)
+
+			// Service is only DOWN after 2 consecutive failures
+			ok := checkOK || failures < 2
+			degraded := ok && ms != nil && *ms > 200
+			out.Status[sc.Key] = models.LiveResult{
+				Label:     sc.Name,
+				OK:        ok,
+				Status:    code,
+				MS:        ms,
+				Disabled:  false,
+				Degraded:  degraded,
+				CheckType: sc.CheckType,
 			}
 		}
 
@@ -240,17 +188,46 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 
 		downs := []map[string]any{}
 		downsSince := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
-		rows3, err := database.DB.Query(`SELECT taken_at, service_key, http_status
-                             FROM samples
-                             WHERE ok=0 AND taken_at >= ?
-                             ORDER BY taken_at DESC LIMIT 50`, downsSince)
+		rows3, err := database.DB.Query(`
+			SELECT hb.time,
+			       hb.service_key,
+			       COALESCE(s.name, hb.service_key) AS service_name,
+			       hb.http_status,
+			       hb.msg,
+			       hb.ping,
+			       COALESCE(s.check_type, '') AS check_type
+			FROM heartbeats hb
+			LEFT JOIN services s ON s.key = hb.service_key
+			WHERE hb.status = 0 AND hb.important = 1 AND hb.time >= ?
+			ORDER BY hb.time DESC
+			LIMIT 50`, downsSince)
 		if err == nil {
 			defer rows3.Close()
 			for rows3.Next() {
-				var ts, key string
-				var st sql.NullInt64
-				_ = rows3.Scan(&ts, &key, &st)
-				downs = append(downs, map[string]any{"taken_at": ts, "service_key": key, "http_status": st.Int64})
+				var ts, key, name string
+				var st, ping sql.NullInt64
+				var msg, checkType sql.NullString
+				_ = rows3.Scan(&ts, &key, &name, &st, &msg, &ping, &checkType)
+				item := map[string]any{
+					"taken_at":     ts,
+					"service_key":  key,
+					"service_name": name,
+				}
+				if st.Valid {
+					item["http_status"] = st.Int64
+				} else {
+					item["http_status"] = 0
+				}
+				if msg.Valid && msg.String != "" {
+					item["error"] = msg.String
+				}
+				if ping.Valid {
+					item["latency_ms"] = ping.Int64
+				}
+				if checkType.Valid && checkType.String != "" {
+					item["check_type"] = checkType.String
+				}
+				downs = append(downs, item)
 			}
 		}
 

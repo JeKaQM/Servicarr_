@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS alert_config (
   smtp_password TEXT,
   alert_email TEXT,
   from_email TEXT,
+  status_page_url TEXT,
+  smtp_skip_verify INTEGER NOT NULL DEFAULT 0,
   alert_on_down INTEGER NOT NULL DEFAULT 1,
   alert_on_degraded INTEGER NOT NULL DEFAULT 1,
   alert_on_up INTEGER NOT NULL DEFAULT 0,
@@ -182,6 +184,8 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN containers INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN processes INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN uptime INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN status_page_url TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN smtp_skip_verify INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE app_settings ADD COLUMN app_name TEXT DEFAULT 'Service Status';`)
 
@@ -207,10 +211,10 @@ func InsertSample(ts time.Time, key string, ok bool, status int, ms *int) {
 // LoadAlertConfig loads email alert configuration from database
 func LoadAlertConfig() (*models.AlertConfig, error) {
 	var config models.AlertConfig
-	err := DB.QueryRow(`SELECT enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, alert_on_down, alert_on_degraded, alert_on_up 
+	err := DB.QueryRow(`SELECT enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, COALESCE(status_page_url, ''), COALESCE(smtp_skip_verify, 0), alert_on_down, alert_on_degraded, alert_on_up 
 		FROM alert_config WHERE id = 1`).Scan(
 		&config.Enabled, &config.SMTPHost, &config.SMTPPort, &config.SMTPUser,
-		&config.SMTPPassword, &config.AlertEmail, &config.FromEmail,
+		&config.SMTPPassword, &config.AlertEmail, &config.FromEmail, &config.StatusPageURL, &config.SMTPSkipVerify,
 		&config.AlertOnDown, &config.AlertOnDegraded, &config.AlertOnUp)
 
 	if err == sql.ErrNoRows {
@@ -224,15 +228,15 @@ func LoadAlertConfig() (*models.AlertConfig, error) {
 
 // SaveAlertConfig saves email alert configuration to database
 func SaveAlertConfig(config *models.AlertConfig) error {
-	_, err := DB.Exec(`INSERT INTO alert_config (id, enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, alert_on_down, alert_on_degraded, alert_on_up, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+	_, err := DB.Exec(`INSERT INTO alert_config (id, enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, status_page_url, smtp_skip_verify, alert_on_down, alert_on_degraded, alert_on_up, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET 
-			enabled=?, smtp_host=?, smtp_port=?, smtp_user=?, smtp_password=?, alert_email=?, from_email=?,
+			enabled=?, smtp_host=?, smtp_port=?, smtp_user=?, smtp_password=?, alert_email=?, from_email=?, status_page_url=?, smtp_skip_verify=?,
 			alert_on_down=?, alert_on_degraded=?, alert_on_up=?, updated_at=datetime('now')`,
 		config.Enabled, config.SMTPHost, config.SMTPPort, config.SMTPUser, config.SMTPPassword,
-		config.AlertEmail, config.FromEmail, config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp,
+		config.AlertEmail, config.FromEmail, config.StatusPageURL, config.SMTPSkipVerify, config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp,
 		config.Enabled, config.SMTPHost, config.SMTPPort, config.SMTPUser, config.SMTPPassword,
-		config.AlertEmail, config.FromEmail, config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp)
+		config.AlertEmail, config.FromEmail, config.StatusPageURL, config.SMTPSkipVerify, config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp)
 	return err
 }
 
@@ -405,10 +409,12 @@ func CreateService(s *models.ServiceConfig) (int64, error) {
 		visible = 1
 	}
 
-	// Get the next display order
-	var maxOrder int
-	_ = DB.QueryRow(`SELECT COALESCE(MAX(display_order), -1) FROM services`).Scan(&maxOrder)
-	s.DisplayOrder = maxOrder + 1
+	// Auto-assign display order only when not explicitly provided
+	if s.DisplayOrder < 0 {
+		var maxOrder int
+		_ = DB.QueryRow(`SELECT COALESCE(MAX(display_order), -1) FROM services`).Scan(&maxOrder)
+		s.DisplayOrder = maxOrder + 1
+	}
 
 	result, err := DB.Exec(`
 		INSERT INTO services (key, name, url, service_type, icon, icon_url, api_token, display_order, visible,

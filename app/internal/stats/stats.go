@@ -68,8 +68,8 @@ func RemoveCalculator(serviceKey string) {
 	delete(calculators, serviceKey)
 }
 
-// AddHeartbeat records a new heartbeat
-func (c *UptimeCalculator) AddHeartbeat(status int, ping *int, httpStatus int, msg string) {
+// AddHeartbeat records a new heartbeat and returns whether it represents a status change.
+func (c *UptimeCalculator) AddHeartbeat(status int, ping *int, httpStatus int, msg string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -97,6 +97,8 @@ func (c *UptimeCalculator) AddHeartbeat(status int, ping *int, httpStatus int, m
 
 	// Invalidate cache
 	cache.StatsCache.Delete("uptime:" + c.ServiceKey)
+
+	return hb.Important
 }
 
 // GetUptime calculates uptime percentage for a given duration
@@ -252,18 +254,18 @@ func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errM
 		status = 1
 	}
 
-	calc.AddHeartbeat(status, ping, httpStatus, errMsg)
+	important := calc.AddHeartbeat(status, ping, httpStatus, errMsg)
 
 	// Store in heartbeats table
-	important := 0
-	if len(calc.recentHeartbeats) <= 1 || calc.recentHeartbeats[len(calc.recentHeartbeats)-1].Important {
-		important = 1
+	importantInt := 0
+	if important {
+		importantInt = 1
 	}
 
 	_, err := database.DB.Exec(`
 		INSERT INTO heartbeats (service_key, status, time, msg, ping, http_status, important)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		serviceKey, status, time.Now().UTC().Format(time.RFC3339), errMsg, ping, httpStatus, important)
+		serviceKey, status, time.Now().UTC().Format(time.RFC3339), errMsg, ping, httpStatus, importantInt)
 
 	if err != nil {
 		log.Printf("Error recording heartbeat: %v", err)

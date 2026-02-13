@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"status/app/internal/alerts"
@@ -14,19 +13,11 @@ import (
 	"status/app/internal/database"
 	"status/app/internal/handlers"
 	"status/app/internal/models"
+	"status/app/internal/monitor"
 	"status/app/internal/resources"
 	"status/app/internal/security"
 	"status/app/internal/stats"
 )
-
-// ServiceManager manages the list of services and their state
-type ServiceManager struct {
-	mu       sync.RWMutex
-	services []*models.Service
-}
-
-// Global service manager for dynamic service updates
-var svcManager = &ServiceManager{}
 
 func main() {
 	// Load configuration from environment (for basic settings)
@@ -54,19 +45,24 @@ func main() {
 	// Create alert manager (loads config from database)
 	alertMgr := alerts.NewManager(cfg.StatusPageURL)
 
-	// Load services from database, fall back to env config if none exist
-	services := loadServicesFromDB(cfg)
-	svcManager.services = services
+	// Migrate services from environment config if needed
+	migrateServicesFromEnv(cfg)
+
+	// Ensure the demo service stays up even without outbound internet
+	ensureDemoService()
+
+	// Track consecutive failures across checks
+	failureTracker := monitor.NewFailureTracker()
 
 	// Start health check scheduler
 	if cfg.EnableScheduler {
-		go runScheduler(alertMgr, cfg.PollInterval)
+		go runScheduler(alertMgr, cfg.PollInterval, failureTracker)
 		log.Printf("Scheduler started with %v interval", cfg.PollInterval)
 	}
 
 	// Setup HTTP routes
 	gl := resources.NewClient(cfg.GlancesBaseURL)
-	mux := handlers.SetupRoutes(authMgr, alertMgr, services, gl)
+	mux := handlers.SetupRoutes(authMgr, alertMgr, failureTracker, gl)
 
 	// Wrap with security middleware
 	handler := security.SecureHeaders(mux)
@@ -135,8 +131,8 @@ func createAuthManager(cfg *config.Config) *auth.Auth {
 	)
 }
 
-// loadServicesFromDB loads services from database, migrating from env config if needed
-func loadServicesFromDB(cfg *config.Config) []*models.Service {
+// migrateServicesFromEnv migrates services from env config if needed
+func migrateServicesFromEnv(cfg *config.Config) {
 	// Check if setup is complete
 	setupComplete, _ := database.IsSetupComplete()
 
@@ -144,6 +140,7 @@ func loadServicesFromDB(cfg *config.Config) []*models.Service {
 	dbServices, err := database.GetAllServices()
 	if err != nil {
 		log.Printf("Warning: Failed to load services from database: %v", err)
+		return
 	}
 
 	// Only migrate from env config if setup IS complete (backward compatibility for existing installs)
@@ -168,64 +165,53 @@ func loadServicesFromDB(cfg *config.Config) []*models.Service {
 				ExpectedMin:   sc.MinOK,
 				ExpectedMax:   sc.MaxOK,
 				Visible:       true,
+				DisplayOrder:  -1, // auto-append
 			}
 			if _, err := database.CreateService(svcConfig); err != nil {
 				log.Printf("Warning: Failed to migrate service %s: %v", sc.Key, err)
 			}
 		}
-		// Reload from database
-		dbServices, _ = database.GetAllServices()
 	}
-
-	// Convert to Service models
-	services := make([]*models.Service, 0, len(dbServices))
-	for _, sc := range dbServices {
-		// Build the check URL (append token if needed)
-		checkURL := sc.URL
-
-		svc := &models.Service{
-			Key:     sc.Key,
-			Label:   sc.Name,
-			URL:     checkURL,
-			Timeout: time.Duration(sc.Timeout) * time.Second,
-			MinOK:   sc.ExpectedMin,
-			MaxOK:   sc.ExpectedMax,
-		}
-
-		// Load disabled state from service_state table
-		if disabled, err := database.GetServiceDisabledState(sc.Key); err == nil {
-			svc.Disabled = disabled
-		}
-
-		services = append(services, svc)
-	}
-
-	return services
 }
 
-// GetServices returns the current list of services (thread-safe)
-func GetServices() []*models.Service {
-	svcManager.mu.RLock()
-	defer svcManager.mu.RUnlock()
-	return svcManager.services
-}
+// ensureDemoService updates the default demo service to an always-up check.
+func ensureDemoService() {
+	sc, err := database.GetServiceByKey("demo-service")
+	if err != nil || sc == nil {
+		return
+	}
 
-// ReloadServices reloads services from the database
-func ReloadServices(cfg *config.Config) {
-	svcManager.mu.Lock()
-	defer svcManager.mu.Unlock()
-	svcManager.services = loadServicesFromDB(cfg)
-	log.Println("Services reloaded from database")
+	// Only auto-update the built-in demo service.
+	if sc.Name != "Demo Service" {
+		return
+	}
+
+	if sc.CheckType == "always_up" {
+		return
+	}
+
+	if sc.URL == "" || sc.URL == "https://httpstat.us/200" {
+		sc.URL = "http://localhost"
+		sc.CheckType = "always_up"
+		if sc.ExpectedMin == 0 {
+			sc.ExpectedMin = 200
+		}
+		if sc.ExpectedMax == 0 {
+			sc.ExpectedMax = 299
+		}
+		_ = database.UpdateService(sc)
+	}
 }
 
 // runScheduler runs health checks on a regular interval
-func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
+func runScheduler(alertMgr *alerts.Manager, interval time.Duration, tracker *monitor.FailureTracker) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// Batch check results for efficient DB operations
 	type checkResult struct {
 		Key      string
+		Name     string
 		OK       bool
 		Code     int
 		MS       *int
@@ -241,40 +227,12 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 			continue
 		}
 
-		// Sync svcManager.services with database
-		svcManager.mu.Lock()
-		// Create a map of existing services for quick lookup
-		existingMap := make(map[string]*models.Service)
-		for _, s := range svcManager.services {
-			existingMap[s.Key] = s
-		}
-
-		// Build updated services list
-		updatedServices := make([]*models.Service, 0, len(dbServices))
+		// Prune failure counts for deleted services
+		validKeys := make(map[string]struct{}, len(dbServices))
 		for _, sc := range dbServices {
-			if existing, ok := existingMap[sc.Key]; ok {
-				// Keep existing service (preserves ConsecutiveFailures)
-				updatedServices = append(updatedServices, existing)
-			} else {
-				// New service from database
-				timeout := time.Duration(sc.Timeout) * time.Second
-				if timeout == 0 {
-					timeout = 5 * time.Second
-				}
-				newSvc := &models.Service{
-					Key:     sc.Key,
-					Label:   sc.Name,
-					URL:     sc.URL,
-					Timeout: timeout,
-					MinOK:   sc.ExpectedMin,
-					MaxOK:   sc.ExpectedMax,
-				}
-				updatedServices = append(updatedServices, newSvc)
-				log.Printf("Added new service to scheduler: %s", sc.Key)
-			}
+			validKeys[sc.Key] = struct{}{}
 		}
-		svcManager.services = updatedServices
-		svcManager.mu.Unlock()
+		tracker.Prune(validKeys)
 
 		// Collect results for batch processing
 		results := make([]checkResult, 0, len(dbServices))
@@ -286,42 +244,26 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 				continue
 			}
 
-			// Build check URL
-			checkURL := sc.URL
-
 			timeout := time.Duration(sc.Timeout) * time.Second
 			if timeout == 0 {
 				timeout = 5 * time.Second
 			}
 
 			// Perform health check
-			checkOK, code, msPtr, errMsg := checker.HTTPCheck(checkURL, timeout, sc.ExpectedMin, sc.ExpectedMax)
-
-			// Get the service from manager to track consecutive failures
-			svcManager.mu.Lock()
-			var svc *models.Service
-			for _, s := range svcManager.services {
-				if s.Key == sc.Key {
-					svc = s
-					break
-				}
-			}
+			checkOK, code, msPtr, errMsg := checker.Check(checker.CheckOptions{
+				URL:         sc.URL,
+				Timeout:     timeout,
+				ExpectedMin: sc.ExpectedMin,
+				ExpectedMax: sc.ExpectedMax,
+				CheckType:   sc.CheckType,
+				ServiceType: sc.ServiceType,
+				APIToken:    sc.APIToken,
+			})
 
 			// Track consecutive failures
-			if svc != nil {
-				if checkOK {
-					svc.ConsecutiveFailures = 0
-				} else {
-					svc.ConsecutiveFailures++
-				}
-			}
-			svcManager.mu.Unlock()
+			consecutiveFailures := tracker.Update(sc.Key, checkOK)
 
 			// Service is considered OK if check passed OR if we haven't hit 2 consecutive failures yet
-			consecutiveFailures := 0
-			if svc != nil {
-				consecutiveFailures = svc.ConsecutiveFailures
-			}
 			ok := checkOK || consecutiveFailures < 2
 
 			// Check if service is degraded (slow response)
@@ -329,6 +271,7 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 
 			results = append(results, checkResult{
 				Key:      sc.Key,
+				Name:     sc.Name,
 				OK:       ok,
 				Code:     code,
 				MS:       msPtr,
@@ -375,10 +318,9 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration) {
 			_ = database.InsertLog(logLevel, database.LogCategoryCheck, r.Key, logMsg, logDetails)
 
 			// Send alerts if status changed
-			svcConfig, _ := database.GetServiceByKey(r.Key)
-			name := r.Key
-			if svcConfig != nil {
-				name = svcConfig.Name
+			name := r.Name
+			if name == "" {
+				name = r.Key
 			}
 			alertMgr.CheckAndSendAlerts(r.Key, name, r.OK, r.Degraded)
 		}

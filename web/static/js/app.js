@@ -1,6 +1,7 @@
 const REFRESH_MS = 15000;
 let DAYS = 30;
 let resourcesConfig = null; // Cache the config
+let isAdminUser = false;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const fmtMs = ms => ms == null ? '—' : ms + ' ms';
@@ -51,6 +52,24 @@ function setResText(id, value) {
 function setResClass(id, clsName) {
   const el = document.getElementById(id);
   if (el) el.className = clsName;
+}
+
+function applyAdminUIState() {
+  const adminPanel = $('#adminPanel');
+  if (isAdminUser) {
+    adminPanel?.classList.remove('hidden');
+    $$('.adminRow').forEach(e => e.classList.remove('hidden'));
+  } else {
+    adminPanel?.classList.add('hidden');
+    $$('.adminRow').forEach(e => e.classList.add('hidden'));
+  }
+}
+
+function shouldSuspendDashboardRefresh() {
+  const adminPanel = $('#adminPanel');
+  if (!adminPanel || adminPanel.classList.contains('hidden')) return false;
+  const rect = adminPanel.getBoundingClientRect();
+  return rect.top <= 80;
 }
 
 function meterClassForPct(p) {
@@ -259,6 +278,12 @@ async function testGlancesConnection() {
     network: $('#resourcesNetwork').checked,
     temp: $('#resourcesTemp').checked,
     storage: $('#resourcesStorage') ? $('#resourcesStorage').checked : true,
+    swap: $('#resourcesSwap') ? $('#resourcesSwap').checked : false,
+    load: $('#resourcesLoad') ? $('#resourcesLoad').checked : false,
+    gpu: $('#resourcesGPU') ? $('#resourcesGPU').checked : false,
+    containers: $('#resourcesContainers') ? $('#resourcesContainers').checked : false,
+    processes: $('#resourcesProcesses') ? $('#resourcesProcesses').checked : false,
+    uptime: $('#resourcesUptime') ? $('#resourcesUptime').checked : false,
   };
 
   await handleButtonAction(
@@ -506,8 +531,25 @@ async function refreshResources() {
       pill.className = hasAny ? 'pill ok' : 'pill warn';
     }
   } catch (e) {
+    // Distinguish error types to avoid false "UNAVAILABLE" on transient issues
+    const status = e.status || 0;
+    const errorType = e.body && e.body.error ? e.body.error : '';
+
+    if (status === 429) {
+      // Rate limited — keep previous state, don't reset tiles
+      // The next poll will succeed once the rate limit window passes
+      return;
+    }
+
+    if (status === 503 && errorType === 'not_configured') {
+      // Resources not configured — hide the entire section
+      if (section) section.classList.add('hidden');
+      return;
+    }
+
+    // Genuine error (502 Glances unreachable, network timeout, etc.)
     if (pill) {
-      pill.textContent = 'UNAVAILABLE';
+      pill.textContent = status === 502 ? 'UNREACHABLE' : 'UNAVAILABLE';
       pill.className = 'pill warn';
     }
     // Only reset meters for enabled tiles
@@ -651,7 +693,9 @@ function updCard(id, data) {
   
   // Show appropriate status message based on check type
   const checkType = (data.check_type || 'http').toLowerCase();
-  if (checkType === 'tcp') {
+  if (checkType === 'always_up') {
+    h.textContent = data.ok ? 'Always up' : 'Down';
+  } else if (checkType === 'tcp') {
     h.textContent = data.ok ? 'Port open' : 'Connection refused';
   } else if (checkType === 'dns') {
     h.textContent = data.ok ? 'DNS resolved' : 'Lookup failed';
@@ -731,9 +775,61 @@ function renderIncidents(items) {
   }
 
   list.innerHTML = items.map(i => {
-    const ts = new Date(i.taken_at).toLocaleString();
-    return `<li><span class="dot"></span><span>${ts}</span><span class="label"> — ${i.service_key} (${i.http_status || 'n/a'})</span></li>`;
+    const rawTs = i.taken_at || i.time || '';
+    let ts = '';
+    if (rawTs) {
+      const d = new Date(rawTs);
+      ts = Number.isNaN(d.getTime()) ? String(rawTs) : d.toLocaleString();
+    }
+
+    const svcRaw = i.service_name || i.service_key || '';
+    const svc = escapeHtml(svcRaw);
+    const statusCode = Number(i.http_status) || 0;
+    const latency = i.latency_ms ?? i.ping;
+    let err = '';
+    if (typeof i.error === 'string') err = i.error;
+    else if (typeof i.msg === 'string') err = i.msg;
+    if (err) {
+      err = err.trim();
+    }
+
+    const parts = [];
+    const checkType = String(i.check_type || '').trim();
+    if (checkType && checkType.toLowerCase() !== 'http') {
+      parts.push(checkType.toUpperCase());
+    }
+    if (statusCode > 0) parts.push(`HTTP ${statusCode}`);
+    if (latency && Number(latency) > 0) parts.push(`${Number(latency)}ms`);
+    if (err) parts.push(err);
+
+    const detail = parts.length ? parts.join(' | ') : 'down';
+    const summary = detail.length > 90 ? detail.slice(0, 87) + '...' : detail;
+
+    const payload = JSON.stringify({
+      time: ts || rawTs,
+      service: svcRaw,
+      check_type: checkType || 'http',
+      status: statusCode > 0 ? `HTTP ${statusCode}` : 'No response',
+      latency: latency && Number(latency) > 0 ? `${Number(latency)}ms` : '',
+      detail,
+      error: err || ''
+    }).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+
+    return `
+      <li class="incident-item" data-incident="${payload}">
+        <span class="dot"></span>
+        <div class="incident-content">
+          <span class="incident-time">${escapeHtml(ts)}</span>
+          <span class="incident-detail">${svc} (${escapeHtml(summary)})</span>
+        </div>
+        <span class="incident-action">Details</span>
+      </li>
+    `;
   }).join('');
+
+  $$('#incidents .incident-item').forEach(item => {
+    item.addEventListener('click', () => showIncidentDetails(item));
+  });
 }
 
 function updateServiceStats(metrics) {
@@ -976,6 +1072,8 @@ function showMobileTooltip(element, text, touch) {
 }
 
 async function refresh() {
+  const suspendDashboard = shouldSuspendDashboardRefresh();
+
   try {
     const live = await j('/api/check');
     $('#updated').textContent = new Date(live.t).toLocaleString();
@@ -994,9 +1092,15 @@ async function refresh() {
   }
 
   // Resources (Glances)
-  refreshResources();
+  if (!suspendDashboard) {
+    refreshResources();
+  }
 
   try {
+    if (suspendDashboard) {
+      return;
+    }
+
     const metrics = await j(`/api/metrics?days=${DAYS}`);
     $('#window').textContent = `Last ${DAYS} days`;
 
@@ -1013,8 +1117,12 @@ async function refresh() {
     const stats24h = await j('/api/metrics?hours=24');
     updateServiceStats(stats24h);
   } catch (e) {
-    // Metrics unavailable - render with no data
-    renderUptimeBars(null, DAYS);
+    // Rate limited — keep previous bars, don't wipe to empty
+    if (e.status === 429) return;
+    // Genuine error — render with no data
+    if (!suspendDashboard) {
+      renderUptimeBars(null, DAYS);
+    }
   }
 }
 
@@ -1102,20 +1210,20 @@ async function whoami() {
     const me = await j('/api/me');
 
     if (me.authenticated) {
+      isAdminUser = true;
       $('#welcome').textContent = 'Welcome, ' + me.user;
       $('#loginBtn').classList.add('hidden');
       $('#logoutBtn').classList.remove('hidden');
-      $('#adminPanel').classList.remove('hidden');
-      $$('.adminRow').forEach(e => e.classList.remove('hidden'));
+      applyAdminUIState();
       document.dispatchEvent(loginStateChanged);
       loadAlertsConfig();
       loadResourcesConfig();
     } else {
+      isAdminUser = false;
       $('#welcome').textContent = 'Public view';
       $('#loginBtn').classList.remove('hidden');
       $('#logoutBtn').classList.add('hidden');
-      $('#adminPanel').classList.add('hidden');
-      $$('.adminRow').forEach(e => e.classList.add('hidden'));
+      applyAdminUIState();
 
       // Reset login form
       const dlg = document.getElementById('loginModal');
@@ -1147,7 +1255,15 @@ async function handleButtonAction(btn, action, successMsg) {
     showToast(successMsg);
   } catch (err) {
     console.error(err);
-    showToast(err.message || 'Action failed', 'error');
+    let msg = err?.message || 'Action failed';
+    if (err?.body) {
+      if (typeof err.body === 'string') {
+        msg = err.body;
+      } else if (typeof err.body === 'object') {
+        msg = err.body.message || err.body.error || msg;
+      }
+    }
+    showToast(msg, 'error');
   } finally {
     btn.disabled = false;
     btn.classList.remove('loading');
@@ -1399,6 +1515,8 @@ async function saveAlertsConfig() {
     smtp_password: $('#smtpPassword').value,
     alert_email: $('#alertEmail').value,
     from_email: $('#alertFromEmail').value,
+    status_page_url: $('#statusPageUrl').value.trim(),
+    smtp_skip_verify: $('#smtpSkipVerify').checked,
     alert_on_down: $('#alertOnDown').checked,
     alert_on_degraded: $('#alertOnDegraded').checked,
     alert_on_up: $('#alertOnUp').checked
@@ -1457,6 +1575,8 @@ async function loadAlertsConfig() {
       $('#smtpPassword').value = config.smtp_password || '';
       $('#alertEmail').value = config.alert_email || '';
       $('#alertFromEmail').value = config.from_email || '';
+      $('#statusPageUrl').value = config.status_page_url || '';
+      $('#smtpSkipVerify').checked = config.smtp_skip_verify || false;
       $('#alertOnDown').checked = config.alert_on_down !== false;
       $('#alertOnDegraded').checked = config.alert_on_degraded !== false;
       $('#alertOnUp').checked = config.alert_on_up || false;
@@ -1747,6 +1867,11 @@ function formatBannerTime(isoString) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function normalizeAlertLevel(level) {
+  const allowed = ['info', 'warning', 'error'];
+  return allowed.includes(level) ? level : 'info';
+}
+
 function renderSiteBanners(banners) {
   const container = $('#siteAlerts');
   if (!container) return;
@@ -1756,14 +1881,16 @@ function renderSiteBanners(banners) {
   const globalBanners = banners.filter(b => !b.service_key);
 
   globalBanners.forEach(b => {
+    const level = normalizeAlertLevel(b.level);
+    const message = escapeHtml(b.message || '');
     const div = document.createElement('div');
-    div.className = `site-alert ${b.level}`;
+    div.className = `site-alert ${level}`;
     div.dataset.id = b.id;
     const timeStr = formatBannerTime(b.created_at);
     div.innerHTML = `
-      ${getAlertIcon(b.level)}
+      ${getAlertIcon(level)}
       <div class="site-alert-content">
-        <span class="site-alert-message">${b.message}</span>
+        <span class="site-alert-message">${message}</span>
         <span class="site-alert-time">${timeStr}</span>
       </div>
     `;
@@ -1779,6 +1906,8 @@ function renderServiceBanners(banners) {
   const serviceBanners = banners.filter(b => b.service_key);
 
   serviceBanners.forEach(b => {
+    const level = normalizeAlertLevel(b.level);
+    const message = escapeHtml(b.message || '');
     const card = $(`#card-${b.service_key}`);
     if (!card) return;
 
@@ -1787,13 +1916,13 @@ function renderServiceBanners(banners) {
     if (existing) return;
 
     const alertDiv = document.createElement('div');
-    alertDiv.className = `service-alert ${b.level}`;
+    alertDiv.className = `service-alert ${level}`;
     alertDiv.dataset.id = b.id;
     const timeStr = formatBannerTime(b.created_at);
     alertDiv.innerHTML = `
-      ${getServiceAlertIcon(b.level)}
+      ${getServiceAlertIcon(level)}
       <div class="service-alert-content">
-        <span>${b.message}</span>
+        <span>${message}</span>
         <span class="service-alert-time">${timeStr}</span>
       </div>
     `;
@@ -1823,13 +1952,15 @@ async function loadAdminBanners() {
 
     list.innerHTML = '';
     banners.forEach(b => {
+      const level = normalizeAlertLevel(b.level);
+      const message = escapeHtml(b.message || '');
       const div = document.createElement('div');
       div.className = 'banner-item';
-      const scopeLabel = b.service_key ? b.service_key.charAt(0).toUpperCase() + b.service_key.slice(1) : 'Global';
+      const scopeLabel = escapeHtml(b.service_key ? b.service_key.charAt(0).toUpperCase() + b.service_key.slice(1) : 'Global');
       div.innerHTML = `
-        <span class="banner-item-level ${b.level}">${b.level.toUpperCase()}</span>
+        <span class="banner-item-level ${level}">${level.toUpperCase()}</span>
         <div class="banner-item-content">
-          <span class="banner-item-msg">${b.message}</span>
+          <span class="banner-item-msg">${message}</span>
           <span class="banner-item-service">${scopeLabel}</span>
         </div>
         <button class="banner-delete">Delete</button>
@@ -2052,13 +2183,15 @@ function renderServiceCards(services) {
     card.setAttribute('data-key', svc.key);
 
     const iconHtml = getServiceIconHtml(svc);
+    const svcName = escapeHtml(svc.name || '');
+    const svcLabel = escapeHtml(getServiceLabel(svc.service_type));
 
     // Match original structure - no clickable link exposing URL
     card.innerHTML = `
       <div class="row">
         <div class="row-left">
           ${iconHtml}
-          <div><strong>${svc.name}</strong><div class="label">${getServiceLabel(svc.service_type)}</div></div>
+          <div><strong>${svcName}</strong><div class="label">${svcLabel}</div></div>
         </div>
         <span class="pill warn">—</span>
       </div>
@@ -2105,6 +2238,8 @@ function renderServiceCards(services) {
     toggle.removeEventListener('change', toggleMonitoringHandler);
     toggle.addEventListener('change', toggleMonitoringHandler);
   });
+
+  applyAdminUIState();
 }
 
 // Get service label based on type
@@ -2147,6 +2282,9 @@ function getProtocolBadge(svc) {
   const url = (svc.url || '').toLowerCase();
   const checkType = (svc.check_type || 'http').toLowerCase();
   
+  if (checkType === 'always_up') {
+    return 'DEMO';
+  }
   if (checkType === 'tcp' || url.startsWith('tcp://')) {
     return 'TCP';
   }
@@ -2172,11 +2310,12 @@ function renderDynamicUptimeBars(services) {
 
   services.forEach(svc => {
     const protocolBadge = getProtocolBadge(svc);
+    const svcName = escapeHtml(svc.name || '');
     const row = document.createElement('div');
     row.className = 'service-uptime';
     row.innerHTML = `
       <div class="service-uptime-header">
-        <span class="service-name">${svc.name}</span>
+        <span class="service-name">${svcName}</span>
         <span class="protocol-badge">${protocolBadge}</span>
         <span class="uptime-percent" id="uptime-${svc.key}">—%</span>
       </div>
@@ -2206,7 +2345,8 @@ function renderAdminServicesList(services) {
     const iconHtml = getServiceIconHtml(svc);
 
     // Mask the URL for display (only show domain)
-    const urlDisplay = maskUrl(svc.url);
+    const urlDisplay = escapeHtml(maskUrl(svc.url));
+    const svcName = escapeHtml(svc.name || '');
 
     item.innerHTML = `
       <span class="drag-handle desktop-only">⋮⋮</span>
@@ -2216,7 +2356,7 @@ function renderAdminServicesList(services) {
       </div>
       <span class="service-icon-wrap">${iconHtml}</span>
       <div class="service-info">
-        <div class="service-name">${svc.name}</div>
+        <div class="service-name">${svcName}</div>
         <div class="service-url">${urlDisplay}</div>
       </div>
       <div class="service-actions">
@@ -2267,18 +2407,27 @@ async function moveService(id, direction) {
   [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
 
   try {
-    const res = await fetch('/api/admin/services/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order: newOrder }),
-      credentials: 'same-origin'
+    const orders = {};
+    newOrder.forEach((serviceID, index) => {
+      orders[serviceID] = index;
     });
 
-    if (res.ok) {
-      loadServices();
-    }
+    await j('/api/admin/services/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({ orders })
+    });
+
+    await loadAllServices();
+    loadServices().then(services => {
+      renderDynamicUptimeBars(services);
+    });
   } catch (err) {
     console.error('Failed to reorder:', err);
+    showToast('Failed to reorder services', 'error');
   }
 }
 
@@ -3223,7 +3372,6 @@ function renderLogEntry(log) {
   const categoryLabel = categoryLabels[category] || category;
 
   // Escape details for use in data attribute
-  const detailsAttr = details ? details.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : '';
 
   return `
     <div class="log-entry ${level}" onclick="showLogDetails(this)" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
@@ -3300,10 +3448,67 @@ function showLogDetails(el) {
   }
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+function showIncidentDetails(el) {
+  try {
+    const data = JSON.parse(el.dataset.incident.replace(/&#39;/g, "'"));
+    const levelIcon = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+
+    const modal = document.createElement('div');
+    modal.className = 'log-detail-modal';
+    modal.innerHTML = `
+      <div class="log-detail-content">
+        <div class="log-detail-header">
+          <div class="log-detail-level level-error">
+            ${levelIcon}
+            <span>INCIDENT</span>
+          </div>
+          <button class="log-detail-close" onclick="this.closest('.log-detail-modal').remove()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="log-detail-body">
+          <div class="log-detail-row">
+            <span class="log-detail-label">Time</span>
+            <span class="log-detail-value">${escapeHtml(data.time || '')}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Service</span>
+            <span class="log-detail-value">${escapeHtml(data.service || '')}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Check</span>
+            <span class="log-detail-value">${escapeHtml((data.check_type || 'http').toUpperCase())}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Status</span>
+            <span class="log-detail-value">${escapeHtml(data.status || 'Down')}</span>
+          </div>
+          ${data.latency ? `<div class="log-detail-row">
+            <span class="log-detail-label">Latency</span>
+            <span class="log-detail-value">${escapeHtml(data.latency)}</span>
+          </div>` : ''}
+          ${data.error ? `<div class="log-detail-row">
+            <span class="log-detail-label">Error</span>
+            <span class="log-detail-value">${escapeHtml(data.error)}</span>
+          </div>` : ''}
+          <div class="log-detail-row">
+            <span class="log-detail-label">Details</span>
+            <span class="log-detail-value">${escapeHtml(data.detail || '')}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+
+    document.body.appendChild(modal);
+  } catch (err) {
+    console.error('Failed to show incident details:', err);
+  }
 }
 
 function renderLogsEmpty(selector) {
@@ -3382,14 +3587,16 @@ async function populateServiceFilter() {
   if (!serviceSelect) return;
 
   try {
-    const data = await j('/api/data');
-    if (data && data.services) {
+    const services = await j('/api/admin/services', {
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    if (Array.isArray(services)) {
       // Clear existing options except the first "All Services" option
       while (serviceSelect.options.length > 1) {
         serviceSelect.remove(1);
       }
       // Add service options
-      data.services.forEach(svc => {
+      services.forEach(svc => {
         const opt = document.createElement('option');
         opt.value = svc.key;
         opt.textContent = svc.name || svc.key;

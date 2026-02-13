@@ -76,6 +76,8 @@ type AlertConfig struct {
 	SMTPPassword    string `json:"smtp_password"`
 	AlertEmail      string `json:"alert_email"`
 	FromEmail       string `json:"from_email"`
+	StatusPageURL   string `json:"status_page_url"`
+	SMTPSkipVerify  bool   `json:"smtp_skip_verify"`
 	AlertOnDown     bool   `json:"alert_on_down"`
 	AlertOnDegraded bool   `json:"alert_on_degraded"`
 	AlertOnUp       bool   `json:"alert_on_up"`

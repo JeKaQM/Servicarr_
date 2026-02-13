@@ -5,7 +5,7 @@ import (
 	"status/app/internal/alerts"
 	"status/app/internal/auth"
 	"status/app/internal/database"
-	"status/app/internal/models"
+	"status/app/internal/monitor"
 	"status/app/internal/ratelimit"
 	"status/app/internal/resources"
 	"status/app/internal/security"
@@ -25,10 +25,9 @@ func RateLimitMiddleware(limiter *ratelimit.Limiter, next http.Handler) http.Han
 }
 
 // SetupRoutes configures all HTTP routes and middlewares
-func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*models.Service, gl *resources.Client) http.Handler {
+func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.FailureTracker, gl *resources.Client) http.Handler {
 	// Public API routes (with rate limiting)
 	api := http.NewServeMux()
-	api.HandleFunc("/api/check", HandleCheck(services))
 	api.HandleFunc("/api/metrics", HandleMetrics())
 	api.HandleFunc("/api/uptime", HandleUptimeStats())          // New efficient uptime stats
 	api.HandleFunc("/api/heartbeats", HandleRecentHeartbeats()) // New recent heartbeats
@@ -39,10 +38,10 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 
 	// Admin API routes (with authentication)
 	authAPI := http.NewServeMux()
-	authAPI.HandleFunc("/api/admin/ingest-now", authMgr.RequireAuth(HandleIngestNow(services)))
+	authAPI.HandleFunc("/api/admin/ingest-now", authMgr.RequireAuth(HandleIngestNow(tracker)))
 	authAPI.HandleFunc("/api/admin/reset-recent", authMgr.RequireAuth(HandleResetRecent()))
-	authAPI.HandleFunc("/api/admin/check", authMgr.RequireAuth(HandleAdminCheck(services)))
-	authAPI.HandleFunc("/api/admin/toggle-monitoring", authMgr.RequireAuth(HandleToggleMonitoring(services)))
+	authAPI.HandleFunc("/api/admin/check", authMgr.RequireAuth(HandleAdminCheck(tracker)))
+	authAPI.HandleFunc("/api/admin/toggle-monitoring", authMgr.RequireAuth(HandleToggleMonitoring(tracker)))
 	authAPI.HandleFunc("/api/admin/blocks", authMgr.RequireAuth(HandleListBlocks()))
 	authAPI.HandleFunc("/api/admin/unblock", authMgr.RequireAuth(HandleUnblockIP()))
 	authAPI.HandleFunc("/api/admin/clear-blocks", authMgr.RequireAuth(HandleClearAllBlocks()))
@@ -228,7 +227,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, services []*model
 	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, authAPI))
 
 	// Public API: 30 requests/minute for check endpoint (prevents abuse)
-	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(services))))
+	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(tracker))))
 
 	// Other public API endpoints: standard rate limit
 	mux.HandleFunc("/api/status-alerts", HandleGetStatusAlerts()) // Public, no rate limit

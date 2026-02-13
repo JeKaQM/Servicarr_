@@ -177,6 +177,8 @@ type exportAlertConfig struct {
 	SMTPUser        string `json:"smtp_user"`
 	AlertEmail      string `json:"alert_email"`
 	FromEmail       string `json:"from_email"`
+	StatusPageURL   string `json:"status_page_url"`
+	SMTPSkipVerify  bool   `json:"smtp_skip_verify"`
 	AlertOnDown     bool   `json:"alert_on_down"`
 	AlertOnDegraded bool   `json:"alert_on_degraded"`
 	AlertOnUp       bool   `json:"alert_on_up"`
@@ -191,6 +193,12 @@ type exportResourcesConfig struct {
 	Network    bool   `json:"network"`
 	Temp       bool   `json:"temp"`
 	Storage    bool   `json:"storage"`
+	Swap       bool   `json:"swap"`
+	Load       bool   `json:"load"`
+	GPU        bool   `json:"gpu"`
+	Containers bool   `json:"containers"`
+	Processes  bool   `json:"processes"`
+	Uptime     bool   `json:"uptime"`
 }
 
 type exportSample struct {
@@ -252,6 +260,8 @@ func HandleExportDatabase() http.HandlerFunc {
 				SMTPUser:        alertCfg.SMTPUser,
 				AlertEmail:      alertCfg.AlertEmail,
 				FromEmail:       alertCfg.FromEmail,
+				StatusPageURL:   alertCfg.StatusPageURL,
+				SMTPSkipVerify:  alertCfg.SMTPSkipVerify,
 				AlertOnDown:     alertCfg.AlertOnDown,
 				AlertOnDegraded: alertCfg.AlertOnDegraded,
 				AlertOnUp:       alertCfg.AlertOnUp,
@@ -268,6 +278,12 @@ func HandleExportDatabase() http.HandlerFunc {
 				Network:    resCfg.Network,
 				Temp:       resCfg.Temp,
 				Storage:    resCfg.Storage,
+				Swap:       resCfg.Swap,
+				Load:       resCfg.Load,
+				GPU:        resCfg.GPU,
+				Containers: resCfg.Containers,
+				Processes:  resCfg.Processes,
+				Uptime:     resCfg.Uptime,
 			}
 		}
 
@@ -350,6 +366,12 @@ func HandleImportDatabase() http.HandlerFunc {
 		// Import services (clear existing first)
 		if len(export.Services) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM services`)
+			_, _ = database.DB.Exec(`DELETE FROM service_state`)
+			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
+			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
+			_, _ = database.DB.Exec(`DELETE FROM heartbeats`)
 			for _, s := range export.Services {
 				svc := &models.ServiceConfig{
 					Key:           s.Key,
@@ -379,6 +401,8 @@ func HandleImportDatabase() http.HandlerFunc {
 				SMTPUser:        export.AlertConfig.SMTPUser,
 				AlertEmail:      export.AlertConfig.AlertEmail,
 				FromEmail:       export.AlertConfig.FromEmail,
+				StatusPageURL:   export.AlertConfig.StatusPageURL,
+				SMTPSkipVerify:  export.AlertConfig.SMTPSkipVerify,
 				AlertOnDown:     export.AlertConfig.AlertOnDown,
 				AlertOnDegraded: export.AlertConfig.AlertOnDegraded,
 				AlertOnUp:       export.AlertConfig.AlertOnUp,
@@ -396,6 +420,12 @@ func HandleImportDatabase() http.HandlerFunc {
 				Network:    export.Resources.Network,
 				Temp:       export.Resources.Temp,
 				Storage:    export.Resources.Storage,
+				Swap:       export.Resources.Swap,
+				Load:       export.Resources.Load,
+				GPU:        export.Resources.GPU,
+				Containers: export.Resources.Containers,
+				Processes:  export.Resources.Processes,
+				Uptime:     export.Resources.Uptime,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
@@ -464,6 +494,9 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 		tables := []string{
 			"services",
 			"samples",
+			"ip_blocks",
+			"ip_whitelist",
+			"ip_blacklist",
 			"service_state",
 			"alert_config",
 			"resources_ui_config",
@@ -474,6 +507,7 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"stat_hourly",
 			"stat_daily",
 			"heartbeats",
+			"system_logs",
 		}
 
 		for _, table := range tables {

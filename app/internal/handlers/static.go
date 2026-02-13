@@ -93,7 +93,7 @@ func HandleStatic() http.HandlerFunc {
 // HandleFavicon serves the favicon
 func HandleFavicon() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/x-icon")
-		http.ServeFile(w, r, "web/static/images/favicon.ico")
+		w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+		http.ServeFile(w, r, "web/static/images/favicon.svg")
 	}
 }

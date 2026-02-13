@@ -156,10 +156,10 @@ var (
 		ErrorMessage:    "Too many login attempts. Please try again later.",
 	})
 
-	// APILimiter limits API requests to 60 per minute per IP
+	// APILimiter limits API requests to 120 per minute per IP
 	APILimiter = New(Config{
-		TokensPerMinute: 60,
-		MaxTokens:       60,
+		TokensPerMinute: 120,
+		MaxTokens:       120,
 		ErrorMessage:    "Too many requests. Please slow down.",
 	})
 

@@ -8,7 +8,9 @@ services:
     env_file:
       - ../.env
     environment:
-      - UNBLOCK_TOKEN=test123
+      # Set a secure random token for the self-unblock endpoint
+      # Generate one with: openssl rand -hex 32
+      - UNBLOCK_TOKEN=${UNBLOCK_TOKEN:-}
     ports:
       - "0.0.0.0:4555:4555"
     volumes:
