@@ -247,13 +247,13 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
   <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
     %s
   </div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0c121c; padding:32px 12px;">
+  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background-color:#0c121c; padding:32px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; background-color:#111827; border:1px solid #1f2937; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
+        <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="max-width:620px; background-color:#111827; border:1px solid #1f2937; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
           <tr>
             <td style="padding:28px 28px 18px 28px; border-bottom:1px solid #1f2937;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
                     <div style="font-size:18px; font-weight:700; letter-spacing:0.5px;">Servicarr</div>
@@ -273,7 +273,7 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
               <div style="font-size:22px; font-weight:700; margin-bottom:10px;">%s</div>
               <div style="color:#9ca3af; font-size:13px; margin-bottom:18px;">%s</div>
               <div style="background-color:#0f172a; border:1px solid #1f2937; border-radius:12px; padding:16px; margin-bottom:22px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="color:#9ca3af; font-size:12px; padding-bottom:6px;">Service</td>
                     <td style="text-align:right; color:#e5e7eb; font-size:13px; font-weight:600;">%s</td>
@@ -298,7 +298,7 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
           <tr>
             <td style="padding:18px 28px 26px 28px; border-top:1px solid #1f2937; color:#9ca3af; font-size:11px; line-height:1.6;">
               This is an automated alert from your Servicarr monitor. You are receiving this because alerts are enabled.
-              <div style="margin-top:8px; color:#6b7280;">? 2026 Servicarr</div>
+              <div style="margin-top:8px; color:#6b7280;">&#169; 2026 Servicarr</div>
             </td>
           </tr>
         </table>
