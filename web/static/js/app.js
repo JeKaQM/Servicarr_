@@ -770,7 +770,7 @@ function renderChart(overall) {
 function renderIncidents(items) {
   const list = $('#incidents');
   if (!items?.length) {
-    list.innerHTML = '<li class="label">No incidents in last 24h</li>';
+    list.innerHTML = '<li class="no-incidents"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg> No incidents in last 24h</li>';
     return;
   }
 
