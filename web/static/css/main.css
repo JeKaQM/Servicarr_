@@ -85,7 +85,7 @@ main {
   padding: 16px;
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(280px,1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 }
 
 /* When matrix is active, main switches to single-column full-width */
@@ -1111,9 +1111,25 @@ li {
   background: var(--down);
 }
 
+/* Incidents card */
+.incidents-card {
+  grid-column: 1 / -1;
+}
+
+.incidents-card:hover {
+  transform: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.25);
+}
+
+#incidents {
+  max-height: 260px;
+}
+
 #incidents li {
   align-items: flex-start;
   gap: 10px;
+  border-bottom: none;
+  padding: 0;
 }
 
 #incidents .dot {
@@ -1123,15 +1139,17 @@ li {
 
 #incidents .incident-item {
   cursor: pointer;
-  padding: 10px 12px;
-  margin: 0 -12px;
-  border-radius: 10px;
-  transition: background 0.15s, transform 0.15s;
+  padding: 8px 12px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 #incidents .incident-item:hover {
   background: rgba(255, 255, 255, 0.04);
-  transform: translateX(2px);
 }
 
 #incidents .incident-content {
@@ -1149,22 +1167,24 @@ li {
 
 #incidents .incident-detail {
   color: var(--text);
+  font-size: 13px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
 #incidents .incident-action {
-  margin-left: auto;
+  margin-left: 12px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 10px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
+  flex-shrink: 0;
   transition: color 0.15s;
 }
 
