@@ -36,8 +36,21 @@
   </header>
 
   <main>
+    <!-- View toggle -->
+    <div class="view-toggle-bar">
+      <button class="view-toggle-btn active" id="viewCards" title="Card view">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+      </button>
+      <button class="view-toggle-btn" id="viewHive" title="Hive overview">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l3 1.7v3.6L8 8 5 6.3V2.7L8 1zm-5 4.3l3 1.7v3.6L3 12.3 0 10.6V7L3 5.3zm10 0l3 1.7v3.6l-3 1.7-3-1.7V7l3-1.7z"/></svg>
+      </button>
+    </div>
+
     <!-- Dynamic service cards will be rendered here by JavaScript -->
     <div id="services-container"></div>
+
+    <!-- Hive overview (hidden by default) -->
+    <div id="hive-container" class="hive-container hidden"></div>
 
     <section class="card">
       <div class="row"><div><strong>Recent incidents</strong><div class="label">Last 24h</div></div></div>

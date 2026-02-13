@@ -1080,12 +1080,17 @@ async function refresh() {
 
     // Update cards dynamically based on services returned from API
     if (live.status) {
+      latestLiveStatus = live.status;  // cache for hive view
+
       Object.keys(live.status).forEach(key => {
         const cardEl = document.getElementById(`card-${key}`);
         if (cardEl) {
           updCard(`card-${key}`, live.status[key] || {});
         }
       });
+
+      // Re-render hive if active
+      if (currentView === 'hive') renderHive();
     }
   } catch (e) {
     console.error('live check failed', e);
@@ -1635,6 +1640,9 @@ window.addEventListener('load', async () => {
 
   // Initialize settings tab (admin features)
   initSettingsTab();
+
+  // Initialize view toggle (Cards / Hive)
+  initViewToggle();
 
   // Start the refresh cycle immediately (don't wait for services)
   refresh();
@@ -2275,6 +2283,102 @@ function checkNowHandler(e) {
 
 function toggleMonitoringHandler(e) {
   toggleMonitoring(e.target.closest('.card'), e.target.checked);
+}
+
+/* ── View Toggle (Cards ↔ Hive) ────────────────────────── */
+let currentView = 'cards';   // 'cards' | 'hive'
+let latestLiveStatus = null;  // cache last /api/check result for hive
+
+function initViewToggle() {
+  const btnCards = $('#viewCards');
+  const btnHive  = $('#viewHive');
+  if (!btnCards || !btnHive) return;
+
+  btnCards.addEventListener('click', () => switchView('cards'));
+  btnHive.addEventListener('click',  () => switchView('hive'));
+}
+
+function switchView(view) {
+  currentView = view;
+  const cards = $('#services-container');
+  const hive  = $('#hive-container');
+  const btnC  = $('#viewCards');
+  const btnH  = $('#viewHive');
+
+  if (view === 'hive') {
+    cards && cards.classList.add('hidden');
+    hive  && hive.classList.remove('hidden');
+    btnC  && btnC.classList.remove('active');
+    btnH  && btnH.classList.add('active');
+    renderHive();
+  } else {
+    hive  && hive.classList.add('hidden');
+    cards && cards.classList.remove('hidden');
+    btnH  && btnH.classList.remove('active');
+    btnC  && btnC.classList.add('active');
+  }
+}
+
+function renderHive() {
+  const container = $('#hive-container');
+  if (!container) return;
+  if (!servicesData || servicesData.length === 0) {
+    container.innerHTML = '<div style="color:#9ca3af;text-align:center;padding:32px;">No services configured</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+
+  servicesData.forEach(svc => {
+    const cell = document.createElement('div');
+    cell.className = 'hive-cell';
+
+    // Determine status from cached live data
+    let statusClass = 'unknown';
+    let statusLabel = 'Unknown';
+    let msText = '';
+    if (latestLiveStatus && latestLiveStatus[svc.key]) {
+      const s = latestLiveStatus[svc.key];
+      if (s.disabled) {
+        statusClass = 'disabled';
+        statusLabel = 'Disabled';
+      } else if (!s.ok) {
+        statusClass = 'down';
+        statusLabel = 'Down';
+      } else if (s.degraded) {
+        statusClass = 'degraded';
+        statusLabel = 'Degraded';
+      } else {
+        statusClass = 'up';
+        statusLabel = 'Operational';
+      }
+      if (s.ms != null) msText = s.ms + 'ms';
+    }
+
+    // Build icon for hive cell — smaller, centered
+    let hiveIconHtml = '';
+    if (svc.icon_url) {
+      hiveIconHtml = `<img src="${svc.icon_url}" class="hive-icon" alt="${escapeHtml(svc.service_type || '')}" onerror="this.style.display='none'"/>`;
+    } else {
+      const raw = getServiceIconHtml(svc);
+      if (raw.includes('<img')) {
+        hiveIconHtml = raw.replace(/class="icon[^"]*"/g, 'class="hive-icon"');
+      } else {
+        hiveIconHtml = `<span class="hive-icon-placeholder">${raw.replace(/<\/?span[^>]*>/g, '')}</span>`;
+      }
+    }
+
+    cell.innerHTML = `
+      <div class="hive-hex ${statusClass}">
+        ${hiveIconHtml}
+        <span class="hive-name">${name}</span>
+        ${msText ? `<span class="hive-ms">${msText}</span>` : ''}
+      </div>
+      <div class="hive-tooltip">${name} — ${statusLabel}${msText ? ' (' + msText + ')' : ''}</div>
+    `;
+
+    container.appendChild(cell);
+  });
 }
 
 // Detect the actual protocol from URL and check_type

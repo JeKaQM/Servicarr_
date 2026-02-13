@@ -1153,31 +1153,6 @@ canvas {
   cursor: not-allowed;
 }
 
-.btn.loading {
-  padding-right: 35px;
-}
-
-.btn.loading::after {
-  content: "";
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 15px;
-  height: 15px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-right-color: currentColor;
-  border-radius: 50%;
-  animation: spinButton 0.6s linear infinite;
-}
-
-@keyframes spinButton {
-  to {
-    transform: translateY(-50%) rotate(360deg);
-  }
-}
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -4566,4 +4541,176 @@ dialog.confirm-dialog::backdrop {
 
 @keyframes btn-spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── View Toggle Bar ─────────────────────────────────────── */
+.view-toggle-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  justify-content: flex-end;
+}
+
+.view-toggle-btn {
+  background: rgba(31, 41, 55, 0.6);
+  border: 1px solid var(--border);
+  color: #9ca3af;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.view-toggle-btn:hover {
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+.view-toggle-btn.active {
+  background: #22c55e;
+  color: #0c121c;
+  border-color: #22c55e;
+}
+
+/* ── Hive Overview ───────────────────────────────────────── */
+.hive-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 24px 16px;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.5), rgba(0, 0, 0, 0.3));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+
+.hive-cell {
+  position: relative;
+  width: 80px;
+  height: 92px;
+  cursor: pointer;
+  transition: transform 0.2s, filter 0.2s;
+  /* offset every other row */
+}
+
+.hive-cell:hover {
+  transform: scale(1.12);
+  z-index: 2;
+  filter: brightness(1.2);
+}
+
+.hive-hex {
+  width: 100%;
+  height: 100%;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 14px 6px;
+  transition: background 0.3s;
+}
+
+.hive-hex.up {
+  background: linear-gradient(160deg, rgba(34, 197, 94, 0.5), rgba(34, 197, 94, 0.25));
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.hive-hex.down {
+  background: linear-gradient(160deg, rgba(248, 113, 113, 0.55), rgba(248, 113, 113, 0.3));
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+.hive-hex.degraded {
+  background: linear-gradient(160deg, rgba(251, 191, 36, 0.5), rgba(251, 191, 36, 0.25));
+  border-color: rgba(251, 191, 36, 0.6);
+}
+
+.hive-hex.disabled {
+  background: linear-gradient(160deg, rgba(100, 116, 139, 0.25), rgba(100, 116, 139, 0.12));
+  border-color: rgba(100, 116, 139, 0.3);
+}
+
+.hive-hex.unknown {
+  background: linear-gradient(160deg, rgba(100, 116, 139, 0.25), rgba(100, 116, 139, 0.12));
+  border-color: rgba(100, 116, 139, 0.3);
+}
+
+.hive-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.hive-icon-placeholder {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.hive-name {
+  font-size: 9px;
+  font-weight: 600;
+  color: #e5e7eb;
+  text-align: center;
+  line-height: 1.1;
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hive-ms {
+  font-size: 8px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.hive-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.92);
+  color: #e5e7eb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.hive-cell:hover .hive-tooltip {
+  opacity: 1;
+}
+
+/* Responsive hive */
+@media (max-width: 600px) {
+  .hive-cell {
+    width: 64px;
+    height: 74px;
+  }
+  .hive-icon, .hive-icon-placeholder {
+    width: 18px;
+    height: 18px;
+    font-size: 12px;
+  }
+  .hive-name { font-size: 8px; max-width: 48px; }
+  .hive-ms { font-size: 7px; }
 }
