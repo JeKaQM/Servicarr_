@@ -2433,11 +2433,23 @@ function renderMatrix() {
 
   if (!servicesData || servicesData.length === 0) {
     container.innerHTML = '<div style="color:#9ca3af;text-align:center;padding:48px;">No services configured</div>';
+    container.style.height = '';
     stopMatrixAnimation();
     return;
   }
 
   container.innerHTML = '';
+
+  // ── Dynamic sizing based on service count ──
+  const count    = servicesData.length;
+  const RING_D   = 48;   // node ring diameter (px)
+  const NODE_PAD = 40;   // extra clearance around each node for label
+  const HUB_PAD  = 60;   // minimum space from hub to ring
+  // Ideal orbital radius grows with count so nodes don't overlap
+  const idealRadius = Math.max(120, HUB_PAD + (count * (RING_D + NODE_PAD)) / (2 * Math.PI));
+  // Container must fit the full orbit + node overflow + padding
+  const containerH = Math.max(300, Math.ceil((idealRadius + RING_D + NODE_PAD) * 2 + 40));
+  container.style.height = containerH + 'px';
 
   // Canvas for animated lines
   const canvas = document.createElement('canvas');
@@ -2474,16 +2486,17 @@ function renderMatrix() {
     hub.style.left = cx + 'px';
     hub.style.top  = cy + 'px';
 
-    // Calculate positions — elliptical ring around centre
-    const count = servicesData.length;
-    const rx = Math.min(cx - 50, 260);  // horizontal radius
-    const ry = Math.min(cy - 50, 180);  // vertical radius
+    // Calculate orbital radii — elliptical, capped to available space
+    const rx = Math.min(cx - RING_D - 20, idealRadius);  // horizontal radius
+    const ry = Math.min(cy - RING_D - 20, idealRadius);  // vertical radius
+    const ringHalf = RING_D / 2; // 24 px — half the ring height
     const nodePositions = [];
 
     servicesData.forEach((svc, i) => {
       const angle = (2 * Math.PI * i / count) - Math.PI / 2;
-      const nx = cx + rx * Math.cos(angle);
-      const ny = cy + ry * Math.sin(angle);
+      // Ring centre coordinates — this is where lines will connect
+      const ringCX = cx + rx * Math.cos(angle);
+      const ringCY = cy + ry * Math.sin(angle);
       const { statusClass, statusLabel, ms } = matrixStatusOf(svc);
 
       // Build icon HTML
@@ -2504,15 +2517,19 @@ function renderMatrix() {
 
       const node = document.createElement('div');
       node.className = 'matrix-node';
-      node.style.left = nx + 'px';
-      node.style.top  = ny + 'px';
+      // Position so the ring centre sits at (ringCX, ringCY).
+      // CSS uses translateX(-50%) only, so left centres horizontally.
+      // top = ringCY - ringHalf puts the top of the ring at the right
+      // spot so its centre is exactly ringCY.
+      node.style.left = ringCX + 'px';
+      node.style.top  = (ringCY - ringHalf) + 'px';
       node.innerHTML =
         '<div class="matrix-node-ring ' + statusClass + '">' + iconHtml + '</div>' +
         '<span class="matrix-node-label">' + name + '</span>' +
         (msText ? '<span class="matrix-node-ms">' + msText + '</span>' : '');
 
       // Tooltip on hover
-      const tipText = name + ' — ' + statusLabel + (msText ? ' (' + msText + ')' : '');
+      const tipText = name + ' \u2014 ' + statusLabel + (msText ? ' (' + msText + ')' : '');
       node.addEventListener('mouseenter', function(e) {
         matrixTooltipEl.textContent = tipText;
         matrixTooltipEl.classList.add('visible');
@@ -2527,9 +2544,10 @@ function renderMatrix() {
 
       nodesLayer.appendChild(node);
 
+      // Canvas lines target the ring centre, not the DOM node centre
       nodePositions.push({
-        x: nx,
-        y: ny,
+        x: ringCX,
+        y: ringCY,
         status: statusClass,
         phase: i * 600  // stagger pulse per node
       });
