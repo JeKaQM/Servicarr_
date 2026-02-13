@@ -822,7 +822,7 @@ function renderIncidents(items) {
           <span class="incident-time">${escapeHtml(ts)}</span>
           <span class="incident-detail">${svc} (${escapeHtml(summary)})</span>
         </div>
-        <span class="incident-action">Details</span>
+        <span class="incident-action">Details <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
       </li>
     `;
   }).join('');
@@ -1088,6 +1088,10 @@ async function refresh() {
           updCard(`card-${key}`, live.status[key] || {});
         }
       });
+
+      // Update global health dot & summary bar
+      updateHealthDot(live.status);
+      updateStatusSummary(live.status);
 
       // Re-render matrix if active
       if (currentView === 'matrix') renderMatrix();
@@ -2300,24 +2304,69 @@ function initViewToggle() {
   btnMatrix.addEventListener('click', () => switchView('matrix'));
 }
 
+/* ── Global Health Dot ─────────────────────────────────── */
+function updateHealthDot(statusMap) {
+  const dot = $('#healthDot');
+  if (!dot) return;
+
+  dot.classList.remove('all-up', 'some-down', 'some-degraded');
+
+  let hasDown = false, hasDegraded = false, hasUp = false;
+  Object.values(statusMap).forEach(s => {
+    if (s.disabled) return;
+    if (!s.ok) hasDown = true;
+    else if (s.degraded) hasDegraded = true;
+    else hasUp = true;
+  });
+
+  if (hasDown)           dot.classList.add('some-down');
+  else if (hasDegraded)  dot.classList.add('some-degraded');
+  else                   dot.classList.add('all-up');
+}
+
+/* ── Status Summary Bar ────────────────────────────────── */
+function updateStatusSummary(statusMap) {
+  const bar = $('#statusSummary');
+  if (!bar) return;
+
+  let up = 0, down = 0, degraded = 0, disabled = 0;
+  Object.values(statusMap).forEach(s => {
+    if (s.disabled)      disabled++;
+    else if (!s.ok)      down++;
+    else if (s.degraded) degraded++;
+    else                 up++;
+  });
+
+  const parts = [];
+  if (up > 0)       parts.push('<span class="status-summary-item"><span class="status-summary-dot up"></span><span class="status-summary-count">' + up + '</span> Operational</span>');
+  if (down > 0)     parts.push('<span class="status-summary-item"><span class="status-summary-dot down"></span><span class="status-summary-count">' + down + '</span> Down</span>');
+  if (degraded > 0) parts.push('<span class="status-summary-item"><span class="status-summary-dot degraded"></span><span class="status-summary-count">' + degraded + '</span> Degraded</span>');
+  if (disabled > 0) parts.push('<span class="status-summary-item"><span class="status-summary-dot disabled"></span><span class="status-summary-count">' + disabled + '</span> Disabled</span>');
+
+  bar.innerHTML = parts.join('');
+}
+
 function switchView(view) {
   currentView = view;
   const cards  = $('#services-container');
   const matrix = $('#matrix-container');
   const btnC   = $('#viewCards');
   const btnM   = $('#viewMatrix');
+  const mainEl = document.querySelector('main');
 
   if (view === 'matrix') {
     cards  && cards.classList.add('hidden');
     matrix && matrix.classList.remove('hidden');
     btnC   && btnC.classList.remove('active');
     btnM   && btnM.classList.add('active');
+    mainEl && mainEl.classList.add('matrix-active');
     renderMatrix();
   } else {
     matrix && matrix.classList.add('hidden');
     cards  && cards.classList.remove('hidden');
     btnM   && btnM.classList.remove('active');
     btnC   && btnC.classList.add('active');
+    mainEl && mainEl.classList.remove('matrix-active');
     stopMatrixAnimation();
   }
 }
