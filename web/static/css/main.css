@@ -4990,3 +4990,357 @@ dialog.confirm-dialog::backdrop {
   .matrix-node-ms { font-size: 7px; }
   .matrix-hub { width: 28px; height: 28px; }
 }
+
+/* ============ Maintenance & Incidents ============ */
+
+/* Maintenance pill & card accent */
+.pill.maintenance {
+  color: #60a5fa;
+  background: #0c1e3a;
+  border-color: #1e3a5f;
+  animation: pulseMaintenance 2.5s ease-in-out infinite;
+}
+
+@keyframes pulseMaintenance {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(96, 165, 250, 0); }
+}
+
+#services-container .card.status-maintenance::after {
+  background: #60a5fa;
+}
+
+/* Maintenance list */
+.maintenance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maintenance-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  gap: 12px;
+}
+
+.maintenance-item.active {
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(96, 165, 250, 0.05);
+}
+
+.maintenance-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.maintenance-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.maintenance-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.maintenance-service {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.maintenance-time {
+  opacity: 0.8;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-maintenance {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.badge-down {
+  color: var(--down);
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badge-resolved {
+  color: var(--ok);
+  background: rgba(22, 163, 74, 0.15);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+}
+
+.badge.small {
+  font-size: 9px;
+  padding: 1px 6px;
+}
+
+/* Incidents Timeline (Admin) */
+.incidents-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.incident-entry {
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  border-left: 3px solid var(--border);
+}
+
+.incident-entry.active {
+  border-left-color: var(--down);
+}
+
+.incident-entry.resolved {
+  border-left-color: var(--ok);
+}
+
+.incident-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.incident-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-down {
+  background: var(--down);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.dot-resolved {
+  background: var(--ok);
+}
+
+.dot-maintenance {
+  background: #60a5fa;
+  box-shadow: 0 0 6px rgba(96, 165, 250, 0.6);
+}
+
+.incident-details {
+  margin-left: 16px;
+}
+
+.incident-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.incident-detail-text {
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.incident-postmortem {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.incident-postmortem label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.postmortem-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+
+.postmortem-input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Public Incident Timeline */
+.incident-timeline-card {
+  border-left: 3px solid rgba(99, 102, 241, 0.3);
+}
+
+.public-incident-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timeline-section {
+  margin-bottom: 16px;
+}
+
+.timeline-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.timeline-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.timeline-entry:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.timeline-entry.maintenance {
+  background: rgba(96, 165, 250, 0.04);
+}
+
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.timeline-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-content strong {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.timeline-service {
+  font-size: 11px;
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.timeline-time {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.timeline-postmortem {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(99, 102, 241, 0.05);
+  border-left: 2px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Form row for side-by-side datetime inputs */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Depends-on multi-select */
+#serviceDependsOn {
+  width: 100%;
+  min-height: 60px;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+#serviceDependsOn option {
+  padding: 4px 8px;
+}
+
+.help-text {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* Status message */
+.status-message {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.status-message.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--down);
+}
+
+.status-message.success {
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  color: var(--ok);
+}

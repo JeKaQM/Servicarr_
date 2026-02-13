@@ -91,6 +91,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 		}
 	}))
 	authAPI.HandleFunc("/api/admin/alerts/test", authMgr.RequireAuth(HandleTestEmail(alertMgr)))
+	authAPI.HandleFunc("/api/admin/alerts/test-channel", authMgr.RequireAuth(HandleTestNotification(alertMgr)))
 	authAPI.HandleFunc("/api/admin/status-alerts", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -123,6 +124,29 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 		}
 	}))
 	authAPI.HandleFunc("/api/admin/logs/stats", authMgr.RequireAuth(HandleGetLogStats()))
+
+	// Maintenance windows routes (admin only)
+	authAPI.HandleFunc("/api/admin/maintenance", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			HandleGetMaintenanceWindows()(w, r)
+		case http.MethodPost:
+			HandleCreateMaintenanceWindow()(w, r)
+		case http.MethodDelete:
+			HandleDeleteMaintenanceWindow()(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	// Incident events routes (admin: postmortem update)
+	authAPI.HandleFunc("/api/admin/incidents/postmortem", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			HandleUpdatePostmortem()(w, r)
+		} else {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
 
 	// Service management routes (admin only)
 	authAPI.HandleFunc("/api/admin/services", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +255,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 
 	// Other public API endpoints: standard rate limit
 	mux.HandleFunc("/api/status-alerts", HandleGetStatusAlerts()) // Public, no rate limit
+	mux.HandleFunc("/api/incidents", HandleGetIncidents())        // Public incident timeline
 	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
 
 	mux.HandleFunc("/static/", HandleStatic())

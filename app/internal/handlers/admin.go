@@ -12,6 +12,7 @@ import (
 	"status/app/internal/monitor"
 	"status/app/internal/security"
 	"status/app/internal/stats"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -633,5 +634,188 @@ func HandleClearLogs() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}
+}
+
+// ── Maintenance Windows ─────────────────────────────────────────────
+
+// HandleGetMaintenanceWindows returns all maintenance windows
+func HandleGetMaintenanceWindows() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serviceKey := r.URL.Query().Get("service")
+		windows, err := database.GetMaintenanceWindows(serviceKey)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if windows == nil {
+			windows = []models.MaintenanceWindow{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(windows)
+	}
+}
+
+// HandleCreateMaintenanceWindow creates a new maintenance window
+func HandleCreateMaintenanceWindow() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var mw models.MaintenanceWindow
+		if err := json.NewDecoder(r.Body).Decode(&mw); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if mw.ServiceKey == "" || mw.Title == "" || mw.StartTime == "" || mw.EndTime == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service_key, title, start_time, and end_time are required"})
+			return
+		}
+
+		id, err := database.CreateMaintenanceWindow(&mw)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, mw.ServiceKey,
+			"Maintenance window created", fmt.Sprintf("title=%s, start=%s, end=%s", mw.Title, mw.StartTime, mw.EndTime))
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": id})
+	}
+}
+
+// HandleDeleteMaintenanceWindow deletes a maintenance window
+func HandleDeleteMaintenanceWindow() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := database.DeleteMaintenanceWindow(req.ID); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}
+}
+
+// ── Incident Events ─────────────────────────────────────────────────
+
+// HandleGetIncidents returns incident events (public)
+func HandleGetIncidents() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serviceKey := r.URL.Query().Get("service")
+		limit := 50
+		if q := r.URL.Query().Get("limit"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 200 {
+				limit = n
+			}
+		}
+
+		events, err := database.GetIncidentEvents(serviceKey, limit)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if events == nil {
+			events = []models.IncidentEvent{}
+		}
+
+		// Also include active maintenance windows in the response
+		activeWindows, _ := database.GetActiveMaintenanceWindows()
+		if activeWindows == nil {
+			activeWindows = []models.MaintenanceWindow{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"incidents":   events,
+			"maintenance": activeWindows,
+		})
+	}
+}
+
+// HandleUpdatePostmortem updates the postmortem for an incident
+func HandleUpdatePostmortem() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID         int    `json:"id"`
+			Postmortem string `json:"postmortem"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := database.UpdatePostmortem(req.ID, req.Postmortem); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}
+}
+
+// ── Test Notification Channels ──────────────────────────────────────
+
+// HandleTestNotification sends a test notification to a specific channel
+func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Channel string `json:"channel"` // discord, slack, telegram, webhook
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		config := alertMgr.GetConfig()
+		if config == nil {
+			http.Error(w, "alerts not configured", http.StatusBadRequest)
+			return
+		}
+
+		subject := "🔔 Test Notification from Servicarr"
+		statusPageURL := alertMgr.ResolveStatusPageURL("")
+
+		switch req.Channel {
+		case "discord":
+			if config.DiscordWebhookURL == "" {
+				http.Error(w, "Discord webhook URL not configured", http.StatusBadRequest)
+				return
+			}
+			alertMgr.SendDiscord(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Discord notifications are working!", statusPageURL)
+		case "slack":
+			if config.SlackWebhookURL == "" {
+				http.Error(w, "Slack webhook URL not configured", http.StatusBadRequest)
+				return
+			}
+			alertMgr.SendSlack(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Slack notifications are working!", statusPageURL)
+		case "telegram":
+			if config.TelegramBotToken == "" || config.TelegramChatID == "" {
+				http.Error(w, "Telegram bot token or chat ID not configured", http.StatusBadRequest)
+				return
+			}
+			alertMgr.SendTelegram(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Telegram notifications are working!")
+		case "webhook":
+			if config.WebhookURL == "" {
+				http.Error(w, "Webhook URL not configured", http.StatusBadRequest)
+				return
+			}
+			alertMgr.SendWebhook(subject, "up", "Test Service", "test", "This is a test notification from Servicarr.")
+		default:
+			http.Error(w, "unknown channel: "+req.Channel, http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Test " + req.Channel + " notification sent"})
 	}
 }

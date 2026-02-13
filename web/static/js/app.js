@@ -678,10 +678,21 @@ function updCard(id, data) {
   if (data.disabled) {
     pill.textContent = 'DISABLED';
     pill.className = 'pill warn';
-    el.classList.remove('status-up', 'status-down', 'status-degraded');
+    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-maintenance');
     el.classList.add('status-disabled');
     k.textContent = '—';
     h.textContent = 'Monitoring disabled';
+    return;
+  }
+
+  // Maintenance window active
+  if (data.maintenance) {
+    pill.textContent = 'MAINTENANCE';
+    pill.className = 'pill maintenance';
+    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
+    el.classList.add('status-maintenance');
+    k.textContent = '🔧';
+    h.textContent = data.maintenance;
     return;
   }
 
@@ -693,7 +704,7 @@ function updCard(id, data) {
   pill.className = cls(data.ok, data.status, data.degraded);
 
   // Update the left accent bar
-  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
+  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled', 'status-maintenance');
   if (data.degraded)  el.classList.add('status-degraded');
   else if (data.ok)   el.classList.add('status-up');
   else                el.classList.add('status-down');
@@ -1141,6 +1152,9 @@ async function refresh() {
       renderUptimeBars(null, DAYS);
     }
   }
+
+  // Load public incident timeline (non-blocking)
+  loadPublicIncidentTimeline();
 }
 
 async function doLoginFlow() {
@@ -1520,9 +1534,9 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-async function saveAlertsConfig() {
+async function saveAlertsConfig(e) {
   const statusEl = $('#alertStatus');
-  const btn = $('#saveAlerts');
+  const btn = (e && e.target) ? e.target : $('#saveAlerts');
 
   const config = {
     enabled: $('#alertsEnabled').checked,
@@ -1536,7 +1550,18 @@ async function saveAlertsConfig() {
     smtp_skip_verify: $('#smtpSkipVerify').checked,
     alert_on_down: $('#alertOnDown').checked,
     alert_on_degraded: $('#alertOnDegraded').checked,
-    alert_on_up: $('#alertOnUp').checked
+    alert_on_up: $('#alertOnUp').checked,
+    // Multi-channel
+    discord_webhook_url: $('#discordWebhookUrl') ? $('#discordWebhookUrl').value : '',
+    discord_enabled: $('#discordEnabled') ? $('#discordEnabled').checked : false,
+    slack_webhook_url: $('#slackWebhookUrl') ? $('#slackWebhookUrl').value : '',
+    slack_enabled: $('#slackEnabled') ? $('#slackEnabled').checked : false,
+    telegram_bot_token: $('#telegramBotToken') ? $('#telegramBotToken').value : '',
+    telegram_chat_id: $('#telegramChatId') ? $('#telegramChatId').value : '',
+    telegram_enabled: $('#telegramEnabled') ? $('#telegramEnabled').checked : false,
+    webhook_url: $('#webhookUrl') ? $('#webhookUrl').value : '',
+    webhook_secret: $('#webhookSecret') ? $('#webhookSecret').value : '',
+    webhook_enabled: $('#webhookEnabled') ? $('#webhookEnabled').checked : false
   };
 
   await handleButtonAction(
@@ -1597,10 +1622,300 @@ async function loadAlertsConfig() {
       $('#alertOnDown').checked = config.alert_on_down !== false;
       $('#alertOnDegraded').checked = config.alert_on_degraded !== false;
       $('#alertOnUp').checked = config.alert_on_up || false;
+      // Multi-channel
+      if ($('#discordWebhookUrl')) $('#discordWebhookUrl').value = config.discord_webhook_url || '';
+      if ($('#discordEnabled')) $('#discordEnabled').checked = config.discord_enabled || false;
+      if ($('#slackWebhookUrl')) $('#slackWebhookUrl').value = config.slack_webhook_url || '';
+      if ($('#slackEnabled')) $('#slackEnabled').checked = config.slack_enabled || false;
+      if ($('#telegramBotToken')) $('#telegramBotToken').value = config.telegram_bot_token || '';
+      if ($('#telegramChatId')) $('#telegramChatId').value = config.telegram_chat_id || '';
+      if ($('#telegramEnabled')) $('#telegramEnabled').checked = config.telegram_enabled || false;
+      if ($('#webhookUrl')) $('#webhookUrl').value = config.webhook_url || '';
+      if ($('#webhookSecret')) $('#webhookSecret').value = config.webhook_secret || '';
+      if ($('#webhookEnabled')) $('#webhookEnabled').checked = config.webhook_enabled || false;
     }
   } catch (err) {
     // No alerts config available
   }
+}
+
+// ============ Maintenance Windows ============
+
+async function loadMaintenanceWindows() {
+  const container = $('#maintenanceList');
+  if (!container) return;
+  try {
+    const windows = await j('/api/admin/maintenance', {
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    if (!windows || windows.length === 0) {
+      container.innerHTML = '<div class="muted">No maintenance windows scheduled.</div>';
+      return;
+    }
+    container.innerHTML = windows.map(w => {
+      const start = new Date(w.start_time).toLocaleString();
+      const end = new Date(w.end_time).toLocaleString();
+      const now = new Date();
+      const isActive = now >= new Date(w.start_time) && now <= new Date(w.end_time);
+      return `
+        <div class="maintenance-item ${isActive ? 'active' : ''}">
+          <div class="maintenance-info">
+            <div class="maintenance-title">${escapeHtml(w.title || 'Maintenance')}</div>
+            <div class="maintenance-meta">
+              <span class="maintenance-service">${escapeHtml(w.service_key)}</span>
+              <span class="maintenance-time">${start} → ${end}</span>
+              ${isActive ? '<span class="badge badge-maintenance">ACTIVE</span>' : ''}
+            </div>
+          </div>
+          <button class="btn mini danger" onclick="deleteMaintenance(${w.id})">Delete</button>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load maintenance windows', err);
+    container.innerHTML = '<div class="muted">Failed to load maintenance windows.</div>';
+  }
+}
+
+function populateMaintenanceServiceDropdown() {
+  const select = $('#maintService');
+  if (!select) return;
+  // Keep the default option
+  select.innerHTML = '<option value="">-- Select a service --</option>';
+  servicesData.forEach(svc => {
+    const opt = document.createElement('option');
+    opt.value = svc.key;
+    opt.textContent = svc.name || svc.key;
+    select.appendChild(opt);
+  });
+}
+
+async function createMaintenanceWindow() {
+  const serviceKey = $('#maintService').value;
+  const title = $('#maintTitle').value.trim();
+  const startTime = $('#maintStart').value;
+  const endTime = $('#maintEnd').value;
+  const statusEl = $('#maintStatus');
+
+  if (!serviceKey || !title || !startTime || !endTime) {
+    if (statusEl) {
+      statusEl.textContent = 'All fields are required.';
+      statusEl.className = 'status-message error';
+      statusEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (new Date(endTime) <= new Date(startTime)) {
+    if (statusEl) {
+      statusEl.textContent = 'End time must be after start time.';
+      statusEl.className = 'status-message error';
+      statusEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  try {
+    await j('/api/admin/maintenance', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({
+        service_key: serviceKey,
+        title: title,
+        start_time: new Date(startTime).toISOString(),
+        end_time: new Date(endTime).toISOString()
+      })
+    });
+    showToast('Maintenance window created');
+    // Clear form
+    $('#maintTitle').value = '';
+    $('#maintStart').value = '';
+    $('#maintEnd').value = '';
+    if (statusEl) statusEl.classList.add('hidden');
+    loadMaintenanceWindows();
+  } catch (err) {
+    console.error('Failed to create maintenance window', err);
+    if (statusEl) {
+      statusEl.textContent = err.body?.error || 'Failed to create maintenance window';
+      statusEl.className = 'status-message error';
+      statusEl.classList.remove('hidden');
+    }
+  }
+}
+
+async function deleteMaintenance(id) {
+  if (!confirm('Delete this maintenance window?')) return;
+  try {
+    await j(`/api/admin/maintenance?id=${id}`, {
+      method: 'DELETE',
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    showToast('Maintenance window deleted');
+    loadMaintenanceWindows();
+  } catch (err) {
+    console.error('Failed to delete maintenance window', err);
+    showToast('Failed to delete maintenance window', 'error');
+  }
+}
+
+// ============ Admin Incidents ============
+
+async function loadAdminIncidents() {
+  const container = $('#adminIncidentsList');
+  if (!container) return;
+  try {
+    const data = await j('/api/incidents');
+    const incidents = data.incidents || [];
+    if (incidents.length === 0) {
+      container.innerHTML = '<div class="muted">No incidents recorded yet.</div>';
+      return;
+    }
+    container.innerHTML = incidents.map(inc => {
+      const started = new Date(inc.started_at).toLocaleString();
+      const resolved = inc.resolved_at ? new Date(inc.resolved_at).toLocaleString() : null;
+      const duration = inc.duration_s ? formatDuration(inc.duration_s) : null;
+      const isActive = !inc.resolved_at;
+      return `
+        <div class="incident-entry ${isActive ? 'active' : 'resolved'}">
+          <div class="incident-header">
+            <span class="incident-dot ${isActive ? 'dot-down' : 'dot-resolved'}"></span>
+            <strong>${escapeHtml(inc.service_name || inc.service_key)}</strong>
+            <span class="badge ${isActive ? 'badge-down' : 'badge-resolved'}">${isActive ? 'ONGOING' : 'RESOLVED'}</span>
+          </div>
+          <div class="incident-details">
+            <div class="incident-meta">
+              <span>Started: ${started}</span>
+              ${resolved ? `<span>Resolved: ${resolved}</span>` : ''}
+              ${duration ? `<span>Duration: ${duration}</span>` : ''}
+            </div>
+            <div class="incident-detail-text">${escapeHtml(inc.details || '')}</div>
+          </div>
+          <div class="incident-postmortem">
+            <label>Postmortem</label>
+            <textarea class="postmortem-input" data-incident-id="${inc.id}" rows="3" placeholder="Add a postmortem note...">${escapeHtml(inc.postmortem || '')}</textarea>
+            <button class="btn mini" onclick="savePostmortem(${inc.id}, this)">Save Postmortem</button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load incidents', err);
+    container.innerHTML = '<div class="muted">Failed to load incidents.</div>';
+  }
+}
+
+async function savePostmortem(incidentId, btn) {
+  const textarea = btn.previousElementSibling;
+  const postmortem = textarea.value.trim();
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    await j('/api/admin/incidents/postmortem', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrf()
+      },
+      body: JSON.stringify({ id: incidentId, postmortem: postmortem })
+    });
+    showToast('Postmortem saved');
+  } catch (err) {
+    console.error('Failed to save postmortem', err);
+    showToast('Failed to save postmortem', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Postmortem';
+  }
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+// ============ Public Incident Timeline ============
+
+async function loadPublicIncidentTimeline() {
+  const container = $('#publicIncidentTimeline');
+  const section = $('#incidentTimelineSection');
+  if (!container) return;
+  try {
+    const data = await j('/api/incidents');
+    const incidents = data.incidents || [];
+    const maintenance = data.maintenance || [];
+
+    if (incidents.length === 0 && maintenance.length === 0) {
+      if (section) section.classList.add('hidden');
+      return;
+    }
+    if (section) section.classList.remove('hidden');
+
+    let html = '';
+
+    // Active maintenance windows
+    if (maintenance.length > 0) {
+      html += '<div class="timeline-section"><h4>🔧 Active Maintenance</h4>';
+      html += maintenance.map(m => {
+        const end = new Date(m.end_time).toLocaleString();
+        return `
+          <div class="timeline-entry maintenance">
+            <div class="timeline-dot dot-maintenance"></div>
+            <div class="timeline-content">
+              <strong>${escapeHtml(m.title || 'Maintenance')}</strong>
+              <span class="timeline-service">${escapeHtml(m.service_key)}</span>
+              <div class="timeline-time">Until ${end}</div>
+            </div>
+          </div>`;
+      }).join('');
+      html += '</div>';
+    }
+
+    // Recent incidents
+    if (incidents.length > 0) {
+      html += '<div class="timeline-section"><h4>📋 Recent Incidents</h4>';
+      html += incidents.slice(0, 20).map(inc => {
+        const started = new Date(inc.started_at).toLocaleString();
+        const isActive = !inc.resolved_at;
+        const duration = inc.duration_s ? formatDuration(inc.duration_s) : null;
+        return `
+          <div class="timeline-entry ${isActive ? 'active' : 'resolved'}">
+            <div class="timeline-dot ${isActive ? 'dot-down' : 'dot-resolved'}"></div>
+            <div class="timeline-content">
+              <strong>${escapeHtml(inc.service_name || inc.service_key)}</strong>
+              <span class="badge small ${isActive ? 'badge-down' : 'badge-resolved'}">${isActive ? 'ONGOING' : 'RESOLVED'}</span>
+              <div class="timeline-time">${started}${duration ? ' · ' + duration : ''}</div>
+              ${inc.postmortem ? `<div class="timeline-postmortem">${escapeHtml(inc.postmortem)}</div>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  } catch (err) {
+    // Non-critical — hide section on error
+    if (section) section.classList.add('hidden');
+  }
+}
+
+// ============ Service Dependencies ============
+
+function populateDependsOnDropdown(currentServiceKey) {
+  const select = $('#serviceDependsOn');
+  if (!select) return;
+  select.innerHTML = '';
+  servicesData.forEach(svc => {
+    // Don't let a service depend on itself
+    if (svc.key === currentServiceKey) return;
+    const opt = document.createElement('option');
+    opt.value = svc.key;
+    opt.textContent = svc.name || svc.key;
+    select.appendChild(opt);
+  });
 }
 
 async function checkNowFor(card) {
@@ -1751,6 +2066,11 @@ window.addEventListener('load', async () => {
       } else if (tabName === 'banners') {
         loadAdminBanners();
         populateBannerScopeDropdown();
+      } else if (tabName === 'maintenance') {
+        loadMaintenanceWindows();
+        populateMaintenanceServiceDropdown();
+      } else if (tabName === 'incidents') {
+        loadAdminIncidents();
       }
     });
   });
@@ -1760,10 +2080,36 @@ window.addEventListener('load', async () => {
   if (saveAlertsBtn) {
     saveAlertsBtn.addEventListener('click', saveAlertsConfig);
   }
+  // Also wire up all save-alerts-btn buttons in channel panels
+  $$('.save-alerts-btn').forEach(btn => {
+    btn.addEventListener('click', saveAlertsConfig);
+  });
+  // Test channel buttons
+  $$('.test-channel-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+      const channel = this.getAttribute('data-channel');
+      try {
+        const result = await j('/api/admin/alerts/test-channel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+          body: JSON.stringify({ channel })
+        });
+        alert(result.message || `Test ${channel} notification sent`);
+      } catch (err) {
+        alert(`Failed to send test: ${err.message || err}`);
+      }
+    });
+  });
 
   const testEmailBtn = $('#testEmail');
   if (testEmailBtn) {
     testEmailBtn.addEventListener('click', sendTestEmail);
+  }
+
+  // Maintenance create button
+  const createMaintBtn = $('#createMaintenance');
+  if (createMaintBtn) {
+    createMaintBtn.addEventListener('click', createMaintenanceWindow);
   }
 
   // Resources config handlers
@@ -2954,6 +3300,19 @@ function openServiceModal(service = null) {
   // If editing, disable template selection
   $('#serviceTemplate').disabled = !!service;
 
+  // Populate depends-on dropdown
+  populateDependsOnDropdown(service?.key);
+  // Set selected dependencies if editing
+  if (service?.depends_on) {
+    const deps = service.depends_on.split(',').map(d => d.trim()).filter(Boolean);
+    const select = $('#serviceDependsOn');
+    if (select) {
+      Array.from(select.options).forEach(opt => {
+        opt.selected = deps.includes(opt.value);
+      });
+    }
+  }
+
   modal.showModal();
 }
 
@@ -3088,6 +3447,12 @@ async function testServiceConnection() {
 }
 
 async function saveService() {
+  // Collect depends_on from multi-select
+  const dependsOnSelect = $('#serviceDependsOn');
+  const dependsOn = dependsOnSelect
+    ? Array.from(dependsOnSelect.selectedOptions).map(o => o.value).join(',')
+    : '';
+
   const serviceData = {
     name: $('#serviceName').value.trim(),
     url: $('#serviceUrl').value.trim(),
@@ -3100,7 +3465,8 @@ async function saveService() {
     check_interval: parseInt($('#serviceInterval').value) || 60,
     expected_min: parseInt($('#serviceExpectedMin').value) || 200,
     expected_max: parseInt($('#serviceExpectedMax').value) || 399,
-    visible: $('#serviceVisible').checked
+    visible: $('#serviceVisible').checked,
+    depends_on: dependsOn
   };
 
   if (!serviceData.name || !serviceData.url) {

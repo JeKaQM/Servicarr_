@@ -58,6 +58,17 @@
       <div class="row"><div><strong>Recent incidents</strong><div class="label">Last 24h</div></div></div>
       <ul id="incidents"></ul>
     </section>
+
+    <!-- Public Incident Timeline -->
+    <section class="card fade-in incident-timeline-card" id="incidentTimelineSection">
+      <div class="row">
+        <div>
+          <strong>Incident History</strong>
+          <div class="label">Recorded status events</div>
+        </div>
+      </div>
+      <div id="publicIncidentTimeline" class="public-incident-timeline"></div>
+    </section>
   </main>
 
   <!-- Full-width Resources Section - start hidden, JS shows based on config -->
@@ -311,6 +322,8 @@
     <div class="admin-tabs">
       <button class="tab-btn active" data-tab="services">Services</button>
       <button class="tab-btn" data-tab="banners">Banners</button>
+      <button class="tab-btn" data-tab="maintenance">Maintenance</button>
+      <button class="tab-btn" data-tab="incidents">Incidents</button>
       <button class="tab-btn" data-tab="logs">Logs</button>
       <button class="tab-btn" data-tab="security">Security</button>
       <button class="tab-btn" data-tab="resources">Resources</button>
@@ -393,6 +406,59 @@
         
         <h3 style="margin-top: 20px;">Active Banners</h3>
         <div id="bannersList"></div>
+      </div>
+    </div>
+
+    <!-- Maintenance Tab -->
+    <div id="tab-maintenance" class="tab-content">
+      <h2>Maintenance Windows</h2>
+      <p class="muted">Schedule maintenance windows to suppress alerts and show maintenance status on the dashboard.</p>
+      
+      <div class="admin-section">
+        <h3>Schedule Maintenance</h3>
+        <div class="form-group">
+          <label for="maintService">Service</label>
+          <select id="maintService">
+            <option value="">-- Select a service --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="maintTitle">Title</label>
+          <input type="text" id="maintTitle" placeholder="e.g., Scheduled server update">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="maintStart">Start Time</label>
+            <input type="datetime-local" id="maintStart">
+          </div>
+          <div class="form-group">
+            <label for="maintEnd">End Time</label>
+            <input type="datetime-local" id="maintEnd">
+          </div>
+        </div>
+        <div class="ops">
+          <button type="button" id="createMaintenance" class="btn">Create Window</button>
+        </div>
+        <div id="maintStatus" class="status-message hidden"></div>
+      </div>
+      
+      <div class="admin-section">
+        <h3>Scheduled Windows</h3>
+        <div id="maintenanceList" class="maintenance-list">
+          <div class="muted">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Incidents Tab -->
+    <div id="tab-incidents" class="tab-content">
+      <h2>Incident Timeline</h2>
+      <p class="muted">View recorded incidents and add postmortems. Incidents are created automatically when services go down.</p>
+      
+      <div class="admin-section">
+        <div id="adminIncidentsList" class="incidents-timeline">
+          <div class="muted">Loading...</div>
+        </div>
       </div>
     </div>
 
@@ -667,15 +733,21 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
           SMTP (Email)
         </button>
-        <button type="button" class="notification-option" data-provider="discord" disabled>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        <button type="button" class="notification-option" data-provider="discord">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.373-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
           Discord
-          <span class="coming-soon-badge">Soon</span>
         </button>
-        <button type="button" class="notification-option" data-provider="pushbullet" disabled>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2.824c5.065 0 9.176 4.11 9.176 9.176S17.065 21.176 12 21.176 2.824 17.065 2.824 12 6.935 2.824 12 2.824zm-1.412 4.235v9.882h3.294c2.727 0 4.942-2.214 4.942-4.941s-2.215-4.941-4.942-4.941h-3.294z"/></svg>
-          Pushbullet
-          <span class="coming-soon-badge">Soon</span>
+        <button type="button" class="notification-option" data-provider="slack">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.122 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.528 2.528 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
+          Slack
+        </button>
+        <button type="button" class="notification-option" data-provider="telegram">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+          Telegram
+        </button>
+        <button type="button" class="notification-option" data-provider="webhook">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          Webhook
         </button>
       </div>
 
@@ -755,27 +827,93 @@
         </div>
       </div>
 
-      <!-- Discord Panel (Coming Soon) -->
+      <!-- Discord Panel -->
       <div class="notification-panel" data-provider="discord">
-        <div class="admin-section coming-soon-panel">
-          <div class="coming-soon-content">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
-            <h3>Discord Notifications</h3>
-            <p class="muted">Coming Soon</p>
-            <p class="muted small">Receive alerts directly in your Discord server via webhooks.</p>
-          </div>
+        <div class="admin-section">
+          <form id="discordForm">
+            <div class="form-group">
+              <label><input type="checkbox" id="discordEnabled"> Enable Discord notifications</label>
+            </div>
+            <div class="form-group">
+              <label for="discordWebhookUrl">Webhook URL</label>
+              <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+              <small class="help-text">Create a webhook in your Discord server: Server Settings → Integrations → Webhooks</small>
+            </div>
+            <div class="ops">
+              <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+              <button type="button" class="btn ghost test-channel-btn" data-channel="discord">Send Test</button>
+            </div>
+          </form>
         </div>
       </div>
 
-      <!-- Pushbullet Panel (Coming Soon) -->
-      <div class="notification-panel" data-provider="pushbullet">
-        <div class="admin-section coming-soon-panel">
-          <div class="coming-soon-content">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2.824c5.065 0 9.176 4.11 9.176 9.176S17.065 21.176 12 21.176 2.824 17.065 2.824 12 6.935 2.824 12 2.824zm-1.412 4.235v9.882h3.294c2.727 0 4.942-2.214 4.942-4.941s-2.215-4.941-4.942-4.941h-3.294z"/></svg>
-            <h3>Pushbullet Notifications</h3>
-            <p class="muted">Coming Soon</p>
-            <p class="muted small">Get push notifications on all your devices.</p>
-          </div>
+      <!-- Slack Panel -->
+      <div class="notification-panel" data-provider="slack">
+        <div class="admin-section">
+          <form id="slackForm">
+            <div class="form-group">
+              <label><input type="checkbox" id="slackEnabled"> Enable Slack notifications</label>
+            </div>
+            <div class="form-group">
+              <label for="slackWebhookUrl">Incoming Webhook URL</label>
+              <input type="text" id="slackWebhookUrl" placeholder="https://hooks.slack.com/services/...">
+              <small class="help-text">Create an incoming webhook: Slack App → Incoming Webhooks → Add New Webhook</small>
+            </div>
+            <div class="ops">
+              <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+              <button type="button" class="btn ghost test-channel-btn" data-channel="slack">Send Test</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Telegram Panel -->
+      <div class="notification-panel" data-provider="telegram">
+        <div class="admin-section">
+          <form id="telegramForm">
+            <div class="form-group">
+              <label><input type="checkbox" id="telegramEnabled"> Enable Telegram notifications</label>
+            </div>
+            <div class="form-group">
+              <label for="telegramBotToken">Bot Token</label>
+              <input type="text" id="telegramBotToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+              <small class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a></small>
+            </div>
+            <div class="form-group">
+              <label for="telegramChatId">Chat ID</label>
+              <input type="text" id="telegramChatId" placeholder="-1001234567890">
+              <small class="help-text">Use <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> or forward a message to <a href="https://t.me/JsonDumpBot" target="_blank">@JsonDumpBot</a> to get your chat ID</small>
+            </div>
+            <div class="ops">
+              <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+              <button type="button" class="btn ghost test-channel-btn" data-channel="telegram">Send Test</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Webhook Panel -->
+      <div class="notification-panel" data-provider="webhook">
+        <div class="admin-section">
+          <form id="webhookForm">
+            <div class="form-group">
+              <label><input type="checkbox" id="webhookEnabled"> Enable generic webhook</label>
+            </div>
+            <div class="form-group">
+              <label for="webhookUrl">Webhook URL</label>
+              <input type="text" id="webhookUrl" placeholder="https://your-endpoint.com/webhook">
+              <small class="help-text">Receives a JSON POST payload on status changes</small>
+            </div>
+            <div class="form-group">
+              <label for="webhookSecret">Signing Secret (optional)</label>
+              <input type="text" id="webhookSecret" placeholder="your-hmac-secret">
+              <small class="help-text">If set, requests include an X-Servicarr-Signature header (HMAC-SHA256)</small>
+            </div>
+            <div class="ops">
+              <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+              <button type="button" class="btn ghost test-channel-btn" data-channel="webhook">Send Test</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -937,6 +1075,14 @@
             <input type="checkbox" id="serviceVisible" checked>
             Show on public dashboard
           </label>
+        </div>
+        
+        <div class="form-group">
+          <label for="serviceDependsOn">Depends On</label>
+          <select id="serviceDependsOn" multiple>
+            <!-- Populated dynamically with service keys -->
+          </select>
+          <small class="help-text">Select upstream dependencies. Alerts are suppressed when a dependency is down.</small>
         </div>
       </details>
       

@@ -32,6 +32,7 @@ type ServiceConfig struct {
 	Timeout       int    `json:"timeout"`        // Timeout in seconds
 	ExpectedMin   int    `json:"expected_min"`   // Min HTTP status code for OK
 	ExpectedMax   int    `json:"expected_max"`   // Max HTTP status code for OK
+	DependsOn     string `json:"depends_on"`     // Comma-separated keys of upstream dependencies
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 }
@@ -52,13 +53,15 @@ type ServiceTemplate struct {
 
 // LiveResult represents the current status of a service
 type LiveResult struct {
-	Label     string `json:"label"`
-	OK        bool   `json:"ok"`
-	Status    int    `json:"status"`
-	MS        *int   `json:"ms,omitempty"`
-	Disabled  bool   `json:"disabled"`
-	Degraded  bool   `json:"degraded"`
-	CheckType string `json:"check_type,omitempty"`
+	Label       string `json:"label"`
+	OK          bool   `json:"ok"`
+	Status      int    `json:"status"`
+	MS          *int   `json:"ms,omitempty"`
+	Disabled    bool   `json:"disabled"`
+	Degraded    bool   `json:"degraded"`
+	CheckType   string `json:"check_type,omitempty"`
+	Maintenance string `json:"maintenance,omitempty"` // Non-empty when in maintenance window
+	DependsOn   string `json:"depends_on,omitempty"`  // Comma-separated upstream dependency keys
 }
 
 // LivePayload represents a collection of service statuses
@@ -67,7 +70,7 @@ type LivePayload struct {
 	Status map[string]LiveResult `json:"status"`
 }
 
-// AlertConfig stores email alert configuration
+// AlertConfig stores alert configuration (multi-channel)
 type AlertConfig struct {
 	Enabled         bool   `json:"enabled"`
 	SMTPHost        string `json:"smtp_host"`
@@ -81,6 +84,41 @@ type AlertConfig struct {
 	AlertOnDown     bool   `json:"alert_on_down"`
 	AlertOnDegraded bool   `json:"alert_on_degraded"`
 	AlertOnUp       bool   `json:"alert_on_up"`
+
+	// Multi-channel notification fields
+	DiscordWebhookURL  string `json:"discord_webhook_url"`
+	DiscordEnabled     bool   `json:"discord_enabled"`
+	SlackWebhookURL    string `json:"slack_webhook_url"`
+	SlackEnabled       bool   `json:"slack_enabled"`
+	TelegramBotToken   string `json:"telegram_bot_token"`
+	TelegramChatID     string `json:"telegram_chat_id"`
+	TelegramEnabled    bool   `json:"telegram_enabled"`
+	WebhookURL         string `json:"webhook_url"`
+	WebhookSecret      string `json:"webhook_secret"`
+	WebhookEnabled     bool   `json:"webhook_enabled"`
+}
+
+// MaintenanceWindow represents a scheduled maintenance period
+type MaintenanceWindow struct {
+	ID         int    `json:"id"`
+	ServiceKey string `json:"service_key"` // empty = all services
+	Title      string `json:"title"`
+	StartTime  string `json:"start_time"`
+	EndTime    string `json:"end_time"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// IncidentEvent represents an auto-generated incident timeline entry
+type IncidentEvent struct {
+	ID          int    `json:"id"`
+	ServiceKey  string `json:"service_key"`
+	ServiceName string `json:"service_name"`
+	EventType   string `json:"event_type"` // down, recovered, degraded, maintenance_start, maintenance_end
+	StartedAt   string `json:"started_at"`
+	ResolvedAt  string `json:"resolved_at,omitempty"`
+	DurationS   int    `json:"duration_s,omitempty"`
+	Details     string `json:"details,omitempty"`
+	Postmortem  string `json:"postmortem,omitempty"` // admin-written
 }
 
 // ResourcesUIConfig stores admin configuration for the Resources section/widgets

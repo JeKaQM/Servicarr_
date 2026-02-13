@@ -1,12 +1,18 @@
 package alerts
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
 	"net"
+	"net/http"
 	"net/smtp"
 	"status/app/internal/database"
 	"status/app/internal/models"
@@ -149,10 +155,39 @@ func (m *Manager) SendEmail(subject, body string) error {
 	return err
 }
 
-// CheckAndSendAlerts checks for service status changes and sends alerts
+// CheckAndSendAlerts checks for service status changes and sends alerts across all configured channels
 func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degraded bool) {
 	if m.config == nil || !m.config.Enabled {
 		return
+	}
+
+	// Check if service is in a maintenance window — suppress all alerts
+	inMaint, maintTitle, _ := database.IsInMaintenanceWindow(serviceKey)
+	if inMaint {
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
+			"Alert suppressed — maintenance window active", maintTitle)
+		return
+	}
+
+	// Dependency-aware suppression: if upstream dependency is down, suppress
+	svc, _ := database.GetServiceByKey(serviceKey)
+	if svc != nil && svc.DependsOn != "" {
+		depKeys := strings.Split(svc.DependsOn, ",")
+		for _, dk := range depKeys {
+			dk = strings.TrimSpace(dk)
+			if dk == "" {
+				continue
+			}
+			depIncident, _ := database.GetActiveIncident(dk)
+			if depIncident != nil {
+				_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
+					"Alert suppressed — upstream dependency down", fmt.Sprintf("depends_on=%s", dk))
+				// Still record incident event, but don't send notifications
+				m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
+				m.updateStatusHistory(serviceKey, ok, degraded)
+				return
+			}
+		}
 	}
 
 	// Get previous status
@@ -161,19 +196,19 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 		Scan(&prevOK, &prevDegraded)
 
 	if err == sql.ErrNoRows {
-		// First time - save current status and optionally alert if starting in a bad state
+		// First time
 		if !ok && m.config.AlertOnDown {
 			_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert (first status)", serviceName)
 			subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", serviceName)
-			body := CreateHTMLEmail(subject, "down", serviceName, serviceKey, message, m.ResolveStatusPageURL(""))
-			go m.SendEmail(subject, body)
+			m.dispatchAll(subject, "down", serviceName, serviceKey, message)
+			m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
 		} else if ok && degraded && m.config.AlertOnDegraded {
 			_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert (first status)", serviceName)
 			subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", serviceName)
-			body := CreateHTMLEmail(subject, "degraded", serviceName, serviceKey, message, m.ResolveStatusPageURL(""))
-			go m.SendEmail(subject, body)
+			m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
+			m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
 		}
 
 		_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))`,
@@ -186,32 +221,235 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 
 	// Check for status changes
 	if !ok && prevOKBool && m.config.AlertOnDown {
-		// Service went down
 		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert", serviceName)
 		subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", serviceName)
-		body := CreateHTMLEmail(subject, "down", serviceName, serviceKey, message, m.ResolveStatusPageURL(""))
-		go m.SendEmail(subject, body)
+		m.dispatchAll(subject, "down", serviceName, serviceKey, message)
 	} else if ok && !prevOKBool && m.config.AlertOnUp {
-		// Service came back up
 		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey, "Service RECOVERED - sending alert", serviceName)
 		subject := fmt.Sprintf("✅ Service Recovered: %s", serviceName)
 		message := fmt.Sprintf("Great news! The service <strong>%s</strong> has recovered and is now responding normally to health checks.", serviceName)
-		body := CreateHTMLEmail(subject, "up", serviceName, serviceKey, message, m.ResolveStatusPageURL(""))
-		go m.SendEmail(subject, body)
+		m.dispatchAll(subject, "up", serviceName, serviceKey, message)
 	} else if ok && degraded && !prevDegradedBool && m.config.AlertOnDegraded {
-		// Service became degraded
 		_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert", serviceName)
 		subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", serviceName)
-		body := CreateHTMLEmail(subject, "degraded", serviceName, serviceKey, message, m.ResolveStatusPageURL(""))
-		go m.SendEmail(subject, body)
+		m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
 	}
 
+	// Record incident events on status transitions
+	m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
+
 	// Update status history
+	m.updateStatusHistory(serviceKey, ok, degraded)
+}
+
+// recordIncidentEvent creates/resolves incident events based on status transitions
+func (m *Manager) recordIncidentEvent(serviceKey, serviceName string, ok, degraded bool) {
+	activeIncident, _ := database.GetActiveIncident(serviceKey)
+
+	if !ok {
+		// Service is down — create incident if none exists
+		if activeIncident == nil {
+			_, _ = database.CreateIncidentEvent(&models.IncidentEvent{
+				ServiceKey:  serviceKey,
+				ServiceName: serviceName,
+				EventType:   "down",
+				Details:     "Service became unreachable",
+			})
+		}
+	} else if degraded {
+		// Service is degraded — create incident if none exists
+		if activeIncident == nil {
+			_, _ = database.CreateIncidentEvent(&models.IncidentEvent{
+				ServiceKey:  serviceKey,
+				ServiceName: serviceName,
+				EventType:   "degraded",
+				Details:     "Service experiencing high latency",
+			})
+		}
+	} else {
+		// Service is healthy — resolve any active incident
+		if activeIncident != nil {
+			_ = database.ResolveIncidentEvent(serviceKey)
+		}
+	}
+}
+
+// updateStatusHistory persists the current status for comparison on next check
+func (m *Manager) updateStatusHistory(serviceKey string, ok, degraded bool) {
 	_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))
 		ON CONFLICT(service_key) DO UPDATE SET ok=?, degraded=?, updated_at=datetime('now')`,
 		serviceKey, boolToInt(ok), boolToInt(degraded), boolToInt(ok), boolToInt(degraded))
+}
+
+// dispatchAll sends a notification across all enabled channels
+func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, message string) {
+	statusPageURL := m.ResolveStatusPageURL("")
+
+	// Email
+	if m.config.SMTPHost != "" && m.config.AlertEmail != "" {
+		body := CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, statusPageURL)
+		go m.SendEmail(subject, body)
+	}
+
+	// Discord
+	if m.config.DiscordEnabled && m.config.DiscordWebhookURL != "" {
+		go m.SendDiscord(subject, statusType, serviceName, message, statusPageURL)
+	}
+
+	// Slack
+	if m.config.SlackEnabled && m.config.SlackWebhookURL != "" {
+		go m.SendSlack(subject, statusType, serviceName, message, statusPageURL)
+	}
+
+	// Telegram
+	if m.config.TelegramEnabled && m.config.TelegramBotToken != "" && m.config.TelegramChatID != "" {
+		go m.SendTelegram(subject, statusType, serviceName, message)
+	}
+
+	// Generic webhook
+	if m.config.WebhookEnabled && m.config.WebhookURL != "" {
+		go m.SendWebhook(subject, statusType, serviceName, serviceKey, message)
+	}
+}
+
+// ── Discord ─────────────────────────────────────────────────────────
+
+// SendDiscord sends a rich embed message via Discord webhook
+func (m *Manager) SendDiscord(subject, statusType, serviceName, message, statusPageURL string) {
+	colorMap := map[string]int{"down": 0xef4444, "degraded": 0xeab308, "up": 0x22c55e}
+	color := colorMap[statusType]
+
+	payload := map[string]interface{}{
+		"username":   "Servicarr",
+		"avatar_url": "https://raw.githubusercontent.com/JeKaQM/Servicarr_/main/web/static/images/icon.png",
+		"embeds": []map[string]interface{}{
+			{
+				"title":       subject,
+				"description": strings.ReplaceAll(strings.ReplaceAll(message, "<strong>", "**"), "</strong>", "**"),
+				"color":       color,
+				"fields": []map[string]interface{}{
+					{"name": "Service", "value": serviceName, "inline": true},
+					{"name": "Status", "value": strings.ToUpper(statusType), "inline": true},
+					{"name": "Time", "value": time.Now().Format(time.RFC1123), "inline": false},
+				},
+				"footer": map[string]string{"text": "Servicarr Status Monitor"},
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(m.config.DiscordWebhookURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Discord notification failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Discord notification sent", fmt.Sprintf("status=%d", resp.StatusCode))
+}
+
+// ── Slack ────────────────────────────────────────────────────────────
+
+// SendSlack sends a rich message via Slack incoming webhook
+func (m *Manager) SendSlack(subject, statusType, serviceName, message, statusPageURL string) {
+	colorMap := map[string]string{"down": "#ef4444", "degraded": "#eab308", "up": "#22c55e"}
+	emojiMap := map[string]string{"down": ":red_circle:", "degraded": ":warning:", "up": ":white_check_mark:"}
+
+	plainMsg := strings.ReplaceAll(strings.ReplaceAll(message, "<strong>", "*"), "</strong>", "*")
+
+	payload := map[string]interface{}{
+		"username":   "Servicarr",
+		"icon_emoji": emojiMap[statusType],
+		"attachments": []map[string]interface{}{
+			{
+				"color":  colorMap[statusType],
+				"title":  subject,
+				"text":   plainMsg,
+				"fields": []map[string]interface{}{
+					{"title": "Service", "value": serviceName, "short": true},
+					{"title": "Status", "value": strings.ToUpper(statusType), "short": true},
+				},
+				"footer": "Servicarr Status Monitor",
+				"ts":     time.Now().Unix(),
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(m.config.SlackWebhookURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Slack notification failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Slack notification sent", fmt.Sprintf("status=%d", resp.StatusCode))
+}
+
+// ── Telegram ────────────────────────────────────────────────────────
+
+// SendTelegram sends a message via Telegram Bot API
+func (m *Manager) SendTelegram(subject, statusType, serviceName, message string) {
+	plainMsg := strings.ReplaceAll(strings.ReplaceAll(message, "<strong>", "<b>"), "</strong>", "</b>")
+	text := fmt.Sprintf("<b>%s</b>\n\n%s\n\n🕒 %s", subject, plainMsg, time.Now().Format(time.RFC1123))
+
+	payload := map[string]interface{}{
+		"chat_id":    m.config.TelegramChatID,
+		"text":       text,
+		"parse_mode": "HTML",
+	}
+
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", m.config.TelegramBotToken)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Telegram notification failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Telegram notification sent", fmt.Sprintf("status=%d", resp.StatusCode))
+}
+
+// ── Generic Webhook ─────────────────────────────────────────────────
+
+// SendWebhook sends a JSON payload to a generic webhook URL with optional HMAC signing
+func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, message string) {
+	payload := map[string]interface{}{
+		"event":        "status_change",
+		"service_key":  serviceKey,
+		"service_name": serviceName,
+		"status":       statusType,
+		"subject":      subject,
+		"message":      strings.ReplaceAll(strings.ReplaceAll(message, "<strong>", ""), "</strong>", ""),
+		"timestamp":    time.Now().UTC().Format(time.RFC3339),
+	}
+
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", m.config.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Webhook request failed", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Servicarr/1.0")
+
+	// HMAC-SHA256 signature
+	if m.config.WebhookSecret != "" {
+		mac := hmac.New(sha256.New, []byte(m.config.WebhookSecret))
+		mac.Write(body)
+		sig := hex.EncodeToString(mac.Sum(nil))
+		req.Header.Set("X-Servicarr-Signature", "sha256="+sig)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Webhook notification failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Webhook notification sent", fmt.Sprintf("url=%s, status=%d", m.config.WebhookURL, resp.StatusCode))
 }
 
 // CreateHTMLEmail generates a styled HTML email

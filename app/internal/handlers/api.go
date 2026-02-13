@@ -41,6 +41,24 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 					Disabled:  true,
 					Degraded:  false,
 					CheckType: sc.CheckType,
+					DependsOn: sc.DependsOn,
+				}
+				continue
+			}
+
+			// Check if in maintenance window
+			inMaint, maintTitle, _ := database.IsInMaintenanceWindow(sc.Key)
+			if inMaint {
+				out.Status[sc.Key] = models.LiveResult{
+					Label:       sc.Name,
+					OK:          true,
+					Status:      0,
+					MS:          nil,
+					Disabled:    false,
+					Degraded:    false,
+					CheckType:   sc.CheckType,
+					Maintenance: maintTitle,
+					DependsOn:   sc.DependsOn,
 				}
 				continue
 			}
@@ -73,6 +91,7 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 				Disabled:  false,
 				Degraded:  degraded,
 				CheckType: sc.CheckType,
+				DependsOn: sc.DependsOn,
 			}
 		}
 

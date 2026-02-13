@@ -203,44 +203,87 @@ func ensureDemoService() {
 	}
 }
 
-// runScheduler runs health checks on a regular interval
-func runScheduler(alertMgr *alerts.Manager, interval time.Duration, tracker *monitor.FailureTracker) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Batch check results for efficient DB operations
-	type checkResult struct {
-		Key      string
-		Name     string
-		OK       bool
-		Code     int
-		MS       *int
-		ErrMsg   string
-		Degraded bool
+// runScheduler runs health checks using per-service intervals.
+// Each service runs on its own timer based on its configured check_interval.
+// A global coordination ticker reloads services and prunes stale data.
+func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, tracker *monitor.FailureTracker) {
+	type serviceTimer struct {
+		key      string
+		interval time.Duration
+		lastRun  time.Time
 	}
 
-	for range ticker.C {
-		// Reload services from DB on each tick to pick up changes
+	// Coordination ticker runs every 5 seconds to check if any service is due
+	coordTicker := time.NewTicker(5 * time.Second)
+	defer coordTicker.Stop()
+
+	timers := make(map[string]*serviceTimer)
+	var lastPrune time.Time
+
+	for range coordTicker.C {
+		// Reload services from DB to pick up changes (new services, interval changes)
 		dbServices, err := database.GetAllServices()
 		if err != nil {
 			log.Printf("Warning: Failed to reload services: %v", err)
 			continue
 		}
 
-		// Prune failure counts for deleted services
+		// Build set of valid keys and update timers
 		validKeys := make(map[string]struct{}, len(dbServices))
 		for _, sc := range dbServices {
 			validKeys[sc.Key] = struct{}{}
+
+			interval := time.Duration(sc.CheckInterval) * time.Second
+			if interval < 10*time.Second {
+				interval = defaultInterval
+			}
+
+			if t, ok := timers[sc.Key]; ok {
+				// Update interval if it changed
+				t.interval = interval
+			} else {
+				// New service — run immediately on first tick
+				timers[sc.Key] = &serviceTimer{
+					key:      sc.Key,
+					interval: interval,
+					lastRun:  time.Time{}, // zero = run immediately
+				}
+			}
+		}
+
+		// Remove timers for deleted services
+		for k := range timers {
+			if _, exists := validKeys[k]; !exists {
+				delete(timers, k)
+			}
 		}
 		tracker.Prune(validKeys)
 
-		// Collect results for batch processing
-		results := make([]checkResult, 0, len(dbServices))
+		now := time.Now()
 
 		for _, sc := range dbServices {
+			t := timers[sc.Key]
+			if t == nil {
+				continue
+			}
+
+			// Check if this service is due for a check
+			if !t.lastRun.IsZero() && now.Sub(t.lastRun) < t.interval {
+				continue
+			}
+			t.lastRun = now
+
 			// Check disabled state
 			disabled, _ := database.GetServiceDisabledState(sc.Key)
 			if disabled {
+				continue
+			}
+
+			// Check if in maintenance window
+			inMaint, _, _ := database.IsInMaintenanceWindow(sc.Key)
+			if inMaint {
+				// During maintenance, record a heartbeat but skip alerting
+				stats.RecordHeartbeat(sc.Key, true, nil, 0, "maintenance")
 				continue
 			}
 
@@ -263,69 +306,56 @@ func runScheduler(alertMgr *alerts.Manager, interval time.Duration, tracker *mon
 			// Track consecutive failures
 			consecutiveFailures := tracker.Update(sc.Key, checkOK)
 
-			// Service is considered OK if check passed OR if we haven't hit 2 consecutive failures yet
+			// OK if check passed OR haven't hit 2 consecutive failures yet
 			ok := checkOK || consecutiveFailures < 2
 
-			// Check if service is degraded (slow response)
+			// Degraded = responding but slow
 			degraded := ok && msPtr != nil && *msPtr > 200
 
-			results = append(results, checkResult{
-				Key:      sc.Key,
-				Name:     sc.Name,
-				OK:       ok,
-				Code:     code,
-				MS:       msPtr,
-				ErrMsg:   errMsg,
-				Degraded: degraded,
-			})
-
-			// Log if there was an error
-			if errMsg != "" {
-				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
-			}
-		}
-
-		// Batch process results
-		for _, r := range results {
-			// Record in new efficient stats system
-			stats.RecordHeartbeat(r.Key, r.OK, r.MS, r.Code, r.ErrMsg)
-
-			// Also record in legacy samples table for backward compatibility
-			database.InsertSample(time.Now(), r.Key, r.OK, r.Code, r.MS)
+			// Record stats
+			stats.RecordHeartbeat(sc.Key, ok, msPtr, code, errMsg)
+			database.InsertSample(now, sc.Key, ok, code, msPtr)
 
 			// Log the check result
 			logLevel := database.LogLevelInfo
 			logMsg := "Service check passed"
 			logDetails := ""
 
-			if r.MS != nil {
-				logDetails = fmt.Sprintf("status=%d, latency=%dms", r.Code, *r.MS)
+			if msPtr != nil {
+				logDetails = fmt.Sprintf("status=%d, latency=%dms, interval=%ds", code, *msPtr, sc.CheckInterval)
 			} else {
-				logDetails = fmt.Sprintf("status=%d", r.Code)
+				logDetails = fmt.Sprintf("status=%d, interval=%ds", code, sc.CheckInterval)
 			}
 
-			if !r.OK {
+			if !ok {
 				logLevel = database.LogLevelError
 				logMsg = "Service check failed"
-				if r.ErrMsg != "" {
-					logDetails += ", error=" + r.ErrMsg
+				if errMsg != "" {
+					logDetails += ", error=" + errMsg
 				}
-			} else if r.Degraded {
+			} else if degraded {
 				logLevel = database.LogLevelWarn
 				logMsg = "Service degraded (slow response)"
 			}
 
-			_ = database.InsertLog(logLevel, database.LogCategoryCheck, r.Key, logMsg, logDetails)
+			_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
 
-			// Send alerts if status changed
-			name := r.Name
-			if name == "" {
-				name = r.Key
+			if errMsg != "" {
+				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
-			alertMgr.CheckAndSendAlerts(r.Key, name, r.OK, r.Degraded)
+
+			// Send alerts (dependency-aware, maintenance-aware, multi-channel)
+			name := sc.Name
+			if name == "" {
+				name = sc.Key
+			}
+			alertMgr.CheckAndSendAlerts(sc.Key, name, ok, degraded)
 		}
 
-		// Prune old logs to prevent database bloat (keep last 10000 entries)
-		_ = database.PruneLogs(10000)
+		// Prune old logs every 5 minutes
+		if now.Sub(lastPrune) > 5*time.Minute {
+			_ = database.PruneLogs(10000)
+			lastPrune = now
+		}
 	}
 }
