@@ -253,11 +253,6 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 		go m.SendDiscord(subject, statusType, serviceName, message, statusPageURL)
 	}
 
-	// Slack
-	if m.config.SlackEnabled && m.config.SlackWebhookURL != "" {
-		go m.SendSlack(subject, statusType, serviceName, message, statusPageURL)
-	}
-
 	// Telegram
 	if m.config.TelegramEnabled && m.config.TelegramBotToken != "" && m.config.TelegramChatID != "" {
 		go m.SendTelegram(subject, statusType, serviceName, message)
@@ -302,43 +297,6 @@ func (m *Manager) SendDiscord(subject, statusType, serviceName, message, statusP
 	}
 	defer resp.Body.Close()
 	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Discord notification sent", fmt.Sprintf("status=%d", resp.StatusCode))
-}
-
-// ── Slack ────────────────────────────────────────────────────────────
-
-// SendSlack sends a rich message via Slack incoming webhook
-func (m *Manager) SendSlack(subject, statusType, serviceName, message, statusPageURL string) {
-	colorMap := map[string]string{"down": "#ef4444", "degraded": "#eab308", "up": "#22c55e"}
-	emojiMap := map[string]string{"down": ":red_circle:", "degraded": ":warning:", "up": ":white_check_mark:"}
-
-	plainMsg := strings.ReplaceAll(strings.ReplaceAll(message, "<strong>", "*"), "</strong>", "*")
-
-	payload := map[string]interface{}{
-		"username":   "Servicarr",
-		"icon_emoji": emojiMap[statusType],
-		"attachments": []map[string]interface{}{
-			{
-				"color": colorMap[statusType],
-				"title": subject,
-				"text":  plainMsg,
-				"fields": []map[string]interface{}{
-					{"title": "Service", "value": serviceName, "short": true},
-					{"title": "Status", "value": strings.ToUpper(statusType), "short": true},
-				},
-				"footer": "Servicarr Status Monitor",
-				"ts":     time.Now().Unix(),
-			},
-		},
-	}
-
-	body, _ := json.Marshal(payload)
-	resp, err := http.Post(m.config.SlackWebhookURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Slack notification failed", err.Error())
-		return
-	}
-	defer resp.Body.Close()
-	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Slack notification sent", fmt.Sprintf("status=%d", resp.StatusCode))
 }
 
 // ── Telegram ────────────────────────────────────────────────────────

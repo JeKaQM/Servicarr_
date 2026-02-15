@@ -4933,13 +4933,15 @@ dialog.confirm-dialog::backdrop {
 }
 
 /* Button Loading State */
-.btn.loading {
+.btn.loading,
+.log-btn.loading {
   position: relative;
   color: transparent !important;
   pointer-events: none;
 }
 
-.btn.loading::after {
+.btn.loading::after,
+.log-btn.loading::after {
   content: '';
   position: absolute;
   top: 50%;

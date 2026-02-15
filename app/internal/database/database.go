@@ -109,8 +109,6 @@ CREATE TABLE IF NOT EXISTS alert_config (
   alert_on_up INTEGER NOT NULL DEFAULT 0,
   discord_webhook_url TEXT,
   discord_enabled INTEGER NOT NULL DEFAULT 0,
-  slack_webhook_url TEXT,
-  slack_enabled INTEGER NOT NULL DEFAULT 0,
   telegram_bot_token TEXT,
   telegram_chat_id TEXT,
   telegram_enabled INTEGER NOT NULL DEFAULT 0,
@@ -202,8 +200,6 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	// Multi-channel notification columns
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_webhook_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_enabled INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN slack_webhook_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN slack_enabled INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_bot_token TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_chat_id TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_enabled INTEGER NOT NULL DEFAULT 0;`)
@@ -268,7 +264,6 @@ func LoadAlertConfig() (*models.AlertConfig, error) {
 	err := DB.QueryRow(`SELECT enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email,
 		COALESCE(status_page_url, ''), COALESCE(smtp_skip_verify, 0), alert_on_down, alert_on_degraded, alert_on_up,
 		COALESCE(discord_webhook_url, ''), COALESCE(discord_enabled, 0),
-		COALESCE(slack_webhook_url, ''), COALESCE(slack_enabled, 0),
 		COALESCE(telegram_bot_token, ''), COALESCE(telegram_chat_id, ''), COALESCE(telegram_enabled, 0),
 		COALESCE(webhook_url, ''), COALESCE(webhook_secret, ''), COALESCE(webhook_enabled, 0)
 		FROM alert_config WHERE id = 1`).Scan(
@@ -276,7 +271,6 @@ func LoadAlertConfig() (*models.AlertConfig, error) {
 		&config.SMTPPassword, &config.AlertEmail, &config.FromEmail, &config.StatusPageURL, &config.SMTPSkipVerify,
 		&config.AlertOnDown, &config.AlertOnDegraded, &config.AlertOnUp,
 		&config.DiscordWebhookURL, &config.DiscordEnabled,
-		&config.SlackWebhookURL, &config.SlackEnabled,
 		&config.TelegramBotToken, &config.TelegramChatID, &config.TelegramEnabled,
 		&config.WebhookURL, &config.WebhookSecret, &config.WebhookEnabled)
 
@@ -293,26 +287,26 @@ func LoadAlertConfig() (*models.AlertConfig, error) {
 func SaveAlertConfig(config *models.AlertConfig) error {
 	_, err := DB.Exec(`INSERT INTO alert_config (id, enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, status_page_url, smtp_skip_verify,
 		alert_on_down, alert_on_degraded, alert_on_up,
-		discord_webhook_url, discord_enabled, slack_webhook_url, slack_enabled,
+		discord_webhook_url, discord_enabled,
 		telegram_bot_token, telegram_chat_id, telegram_enabled,
 		webhook_url, webhook_secret, webhook_enabled, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET 
 			enabled=?, smtp_host=?, smtp_port=?, smtp_user=?, smtp_password=?, alert_email=?, from_email=?, status_page_url=?, smtp_skip_verify=?,
 			alert_on_down=?, alert_on_degraded=?, alert_on_up=?,
-			discord_webhook_url=?, discord_enabled=?, slack_webhook_url=?, slack_enabled=?,
+			discord_webhook_url=?, discord_enabled=?,
 			telegram_bot_token=?, telegram_chat_id=?, telegram_enabled=?,
 			webhook_url=?, webhook_secret=?, webhook_enabled=?, updated_at=datetime('now')`,
 		config.Enabled, config.SMTPHost, config.SMTPPort, config.SMTPUser, config.SMTPPassword,
 		config.AlertEmail, config.FromEmail, config.StatusPageURL, config.SMTPSkipVerify,
 		config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp,
-		config.DiscordWebhookURL, config.DiscordEnabled, config.SlackWebhookURL, config.SlackEnabled,
+		config.DiscordWebhookURL, config.DiscordEnabled,
 		config.TelegramBotToken, config.TelegramChatID, config.TelegramEnabled,
 		config.WebhookURL, config.WebhookSecret, config.WebhookEnabled,
 		config.Enabled, config.SMTPHost, config.SMTPPort, config.SMTPUser, config.SMTPPassword,
 		config.AlertEmail, config.FromEmail, config.StatusPageURL, config.SMTPSkipVerify,
 		config.AlertOnDown, config.AlertOnDegraded, config.AlertOnUp,
-		config.DiscordWebhookURL, config.DiscordEnabled, config.SlackWebhookURL, config.SlackEnabled,
+		config.DiscordWebhookURL, config.DiscordEnabled,
 		config.TelegramBotToken, config.TelegramChatID, config.TelegramEnabled,
 		config.WebhookURL, config.WebhookSecret, config.WebhookEnabled)
 	return err

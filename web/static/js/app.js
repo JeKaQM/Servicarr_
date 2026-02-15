@@ -1721,8 +1721,6 @@ async function saveAlertsConfig(e) {
     // Multi-channel
     discord_webhook_url: $('#discordWebhookUrl') ? $('#discordWebhookUrl').value : '',
     discord_enabled: $('#discordEnabled') ? $('#discordEnabled').checked : false,
-    slack_webhook_url: $('#slackWebhookUrl') ? $('#slackWebhookUrl').value : '',
-    slack_enabled: $('#slackEnabled') ? $('#slackEnabled').checked : false,
     telegram_bot_token: $('#telegramBotToken') ? $('#telegramBotToken').value : '',
     telegram_chat_id: $('#telegramChatId') ? $('#telegramChatId').value : '',
     telegram_enabled: $('#telegramEnabled') ? $('#telegramEnabled').checked : false,
@@ -1792,8 +1790,6 @@ async function loadAlertsConfig() {
       // Multi-channel
       if ($('#discordWebhookUrl')) $('#discordWebhookUrl').value = config.discord_webhook_url || '';
       if ($('#discordEnabled')) $('#discordEnabled').checked = config.discord_enabled || false;
-      if ($('#slackWebhookUrl')) $('#slackWebhookUrl').value = config.slack_webhook_url || '';
-      if ($('#slackEnabled')) $('#slackEnabled').checked = config.slack_enabled || false;
       if ($('#telegramBotToken')) $('#telegramBotToken').value = config.telegram_bot_token || '';
       if ($('#telegramChatId')) $('#telegramChatId').value = config.telegram_chat_id || '';
       if ($('#telegramEnabled')) $('#telegramEnabled').checked = config.telegram_enabled || false;
@@ -4154,6 +4150,7 @@ async function loadLogStats() {
     }
   } catch (err) {
     console.error('[Logs] Failed to load stats:', err);
+    throw err;
   }
 }
 
@@ -4192,7 +4189,7 @@ async function loadLogs(append = false) {
     }
   } catch (err) {
     console.error('[Logs] Failed to load logs:', err);
-    showToast('Failed to load logs: ' + err.message, 'error');
+    throw err;
   }
 }
 
@@ -4419,14 +4416,19 @@ function renderLogsEmpty(selector) {
     </div>`;
 }
 
-async function refreshLogs() {
+async function refreshLogs(silent = false) {
   const btn = $('#refreshLogsBtn');
   if (btn) btn.classList.add('loading');
 
   try {
     logsOffset = 0;
-    await Promise.all([loadLogStats(), loadLogs(false)]);
-    showToast('Logs refreshed');
+    const [statsResult, logsResult] = await Promise.allSettled([loadLogStats(), loadLogs(false)]);
+    const anyFailed = statsResult.status === 'rejected' || logsResult.status === 'rejected';
+    if (anyFailed) {
+      showToast('Failed to refresh logs', 'error');
+    } else if (!silent) {
+      showToast('Logs refreshed');
+    }
   } catch (e) {
     showToast('Failed to refresh logs', 'error');
   } finally {
@@ -4467,7 +4469,7 @@ async function clearLogs() {
       body: JSON.stringify({ days: 0 })
     });
     if (res && res.success) {
-      await refreshLogs();
+      await refreshLogs(true);
       showToast('Logs cleared successfully');
     } else {
       showToast('Failed to clear logs', 'error');
@@ -4510,9 +4512,18 @@ function initLogsTab() {
   const categorySelect = $('#logCategoryFilter');
   const serviceSelect = $('#logServiceFilter');
 
-  if (levelSelect) levelSelect.addEventListener('change', applyLogFilters);
-  if (categorySelect) categorySelect.addEventListener('change', applyLogFilters);
-  if (serviceSelect) serviceSelect.addEventListener('change', applyLogFilters);
+  if (levelSelect) {
+    levelSelect.removeEventListener('change', applyLogFilters);
+    levelSelect.addEventListener('change', applyLogFilters);
+  }
+  if (categorySelect) {
+    categorySelect.removeEventListener('change', applyLogFilters);
+    categorySelect.addEventListener('change', applyLogFilters);
+  }
+  if (serviceSelect) {
+    serviceSelect.removeEventListener('change', applyLogFilters);
+    serviceSelect.addEventListener('change', applyLogFilters);
+  }
 
   // Refresh button
   const refreshBtn = $('#refreshLogsBtn');

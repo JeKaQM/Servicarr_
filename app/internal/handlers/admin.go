@@ -629,8 +629,6 @@ func HandleClearLogs() http.HandlerFunc {
 			return
 		}
 
-		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Logs cleared", fmt.Sprintf("Cleared logs older than %d days", req.Days))
-
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	}
@@ -642,7 +640,7 @@ func HandleClearLogs() http.HandlerFunc {
 func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Channel string `json:"channel"` // discord, slack, telegram, webhook
+			Channel string `json:"channel"` // discord, telegram, webhook
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -665,12 +663,6 @@ func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 				return
 			}
 			alertMgr.SendDiscord(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Discord notifications are working!", statusPageURL)
-		case "slack":
-			if config.SlackWebhookURL == "" {
-				http.Error(w, "Slack webhook URL not configured", http.StatusBadRequest)
-				return
-			}
-			alertMgr.SendSlack(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Slack notifications are working!", statusPageURL)
 		case "telegram":
 			if config.TelegramBotToken == "" || config.TelegramChatID == "" {
 				http.Error(w, "Telegram bot token or chat ID not configured", http.StatusBadRequest)

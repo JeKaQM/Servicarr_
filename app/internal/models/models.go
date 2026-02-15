@@ -89,8 +89,6 @@ type AlertConfig struct {
 	// Multi-channel notification fields
 	DiscordWebhookURL string `json:"discord_webhook_url"`
 	DiscordEnabled    bool   `json:"discord_enabled"`
-	SlackWebhookURL   string `json:"slack_webhook_url"`
-	SlackEnabled      bool   `json:"slack_enabled"`
 	TelegramBotToken  string `json:"telegram_bot_token"`
 	TelegramChatID    string `json:"telegram_chat_id"`
 	TelegramEnabled   bool   `json:"telegram_enabled"`

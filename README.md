@@ -17,7 +17,7 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances)
-- **Multi-Channel Alerts** — SMTP, webhook, Discord, Slack, Telegram, Gotify, Pushover, ntfy and Apprise notifications
+- **Multi-Channel Alerts** — SMTP, webhook, Discord, Telegram, Gotify, Pushover, ntfy and Apprise notifications
 - **Status Alerts** — Public maintenance/incident banners
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
 - **Security** — CSRF protection, CSP headers (no unsafe-inline for scripts), HSTS, IP-based rate limiting, auto-blocking after failed logins, IP whitelist/blacklist, SSRF protection, request body size limits
