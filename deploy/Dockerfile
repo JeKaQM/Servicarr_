@@ -15,8 +15,9 @@ RUN groupadd -r servicarr && useradd -r -g servicarr servicarr
 COPY --from=build /out/status /usr/local/bin/status
 COPY web/ ./web/
 RUN mkdir -p /data && chown -R servicarr:servicarr /app /data
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 VOLUME ["/data"]
-USER servicarr
 ENV TZ=Europe/London \
     PORT=4555 \
     DB_PATH=/data/uptime.db \
@@ -33,4 +34,4 @@ ENV TZ=Europe/London \
     AUTH_SECRET=""
 EXPOSE 4555
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s CMD wget -qO- http://127.0.0.1:4555/api/check >/dev/null 2>&1 || exit 1
-ENTRYPOINT ["/usr/local/bin/status"]
+ENTRYPOINT ["/entrypoint.sh"]

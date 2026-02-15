@@ -1522,7 +1522,7 @@ async function loadBlocks() {
           <strong>${escapeHtml(block.ip)}</strong>
           <span class="muted">Attempts: ${block.attempts} • Expires: ${new Date(block.expires_at).toLocaleString()}</span>
         </div>
-        <button class="btn danger small" onclick="unblockIP('${escapeHtml(block.ip)}')">Unblock</button>
+        <button class="btn danger small" data-action="unblock" data-ip="${escapeHtml(block.ip)}">Unblock</button>
       </div>
     `).join('');
   } catch (err) {
@@ -1577,7 +1577,7 @@ async function loadWhitelist() {
           <strong>${escapeHtml(item.ip)}</strong>
           <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString()}</span>
         </div>
-        <button class="btn danger small" onclick="removeFromWhitelist('${escapeHtml(item.ip)}')">Remove</button>
+        <button class="btn danger small" data-action="remove-whitelist" data-ip="${escapeHtml(item.ip)}">Remove</button>
       </div>
     `).join('');
   } catch (err) {
@@ -1644,7 +1644,7 @@ async function loadBlacklist() {
           <strong>${escapeHtml(item.ip)}${item.permanent ? '<span class="badge">PERMANENT</span>' : ''}</strong>
           <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString()}</span>
         </div>
-        <button class="btn danger small" onclick="removeFromBlacklist('${escapeHtml(item.ip)}')">Remove</button>
+        <button class="btn danger small" data-action="remove-blacklist" data-ip="${escapeHtml(item.ip)}">Remove</button>
       </div>
     `).join('');
   } catch (err) {
@@ -4267,7 +4267,7 @@ function renderLogEntry(log) {
   // Escape details for use in data attribute
 
   return `
-    <div class="log-entry ${level}" onclick="showLogDetails(this)" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
+    <div class="log-entry ${level}" data-action="show-log" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
       <span class="log-time">${time}</span>
       <span class="log-badge level-${level}">${levelIcon}${level.toUpperCase()}</span>
       ${category ? `<span class="log-badge category">${categoryLabel}</span>` : ''}
@@ -4300,7 +4300,7 @@ function showLogDetails(el) {
             ${levelIcon}
             <span>${data.level.toUpperCase()}</span>
           </div>
-          <button class="log-detail-close" onclick="this.closest('.log-detail-modal').remove()">
+          <button class="log-detail-close" data-action="close-modal">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -4331,6 +4331,7 @@ function showLogDetails(el) {
       </div>
     `;
 
+    modal.querySelector('[data-action="close-modal"]').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.remove();
     });
@@ -4355,7 +4356,7 @@ function showIncidentDetails(el) {
             ${levelIcon}
             <span>INCIDENT</span>
           </div>
-          <button class="log-detail-close" onclick="this.closest('.log-detail-modal').remove()">
+          <button class="log-detail-close" data-action="close-modal">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -4394,6 +4395,7 @@ function showIncidentDetails(el) {
       </div>
     `;
 
+    modal.querySelector('[data-action="close-modal"]').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => {
       if (e.target === modal) modal.remove();
     });
@@ -4590,4 +4592,29 @@ function initNotificationSelector() {
 document.addEventListener('DOMContentLoaded', () => {
   initLogsTab();
   initNotificationSelector();
+
+  // Delegated click handler for dynamically-created buttons (CSP-compliant, no inline onclick)
+  document.addEventListener('click', (e) => {
+    const actionEl = e.target.closest('[data-action]');
+    if (!actionEl) return;
+    const action = actionEl.dataset.action;
+
+    switch (action) {
+      case 'unblock':
+        unblockIP(actionEl.dataset.ip);
+        break;
+      case 'remove-whitelist':
+        removeFromWhitelist(actionEl.dataset.ip);
+        break;
+      case 'remove-blacklist':
+        removeFromBlacklist(actionEl.dataset.ip);
+        break;
+      case 'show-log':
+        showLogDetails(actionEl);
+        break;
+      case 'close-modal':
+        // handled by direct listener on modal creation
+        break;
+    }
+  });
 });
