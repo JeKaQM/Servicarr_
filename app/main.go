@@ -279,14 +279,6 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				continue
 			}
 
-			// Check if in maintenance window
-			inMaint, _, _ := database.IsInMaintenanceWindow(sc.Key)
-			if inMaint {
-				// During maintenance, record a heartbeat but skip alerting
-				stats.RecordHeartbeat(sc.Key, true, nil, 0, "maintenance")
-				continue
-			}
-
 			timeout := time.Duration(sc.Timeout) * time.Second
 			if timeout == 0 {
 				timeout = 5 * time.Second
@@ -344,7 +336,7 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
 
-			// Send alerts (dependency-aware, maintenance-aware, multi-channel)
+			// Send alerts (dependency-aware, multi-channel)
 			name := sc.Name
 			if name == "" {
 				name = sc.Key

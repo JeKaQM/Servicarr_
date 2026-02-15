@@ -11,6 +11,21 @@ const cls = (ok, status, degraded) => {
   return 'pill ok'; // Up = green
 };
 
+// Delegated image error handler — replaces inline onerror attributes (CSP compliance)
+document.addEventListener('error', function(e) {
+  if (e.target.tagName !== 'IMG') return;
+  const img = e.target;
+  if (img.classList.contains('service-icon-img')) {
+    img.style.display = 'none';
+    if (img.nextElementSibling) img.nextElementSibling.style.display = 'flex';
+  } else if (img.classList.contains('matrix-node-icon')) {
+    img.style.display = 'none';
+  } else if (img.classList.contains('icon-preview-img')) {
+    img.style.display = 'none';
+    if (img.nextElementSibling) img.nextElementSibling.style.display = 'block';
+  }
+}, true);
+
 function fmtBytes(n) {
   if (n == null || isNaN(n)) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -678,21 +693,10 @@ function updCard(id, data) {
   if (data.disabled) {
     pill.textContent = 'DISABLED';
     pill.className = 'pill warn';
-    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-maintenance');
+    el.classList.remove('status-up', 'status-down', 'status-degraded');
     el.classList.add('status-disabled');
     k.textContent = '—';
     h.textContent = 'Monitoring disabled';
-    return;
-  }
-
-  // Maintenance window active
-  if (data.maintenance) {
-    pill.textContent = 'MAINTENANCE';
-    pill.className = 'pill maintenance';
-    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
-    el.classList.add('status-maintenance');
-    k.textContent = '🔧';
-    h.textContent = data.maintenance;
     return;
   }
 
@@ -704,7 +708,7 @@ function updCard(id, data) {
   pill.className = cls(data.ok, data.status, data.degraded);
 
   // Update the left accent bar
-  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled', 'status-maintenance');
+  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
   if (data.degraded)  el.classList.add('status-degraded');
   else if (data.ok)   el.classList.add('status-up');
   else                el.classList.add('status-down');
@@ -1028,6 +1032,15 @@ function renderUptimeBars(metrics, days) {
 
       block.title = tooltipText;
       block.setAttribute('data-tooltip', tooltipText);
+      block.setAttribute('data-day', point.day);
+      block.setAttribute('data-service-key', key);
+      block.style.cursor = 'pointer';
+
+      // Click to open hourly detail
+      block.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDayDetail(key, point.day);
+      });
 
       // Add mobile-friendly touch feedback
       block.addEventListener('touchstart', (e) => {
@@ -1089,6 +1102,162 @@ function showMobileTooltip(element, text, touch) {
     setTimeout(() => tooltip.remove(), 200);
   }, 2000);
 }
+
+// ============ Day Detail Popup ============
+
+async function openDayDetail(serviceKey, dateStr) {
+  const dialog = $('#dayDetailDialog');
+  if (!dialog) return;
+
+  // Find service name
+  const svc = servicesData.find(s => s.key === serviceKey);
+  const serviceName = svc ? (svc.name || svc.key) : serviceKey;
+
+  const dateObj = new Date(dateStr);
+  const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  $('#dayDetailTitle').textContent = serviceName + ' — ' + formattedDate;
+
+  const hoursContainer = $('#dayDetailHours');
+  const eventsContainer = $('#dayDetailEvents');
+  hoursContainer.innerHTML = '<div class="dd-loading">Loading hourly data…</div>';
+  eventsContainer.innerHTML = '';
+
+  dialog.showModal();
+
+  try {
+    const data = await j(`/api/metrics/day-detail?key=${encodeURIComponent(serviceKey)}&date=${dateStr}`);
+    renderDayDetailHours(data.hours, hoursContainer);
+    renderDayDetailEvents(data.down_events, eventsContainer);
+  } catch (e) {
+    hoursContainer.innerHTML = '<div class="dd-loading" style="color:var(--down)">Failed to load data</div>';
+    console.error('Day detail error', e);
+  }
+}
+
+function renderDayDetailHours(hours, container) {
+  container.innerHTML = '';
+
+  // Summary row
+  const totalChecks = hours.reduce((s, h) => s + h.checks, 0);
+  const upHours = hours.filter(h => h.uptime >= 100).length;
+  const dataHours = hours.filter(h => h.checks > 0).length;
+
+  let dayUptime = 100;
+  if (dataHours > 0) {
+    const weighted = hours.filter(h => h.checks > 0);
+    dayUptime = weighted.reduce((s, h) => s + h.uptime, 0) / weighted.length;
+  }
+
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'dd-summary';
+  summaryEl.innerHTML =
+    '<div class="dd-stat"><span class="dd-stat-val">' + (dayUptime >= 100 ? '100%' : dayUptime.toFixed(2) + '%') + '</span><span class="dd-stat-lbl">Day Uptime</span></div>' +
+    '<div class="dd-stat"><span class="dd-stat-val">' + upHours + '/' + dataHours + '</span><span class="dd-stat-lbl">Hours Clean</span></div>' +
+    '<div class="dd-stat"><span class="dd-stat-val">' + totalChecks + '</span><span class="dd-stat-lbl">Total Checks</span></div>';
+  container.appendChild(summaryEl);
+
+  // Hour bar grid
+  const grid = document.createElement('div');
+  grid.className = 'dd-hour-grid';
+
+  hours.forEach((h, i) => {
+    const col = document.createElement('div');
+    col.className = 'dd-hour-col';
+
+    const bar = document.createElement('div');
+    bar.className = 'dd-hour-bar';
+
+    if (h.checks === 0 || h.uptime < 0) {
+      bar.classList.add('dd-no-data');
+    } else if (h.uptime >= 100) {
+      bar.classList.add('dd-up');
+    } else if (h.uptime >= 50) {
+      bar.classList.add('dd-degraded');
+    } else {
+      bar.classList.add('dd-down');
+    }
+
+    // Tooltip
+    const hourLabel = String(i).padStart(2, '0') + ':00';
+    let tip = hourLabel;
+    if (h.checks === 0) {
+      tip += '\nNo data';
+    } else {
+      tip += '\n' + h.uptime.toFixed(1) + '% uptime';
+      tip += '\n' + h.checks + ' checks';
+      if (h.avg_ms != null) tip += '\n' + Math.round(h.avg_ms) + 'ms avg';
+    }
+    bar.title = tip;
+
+    const lbl = document.createElement('span');
+    lbl.className = 'dd-hour-lbl';
+    // Show labels for every 3rd hour + last
+    lbl.textContent = (i % 3 === 0 || i === 23) ? hourLabel : '';
+
+    col.appendChild(bar);
+    col.appendChild(lbl);
+    grid.appendChild(col);
+  });
+
+  container.appendChild(grid);
+}
+
+function renderDayDetailEvents(events, container) {
+  if (!events || events.length === 0) {
+    container.innerHTML = '<div class="dd-no-events"><span class="dd-check-icon">✓</span> No downtime events recorded this day</div>';
+    return;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'dd-events-header';
+  header.textContent = 'Downtime Events (' + events.length + ')';
+  container.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'dd-events-list';
+
+  events.forEach(ev => {
+    const row = document.createElement('div');
+    row.className = 'dd-event-row';
+
+    const ts = new Date(ev.time);
+    const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+    let detail = '';
+    if (ev.http_status) detail += 'HTTP ' + ev.http_status;
+    if (ev.error) detail += (detail ? ' — ' : '') + ev.error;
+    if (ev.latency_ms != null) detail += (detail ? ' • ' : '') + ev.latency_ms + 'ms';
+    if (!detail) detail = 'Service unreachable';
+
+    row.innerHTML =
+      '<span class="dd-event-time">' + timeStr + '</span>' +
+      '<span class="dd-event-dot"></span>' +
+      '<span class="dd-event-detail">' + escapeHtml(detail) + '</span>';
+
+    list.appendChild(row);
+  });
+
+  container.appendChild(list);
+}
+
+// Close day detail dialog
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = $('#closeDayDetail');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      const d = $('#dayDetailDialog');
+      if (d) d.close();
+    });
+  }
+  // Close on backdrop click
+  const dialog = $('#dayDetailDialog');
+  if (dialog) {
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.close();
+    });
+  }
+});
 
 async function refresh() {
   const suspendDashboard = shouldSuspendDashboardRefresh();
@@ -1153,8 +1322,6 @@ async function refresh() {
     }
   }
 
-  // Load public incident timeline (non-blocking)
-  loadPublicIncidentTimeline();
 }
 
 async function doLoginFlow() {
@@ -1639,282 +1806,49 @@ async function loadAlertsConfig() {
   }
 }
 
-// ============ Maintenance Windows ============
-
-async function loadMaintenanceWindows() {
-  const container = $('#maintenanceList');
-  if (!container) return;
-  try {
-    const windows = await j('/api/admin/maintenance', {
-      headers: { 'X-CSRF-Token': getCsrf() }
-    });
-    if (!windows || windows.length === 0) {
-      container.innerHTML = '<div class="muted">No maintenance windows scheduled.</div>';
-      return;
-    }
-    container.innerHTML = windows.map(w => {
-      const start = new Date(w.start_time).toLocaleString();
-      const end = new Date(w.end_time).toLocaleString();
-      const now = new Date();
-      const isActive = now >= new Date(w.start_time) && now <= new Date(w.end_time);
-      return `
-        <div class="maintenance-item ${isActive ? 'active' : ''}">
-          <div class="maintenance-info">
-            <div class="maintenance-title">${escapeHtml(w.title || 'Maintenance')}</div>
-            <div class="maintenance-meta">
-              <span class="maintenance-service">${escapeHtml(w.service_key)}</span>
-              <span class="maintenance-time">${start} → ${end}</span>
-              ${isActive ? '<span class="badge badge-maintenance">ACTIVE</span>' : ''}
-            </div>
-          </div>
-          <button class="btn mini danger" onclick="deleteMaintenance(${w.id})">Delete</button>
-        </div>`;
-    }).join('');
-  } catch (err) {
-    console.error('Failed to load maintenance windows', err);
-    container.innerHTML = '<div class="muted">Failed to load maintenance windows.</div>';
-  }
-}
-
-function populateMaintenanceServiceDropdown() {
-  const select = $('#maintService');
-  if (!select) return;
-  // Keep the default option
-  select.innerHTML = '<option value="">-- Select a service --</option>';
-  servicesData.forEach(svc => {
-    const opt = document.createElement('option');
-    opt.value = svc.key;
-    opt.textContent = svc.name || svc.key;
-    select.appendChild(opt);
-  });
-}
-
-async function createMaintenanceWindow() {
-  const serviceKey = $('#maintService').value;
-  const title = $('#maintTitle').value.trim();
-  const startTime = $('#maintStart').value;
-  const endTime = $('#maintEnd').value;
-  const statusEl = $('#maintStatus');
-
-  if (!serviceKey || !title || !startTime || !endTime) {
-    if (statusEl) {
-      statusEl.textContent = 'All fields are required.';
-      statusEl.className = 'status-message error';
-      statusEl.classList.remove('hidden');
-    }
-    return;
-  }
-
-  if (new Date(endTime) <= new Date(startTime)) {
-    if (statusEl) {
-      statusEl.textContent = 'End time must be after start time.';
-      statusEl.className = 'status-message error';
-      statusEl.classList.remove('hidden');
-    }
-    return;
-  }
-
-  try {
-    await j('/api/admin/maintenance', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': getCsrf()
-      },
-      body: JSON.stringify({
-        service_key: serviceKey,
-        title: title,
-        start_time: new Date(startTime).toISOString(),
-        end_time: new Date(endTime).toISOString()
-      })
-    });
-    showToast('Maintenance window created');
-    // Clear form
-    $('#maintTitle').value = '';
-    $('#maintStart').value = '';
-    $('#maintEnd').value = '';
-    if (statusEl) statusEl.classList.add('hidden');
-    loadMaintenanceWindows();
-  } catch (err) {
-    console.error('Failed to create maintenance window', err);
-    if (statusEl) {
-      statusEl.textContent = err.body?.error || 'Failed to create maintenance window';
-      statusEl.className = 'status-message error';
-      statusEl.classList.remove('hidden');
-    }
-  }
-}
-
-async function deleteMaintenance(id) {
-  if (!confirm('Delete this maintenance window?')) return;
-  try {
-    await j(`/api/admin/maintenance?id=${id}`, {
-      method: 'DELETE',
-      headers: { 'X-CSRF-Token': getCsrf() }
-    });
-    showToast('Maintenance window deleted');
-    loadMaintenanceWindows();
-  } catch (err) {
-    console.error('Failed to delete maintenance window', err);
-    showToast('Failed to delete maintenance window', 'error');
-  }
-}
-
-// ============ Admin Incidents ============
-
-async function loadAdminIncidents() {
-  const container = $('#adminIncidentsList');
-  if (!container) return;
-  try {
-    const data = await j('/api/incidents');
-    const incidents = data.incidents || [];
-    if (incidents.length === 0) {
-      container.innerHTML = '<div class="muted">No incidents recorded yet.</div>';
-      return;
-    }
-    container.innerHTML = incidents.map(inc => {
-      const started = new Date(inc.started_at).toLocaleString();
-      const resolved = inc.resolved_at ? new Date(inc.resolved_at).toLocaleString() : null;
-      const duration = inc.duration_s ? formatDuration(inc.duration_s) : null;
-      const isActive = !inc.resolved_at;
-      return `
-        <div class="incident-entry ${isActive ? 'active' : 'resolved'}">
-          <div class="incident-header">
-            <span class="incident-dot ${isActive ? 'dot-down' : 'dot-resolved'}"></span>
-            <strong>${escapeHtml(inc.service_name || inc.service_key)}</strong>
-            <span class="badge ${isActive ? 'badge-down' : 'badge-resolved'}">${isActive ? 'ONGOING' : 'RESOLVED'}</span>
-          </div>
-          <div class="incident-details">
-            <div class="incident-meta">
-              <span>Started: ${started}</span>
-              ${resolved ? `<span>Resolved: ${resolved}</span>` : ''}
-              ${duration ? `<span>Duration: ${duration}</span>` : ''}
-            </div>
-            <div class="incident-detail-text">${escapeHtml(inc.details || '')}</div>
-          </div>
-          <div class="incident-postmortem">
-            <label>Postmortem</label>
-            <textarea class="postmortem-input" data-incident-id="${inc.id}" rows="3" placeholder="Add a postmortem note...">${escapeHtml(inc.postmortem || '')}</textarea>
-            <button class="btn mini" onclick="savePostmortem(${inc.id}, this)">Save Postmortem</button>
-          </div>
-        </div>`;
-    }).join('');
-  } catch (err) {
-    console.error('Failed to load incidents', err);
-    container.innerHTML = '<div class="muted">Failed to load incidents.</div>';
-  }
-}
-
-async function savePostmortem(incidentId, btn) {
-  const textarea = btn.previousElementSibling;
-  const postmortem = textarea.value.trim();
-  try {
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-    await j('/api/admin/incidents/postmortem', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': getCsrf()
-      },
-      body: JSON.stringify({ id: incidentId, postmortem: postmortem })
-    });
-    showToast('Postmortem saved');
-  } catch (err) {
-    console.error('Failed to save postmortem', err);
-    showToast('Failed to save postmortem', 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Save Postmortem';
-  }
-}
-
-function formatDuration(seconds) {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-}
-
-// ============ Public Incident Timeline ============
-
-async function loadPublicIncidentTimeline() {
-  const container = $('#publicIncidentTimeline');
-  const section = $('#incidentTimelineSection');
-  if (!container) return;
-  try {
-    const data = await j('/api/incidents');
-    const incidents = data.incidents || [];
-    const maintenance = data.maintenance || [];
-
-    if (incidents.length === 0 && maintenance.length === 0) {
-      if (section) section.classList.add('hidden');
-      return;
-    }
-    if (section) section.classList.remove('hidden');
-
-    let html = '';
-
-    // Active maintenance windows
-    if (maintenance.length > 0) {
-      html += '<div class="timeline-section"><h4>🔧 Active Maintenance</h4>';
-      html += maintenance.map(m => {
-        const end = new Date(m.end_time).toLocaleString();
-        return `
-          <div class="timeline-entry maintenance">
-            <div class="timeline-dot dot-maintenance"></div>
-            <div class="timeline-content">
-              <strong>${escapeHtml(m.title || 'Maintenance')}</strong>
-              <span class="timeline-service">${escapeHtml(m.service_key)}</span>
-              <div class="timeline-time">Until ${end}</div>
-            </div>
-          </div>`;
-      }).join('');
-      html += '</div>';
-    }
-
-    // Recent incidents
-    if (incidents.length > 0) {
-      html += '<div class="timeline-section"><h4>📋 Recent Incidents</h4>';
-      html += incidents.slice(0, 20).map(inc => {
-        const started = new Date(inc.started_at).toLocaleString();
-        const isActive = !inc.resolved_at;
-        const duration = inc.duration_s ? formatDuration(inc.duration_s) : null;
-        return `
-          <div class="timeline-entry ${isActive ? 'active' : 'resolved'}">
-            <div class="timeline-dot ${isActive ? 'dot-down' : 'dot-resolved'}"></div>
-            <div class="timeline-content">
-              <strong>${escapeHtml(inc.service_name || inc.service_key)}</strong>
-              <span class="badge small ${isActive ? 'badge-down' : 'badge-resolved'}">${isActive ? 'ONGOING' : 'RESOLVED'}</span>
-              <div class="timeline-time">${started}${duration ? ' · ' + duration : ''}</div>
-              ${inc.postmortem ? `<div class="timeline-postmortem">${escapeHtml(inc.postmortem)}</div>` : ''}
-            </div>
-          </div>`;
-      }).join('');
-      html += '</div>';
-    }
-
-    container.innerHTML = html;
-  } catch (err) {
-    // Non-critical — hide section on error
-    if (section) section.classList.add('hidden');
-  }
-}
-
 // ============ Service Dependencies ============
 
 function populateDependsOnDropdown(currentServiceKey) {
-  const select = $('#serviceDependsOn');
-  if (!select) return;
-  select.innerHTML = '';
-  servicesData.forEach(svc => {
-    // Don't let a service depend on itself
-    if (svc.key === currentServiceKey) return;
-    const opt = document.createElement('option');
-    opt.value = svc.key;
-    opt.textContent = svc.name || svc.key;
-    select.appendChild(opt);
+  const container = $('#serviceDependsOnList');
+  if (!container) return;
+  container.innerHTML = '';
+  const available = servicesData.filter(svc => svc.key !== currentServiceKey);
+  if (available.length === 0) {
+    container.innerHTML = '<span class="muted" style="font-size:12px;">No other services available</span>';
+    return;
+  }
+  available.forEach(svc => {
+    const label = document.createElement('label');
+    label.className = 'depends-on-option';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = svc.key;
+    cb.className = 'depends-on-cb';
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + (svc.name || svc.key)));
+    container.appendChild(label);
+  });
+}
+
+function populateConnectedToList(currentServiceKey) {
+  const container = $('#serviceConnectedToList');
+  if (!container) return;
+  container.innerHTML = '';
+  const available = servicesData.filter(svc => svc.key !== currentServiceKey);
+  if (available.length === 0) {
+    container.innerHTML = '<span class="muted" style="font-size:12px;">No other services available</span>';
+    return;
+  }
+  available.forEach(svc => {
+    const label = document.createElement('label');
+    label.className = 'depends-on-option';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = svc.key;
+    cb.className = 'connected-to-cb';
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + (svc.name || svc.key)));
+    container.appendChild(label);
   });
 }
 
@@ -2066,11 +2000,6 @@ window.addEventListener('load', async () => {
       } else if (tabName === 'banners') {
         loadAdminBanners();
         populateBannerScopeDropdown();
-      } else if (tabName === 'maintenance') {
-        loadMaintenanceWindows();
-        populateMaintenanceServiceDropdown();
-      } else if (tabName === 'incidents') {
-        loadAdminIncidents();
       }
     });
   });
@@ -2104,12 +2033,6 @@ window.addEventListener('load', async () => {
   const testEmailBtn = $('#testEmail');
   if (testEmailBtn) {
     testEmailBtn.addEventListener('click', sendTestEmail);
-  }
-
-  // Maintenance create button
-  const createMaintBtn = $('#createMaintenance');
-  if (createMaintBtn) {
-    createMaintBtn.addEventListener('click', createMaintenanceWindow);
   }
 
   // Resources config handlers
@@ -2472,7 +2395,7 @@ function getServiceIconHtml(serviceTypeOrObj, iconUrl = null) {
   // Use custom icon URL if provided
   if (customIconUrl) {
     // Use a data attribute for fallback, handle error in CSS/JS
-    return `<img src="${customIconUrl}" class="icon service-icon-img" alt="${serviceType}" data-fallback="${serviceType}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"/><span class="icon icon-fallback" style="display:none;">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
+    return `<img src="${customIconUrl}" class="icon service-icon-img" alt="${serviceType}" data-fallback="${serviceType}"/><span class="icon icon-fallback" style="display:none;">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
   }
 
   // Use local image file if available
@@ -2777,9 +2700,67 @@ function animateMatrixLines(canvas, nodePositions) {
     // Draw lines from each node to the centre hub
     nodePositions.forEach(n => {
       const col = MATRIX_COLORS[n.status] || MATRIX_COLORS.unknown;
+      const isDisabled = n.status === 'disabled';
+      const isDown     = n.status === 'down';
 
       // Gradient along the line
       const grad = ctx.createLinearGradient(n.x, n.y, cx, cy);
+
+      if (isDisabled) {
+        // Dim, barely visible dashed line for disabled
+        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.15)');
+        grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.08)');
+        ctx.save();
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(cx, cy);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.restore();
+        // No particle for disabled — line only
+        return;
+      }
+
+      if (isDown) {
+        // Broken/fractured line for DOWN — dashed red with glow
+        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.7)');
+        grad.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.1)');
+        ctx.save();
+        ctx.setLineDash([3, 8]);
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(cx, cy);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.6)';
+        ctx.shadowBlur = 6;
+        ctx.stroke();
+        ctx.restore();
+
+        // Draw a static "break" mark at the midpoint of the line
+        const mx = (n.x + cx) / 2;
+        const my = (n.y + cy) / 2;
+        ctx.save();
+        // Red X mark
+        const sz = 5;
+        ctx.strokeStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.8)';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.7)';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(mx - sz, my - sz);
+        ctx.lineTo(mx + sz, my + sz);
+        ctx.moveTo(mx + sz, my - sz);
+        ctx.lineTo(mx - sz, my + sz);
+        ctx.stroke();
+        ctx.restore();
+        // No traveling particle for down
+        return;
+      }
+
+      // Normal line for up / degraded / unknown
       grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.55)');
       grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.25)');
 
@@ -2825,6 +2806,165 @@ function animateMatrixLines(canvas, nodePositions) {
       ctx.lineWidth = 0.7;
       ctx.stroke();
     }
+
+    // ── Dependency connection lines (service → upstream) ──
+    const nodeByKey = {};
+    nodePositions.forEach(n => { nodeByKey[n.key] = n; });
+
+    nodePositions.forEach(n => {
+      if (!n.depends_on || n.depends_on.length === 0) return;
+      n.depends_on.forEach(depKey => {
+        const dep = nodeByKey[depKey];
+        if (!dep) return;
+
+        // Draw a curved dependency arc from dependent → upstream
+        const midX = (n.x + dep.x) / 2;
+        const midY = (n.y + dep.y) / 2;
+        // Offset the control point toward the hub for a nice curve
+        const ctrlX = midX + (cx - midX) * 0.45;
+        const ctrlY = midY + (cy - midY) * 0.45;
+
+        // Gradient: orange/amber dependency color
+        const depGrad = ctx.createLinearGradient(n.x, n.y, dep.x, dep.y);
+        depGrad.addColorStop(0, 'rgba(251,146,60,0.55)');
+        depGrad.addColorStop(1, 'rgba(245,158,11,0.55)');
+
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, dep.x, dep.y);
+        ctx.strokeStyle = depGrad;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+
+        // Arrow head at the upstream (dep) end
+        const arrowSize = 7;
+        // Approximate tangent at the end of the quadratic curve
+        const tgx = dep.x - ctrlX;
+        const tgy = dep.y - ctrlY;
+        const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) || 1;
+        const ux = tgx / tgLen;
+        const uy = tgy / tgLen;
+        // Arrow tip is slightly before the node ring
+        const tipX = dep.x - ux * 26;
+        const tipY = dep.y - uy * 26;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - ux * arrowSize - uy * arrowSize * 0.6, tipY - uy * arrowSize + ux * arrowSize * 0.6);
+        ctx.lineTo(tipX - ux * arrowSize + uy * arrowSize * 0.6, tipY - uy * arrowSize - ux * arrowSize * 0.6);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(251,146,60,0.7)';
+        ctx.fill();
+
+        // Animated particle travelling along the dependency curve
+        const depSpeed = 3000;
+        const depProg = ((t + n.phase + 300) % depSpeed) / depSpeed;
+        // Quadratic bezier interpolation: B(t) = (1-t)²P0 + 2(1-t)tC + t²P1
+        const bp = 1 - depProg;
+        const dpx = bp * bp * n.x + 2 * bp * depProg * ctrlX + depProg * depProg * dep.x;
+        const dpy = bp * bp * n.y + 2 * bp * depProg * ctrlY + depProg * depProg * dep.y;
+        const dpPulse = 0.5 + 0.5 * Math.sin(depProg * Math.PI);
+        const dpRadius = 1.5 + dpPulse * 1.5;
+        ctx.beginPath();
+        ctx.arc(dpx, dpy, dpRadius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(251,146,60,' + (0.5 + dpPulse * 0.5) + ')';
+        ctx.fill();
+        // Glow
+        ctx.beginPath();
+        ctx.arc(dpx, dpy, dpRadius + 3, 0, Math.PI * 2);
+        const dpGlow = ctx.createRadialGradient(dpx, dpy, 0, dpx, dpy, dpRadius + 3);
+        dpGlow.addColorStop(0, 'rgba(251,146,60,0.25)');
+        dpGlow.addColorStop(1, 'rgba(251,146,60,0)');
+        ctx.fillStyle = dpGlow;
+        ctx.fill();
+      });
+    });
+
+    // ── Connected-to lines (peer/integration links) ──
+    // Track drawn pairs to avoid duplicates (A↔B = B↔A)
+    const drawnConnPairs = new Set();
+
+    nodePositions.forEach(n => {
+      if (!n.connected_to || n.connected_to.length === 0) return;
+      n.connected_to.forEach(connKey => {
+        const peer = nodeByKey[connKey];
+        if (!peer) return;
+
+        // Deduplicate: only draw each pair once
+        const pairKey = [n.key, connKey].sort().join('|');
+        if (drawnConnPairs.has(pairKey)) return;
+        drawnConnPairs.add(pairKey);
+
+        // Draw a solid curved line (distinct from dashed dependency arcs)
+        const midX = (n.x + peer.x) / 2;
+        const midY = (n.y + peer.y) / 2;
+        // Offset control point away from hub (opposite direction from dependencies)
+        const ctrlX = midX - (cx - midX) * 0.35;
+        const ctrlY = midY - (cy - midY) * 0.35;
+
+        // Gradient: emerald/green color for connections
+        const connGrad = ctx.createLinearGradient(n.x, n.y, peer.x, peer.y);
+        connGrad.addColorStop(0, 'rgba(52,211,153,0.45)');
+        connGrad.addColorStop(1, 'rgba(16,185,129,0.45)');
+
+        ctx.save();
+        ctx.setLineDash([]);  // solid line (unlike dashed dependency)
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, peer.x, peer.y);
+        ctx.strokeStyle = connGrad;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+
+        // Small diamond at both ends (peer relationship indicator)
+        const diamondSize = 4;
+        [{ from: n, to: peer }, { from: peer, to: n }].forEach(({ from, to }) => {
+          const tgx = to.x - ctrlX;
+          const tgy = to.y - ctrlY;
+          const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) || 1;
+          const ux = tgx / tgLen;
+          const uy = tgy / tgLen;
+          const diaX = to.x - ux * 26;
+          const diaY = to.y - uy * 26;
+          ctx.save();
+          ctx.translate(diaX, diaY);
+          ctx.rotate(Math.atan2(uy, ux));
+          ctx.beginPath();
+          ctx.moveTo(0, -diamondSize);
+          ctx.lineTo(diamondSize, 0);
+          ctx.lineTo(0, diamondSize);
+          ctx.lineTo(-diamondSize, 0);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(52,211,153,0.6)';
+          ctx.fill();
+          ctx.restore();
+        });
+
+        // Animated particle along the connection curve
+        const connSpeed = 4000;
+        const connProg = ((t + n.phase + 150) % connSpeed) / connSpeed;
+        const cbp = 1 - connProg;
+        const cpx = cbp * cbp * n.x + 2 * cbp * connProg * ctrlX + connProg * connProg * peer.x;
+        const cpy = cbp * cbp * n.y + 2 * cbp * connProg * ctrlY + connProg * connProg * peer.y;
+        const cpPulse = 0.5 + 0.5 * Math.sin(connProg * Math.PI);
+        const cpRadius = 1.2 + cpPulse * 1.2;
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, cpRadius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(52,211,153,' + (0.4 + cpPulse * 0.5) + ')';
+        ctx.fill();
+        // Glow
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, cpRadius + 3, 0, Math.PI * 2);
+        const cpGlow = ctx.createRadialGradient(cpx, cpy, 0, cpx, cpy, cpRadius + 3);
+        cpGlow.addColorStop(0, 'rgba(52,211,153,0.2)');
+        cpGlow.addColorStop(1, 'rgba(52,211,153,0)');
+        ctx.fillStyle = cpGlow;
+        ctx.fill();
+      });
+    });
 
     matrixAnimFrame = requestAnimationFrame(frame);
   }
@@ -2873,6 +3013,24 @@ function renderMatrix() {
   nodesLayer.className = 'matrix-nodes';
   container.appendChild(nodesLayer);
 
+  // Legend / Key
+  const legend = document.createElement('div');
+  legend.className = 'matrix-legend';
+  legend.innerHTML =
+    '<div class="matrix-legend-item">' +
+      '<span class="matrix-legend-line ml-status"></span>' +
+      '<span>Status Link</span>' +
+    '</div>' +
+    '<div class="matrix-legend-item">' +
+      '<span class="matrix-legend-line ml-depends"></span>' +
+      '<span>Depends On</span>' +
+    '</div>' +
+    '<div class="matrix-legend-item">' +
+      '<span class="matrix-legend-line ml-connected"></span>' +
+      '<span>Connected To</span>' +
+    '</div>';
+  container.appendChild(legend);
+
   // Tooltip
   if (!matrixTooltipEl) {
     matrixTooltipEl = document.createElement('div');
@@ -2908,7 +3066,7 @@ function renderMatrix() {
       // Build icon HTML
       let iconHtml = '';
       if (svc.icon_url) {
-        iconHtml = '<img src="' + svc.icon_url + '" class="matrix-node-icon" alt="" onerror="this.style.display=\'none\'">';
+        iconHtml = '<img src="' + svc.icon_url + '" class="matrix-node-icon" alt="">';
       } else {
         const raw = getServiceIconHtml(svc);
         if (raw.includes('<img')) {
@@ -2935,7 +3093,13 @@ function renderMatrix() {
         (msText ? '<span class="matrix-node-ms">' + msText + '</span>' : '');
 
       // Tooltip on hover
-      const tipText = name + ' \u2014 ' + statusLabel + (msText ? ' (' + msText + ')' : '');
+      const depNames = (svc.depends_on || '').split(',').map(d => d.trim()).filter(Boolean)
+        .map(dk => { const s = servicesData.find(x => x.key === dk); return s ? (s.name || dk) : dk; });
+      const connNames = (svc.connected_to || '').split(',').map(c => c.trim()).filter(Boolean)
+        .map(ck => { const s = servicesData.find(x => x.key === ck); return s ? (s.name || ck) : ck; });
+      let tipText = name + ' \u2014 ' + statusLabel + (msText ? ' (' + msText + ')' : '');
+      if (depNames.length > 0) tipText += ' | Depends on: ' + depNames.join(', ');
+      if (connNames.length > 0) tipText += ' | Connected to: ' + connNames.join(', ');
       node.addEventListener('mouseenter', function(e) {
         matrixTooltipEl.textContent = tipText;
         matrixTooltipEl.classList.add('visible');
@@ -2951,9 +3115,14 @@ function renderMatrix() {
       nodesLayer.appendChild(node);
 
       // Canvas lines target the ring centre, not the DOM node centre
+      const depKeys = (svc.depends_on || '').split(',').map(d => d.trim()).filter(Boolean);
+      const connKeys = (svc.connected_to || '').split(',').map(c => c.trim()).filter(Boolean);
       nodePositions.push({
         x: ringCX,
         y: ringCY,
+        key: svc.key,
+        depends_on: depKeys,
+        connected_to: connKeys,
         status: statusClass,
         phase: i * 600  // stagger pulse per node
       });
@@ -3239,7 +3408,7 @@ function updateIconPreview(iconUrl) {
   if (!preview) return;
 
   if (iconUrl) {
-    preview.innerHTML = `<img src="${iconUrl}" class="icon-preview-img" alt="Icon preview" onerror="this.style.display='none';this.nextElementSibling.style.display='block';" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
+    preview.innerHTML = `<img src="${iconUrl}" class="icon-preview-img" alt="Icon preview" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
     preview.classList.remove('hidden');
   } else {
     preview.innerHTML = '';
@@ -3300,15 +3469,28 @@ function openServiceModal(service = null) {
   // If editing, disable template selection
   $('#serviceTemplate').disabled = !!service;
 
-  // Populate depends-on dropdown
+  // Populate depends-on checkbox list
   populateDependsOnDropdown(service?.key);
   // Set selected dependencies if editing
   if (service?.depends_on) {
     const deps = service.depends_on.split(',').map(d => d.trim()).filter(Boolean);
-    const select = $('#serviceDependsOn');
-    if (select) {
-      Array.from(select.options).forEach(opt => {
-        opt.selected = deps.includes(opt.value);
+    const container = $('#serviceDependsOnList');
+    if (container) {
+      container.querySelectorAll('.depends-on-cb').forEach(cb => {
+        cb.checked = deps.includes(cb.value);
+      });
+    }
+  }
+
+  // Populate connected-to checkbox list
+  populateConnectedToList(service?.key);
+  // Set selected connections if editing
+  if (service?.connected_to) {
+    const conns = service.connected_to.split(',').map(c => c.trim()).filter(Boolean);
+    const container = $('#serviceConnectedToList');
+    if (container) {
+      container.querySelectorAll('.connected-to-cb').forEach(cb => {
+        cb.checked = conns.includes(cb.value);
       });
     }
   }
@@ -3447,10 +3629,16 @@ async function testServiceConnection() {
 }
 
 async function saveService() {
-  // Collect depends_on from multi-select
-  const dependsOnSelect = $('#serviceDependsOn');
-  const dependsOn = dependsOnSelect
-    ? Array.from(dependsOnSelect.selectedOptions).map(o => o.value).join(',')
+  // Collect depends_on from checkboxes
+  const dependsOnContainer = $('#serviceDependsOnList');
+  const dependsOn = dependsOnContainer
+    ? Array.from(dependsOnContainer.querySelectorAll('.depends-on-cb:checked')).map(cb => cb.value).join(',')
+    : '';
+
+  // Collect connected_to from checkboxes
+  const connectedToContainer = $('#serviceConnectedToList');
+  const connectedTo = connectedToContainer
+    ? Array.from(connectedToContainer.querySelectorAll('.connected-to-cb:checked')).map(cb => cb.value).join(',')
     : '';
 
   const serviceData = {
@@ -3466,7 +3654,8 @@ async function saveService() {
     expected_min: parseInt($('#serviceExpectedMin').value) || 200,
     expected_max: parseInt($('#serviceExpectedMax').value) || 399,
     visible: $('#serviceVisible').checked,
-    depends_on: dependsOn
+    depends_on: dependsOn,
+    connected_to: connectedTo
   };
 
   if (!serviceData.name || !serviceData.url) {

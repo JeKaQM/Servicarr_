@@ -34,31 +34,15 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			disabled, _ := database.GetServiceDisabledState(sc.Key)
 			if disabled {
 				out.Status[sc.Key] = models.LiveResult{
-					Label:     sc.Name,
-					OK:        false,
-					Status:    0,
-					MS:        nil,
-					Disabled:  true,
-					Degraded:  false,
-					CheckType: sc.CheckType,
-					DependsOn: sc.DependsOn,
-				}
-				continue
-			}
-
-			// Check if in maintenance window
-			inMaint, maintTitle, _ := database.IsInMaintenanceWindow(sc.Key)
-			if inMaint {
-				out.Status[sc.Key] = models.LiveResult{
 					Label:       sc.Name,
-					OK:          true,
+					OK:          false,
 					Status:      0,
 					MS:          nil,
-					Disabled:    false,
+					Disabled:    true,
 					Degraded:    false,
 					CheckType:   sc.CheckType,
-					Maintenance: maintTitle,
 					DependsOn:   sc.DependsOn,
+					ConnectedTo: sc.ConnectedTo,
 				}
 				continue
 			}
@@ -84,14 +68,15 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			ok := checkOK || failures < 2
 			degraded := ok && ms != nil && *ms > 200
 			out.Status[sc.Key] = models.LiveResult{
-				Label:     sc.Name,
-				OK:        ok,
-				Status:    code,
-				MS:        ms,
-				Disabled:  false,
-				Degraded:  degraded,
-				CheckType: sc.CheckType,
-				DependsOn: sc.DependsOn,
+				Label:       sc.Name,
+				OK:          ok,
+				Status:      code,
+				MS:          ms,
+				Disabled:    false,
+				Degraded:    degraded,
+				CheckType:   sc.CheckType,
+				DependsOn:   sc.DependsOn,
+				ConnectedTo: sc.ConnectedTo,
 			}
 		}
 
@@ -329,5 +314,143 @@ func HandleRecentHeartbeats() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(heartbeats)
+	}
+}
+
+// HandleDayDetail returns hour-by-hour uptime and downtime events for a service on a specific day
+func HandleDayDetail() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serviceKey := r.URL.Query().Get("key")
+		dateStr := r.URL.Query().Get("date") // YYYY-MM-DD
+
+		if serviceKey == "" || dateStr == "" {
+			http.Error(w, "key and date parameters required", http.StatusBadRequest)
+			return
+		}
+
+		// Parse date
+		dayStart, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			http.Error(w, "invalid date format, use YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		dayEnd := dayStart.Add(24 * time.Hour)
+
+		startStr := dayStart.Format(time.RFC3339)
+		endStr := dayEnd.Format(time.RFC3339)
+
+		// Hour-by-hour uptime from samples
+		rows, err := database.DB.Query(`
+			SELECT substr(taken_at,1,13) AS hour_bin,
+			       SUM(ok) AS up_count,
+			       COUNT(*) AS total_count,
+			       AVG(latency_ms) AS avg_ms
+			FROM samples
+			WHERE service_key = ? AND taken_at >= ? AND taken_at < ?
+			GROUP BY hour_bin ORDER BY hour_bin ASC`,
+			serviceKey, startStr, endStr)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type HourBucket struct {
+			Hour   string   `json:"hour"`
+			Uptime float64  `json:"uptime"`
+			AvgMs  *float64 `json:"avg_ms,omitempty"`
+			Checks int      `json:"checks"`
+		}
+
+		hourMap := map[string]*HourBucket{}
+		for rows.Next() {
+			var hourBin string
+			var up, total int
+			var avgMs sql.NullFloat64
+			_ = rows.Scan(&hourBin, &up, &total, &avgMs)
+			pct := 0.0
+			if total > 0 {
+				pct = float64(up) / float64(total) * 100.0
+				pct = float64(int(pct*10+0.5)) / 10.0
+			}
+			bucket := &HourBucket{Hour: hourBin + ":00", Uptime: pct, Checks: total}
+			if avgMs.Valid {
+				v := avgMs.Float64
+				bucket.AvgMs = &v
+			}
+			hourMap[hourBin] = bucket
+		}
+
+		// Build 24 hour buckets
+		hours := make([]HourBucket, 24)
+		for h := 0; h < 24; h++ {
+			hourKey := fmt.Sprintf("%s %02d", dateStr, h)
+			// Also try ISO format
+			hourKeyISO := fmt.Sprintf("%sT%02d", dateStr, h)
+			if b, ok := hourMap[hourKey]; ok {
+				hours[h] = *b
+			} else if b, ok := hourMap[hourKeyISO]; ok {
+				hours[h] = *b
+			} else {
+				hours[h] = HourBucket{
+					Hour:   fmt.Sprintf("%sT%02d:00", dateStr, h),
+					Uptime: -1, // -1 means no data
+					Checks: 0,
+				}
+			}
+		}
+
+		// Downtime events: exact timestamps when service went down
+		rows2, err := database.DB.Query(`
+			SELECT hb.time, hb.http_status, hb.msg, hb.ping
+			FROM heartbeats hb
+			WHERE hb.service_key = ? AND hb.status = 0 AND hb.time >= ? AND hb.time < ?
+			ORDER BY hb.time ASC`,
+			serviceKey, startStr, endStr)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows2.Close()
+
+		type DownEvent struct {
+			Time       string `json:"time"`
+			HTTPStatus *int64 `json:"http_status,omitempty"`
+			Error      string `json:"error,omitempty"`
+			LatencyMs  *int64 `json:"latency_ms,omitempty"`
+		}
+
+		var downEvents []DownEvent
+		for rows2.Next() {
+			var ts string
+			var st, ping sql.NullInt64
+			var msg sql.NullString
+			_ = rows2.Scan(&ts, &st, &msg, &ping)
+			ev := DownEvent{Time: ts}
+			if st.Valid {
+				ev.HTTPStatus = &st.Int64
+			}
+			if msg.Valid && msg.String != "" {
+				ev.Error = msg.String
+			}
+			if ping.Valid {
+				ev.LatencyMs = &ping.Int64
+			}
+			downEvents = append(downEvents, ev)
+		}
+
+		if downEvents == nil {
+			downEvents = []DownEvent{}
+		}
+
+		response := map[string]any{
+			"service_key": serviceKey,
+			"date":        dateStr,
+			"hours":       hours,
+			"down_events": downEvents,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
 	}
 }

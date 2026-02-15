@@ -8,9 +8,6 @@ import (
 	"os"
 	"status/app/internal/auth"
 	"status/app/internal/security"
-	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // HandleWhoAmI returns current authentication status
@@ -60,7 +57,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		if bcrypt.CompareHashAndPassword(authMgr.Hash, []byte(c.Password)) != nil {
+		if !authMgr.CheckCredentials(c.Username, c.Password) {
 			log.Printf("login: wrong password for user %s from %s", c.Username, ip)
 			security.LogFailedLoginAttempt(ip)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -68,7 +65,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		log.Printf("login: success for user %s from %s", c.Username, ip)
-		_ = authMgr.MakeSessionCookie(w, c.Username, time.Duration(authMgr.SessionMaxAgeS)*time.Second)
+		_ = authMgr.MakeSessionCookie(w, c.Username, authMgr.SessionMaxAge())
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}

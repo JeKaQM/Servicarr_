@@ -2,13 +2,60 @@ package checker
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"status/app/internal/models"
 	"strings"
 	"time"
 )
+
+// isCloudMetadataIP returns true if the IP matches a known cloud metadata endpoint.
+// These are blocked to prevent SSRF attacks from leaking cloud credentials.
+func isCloudMetadataIP(ip net.IP) bool {
+	metadataIPs := []string{
+		"169.254.169.254/32", // AWS, GCP, Azure metadata
+		"fd00:ec2::254/128",  // AWS IMDSv2 IPv6
+	}
+	for _, cidr := range metadataIPs {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateURLTarget rejects URLs that resolve to cloud metadata endpoints (SSRF protection).
+// Private RFC1918 IPs are allowed since monitoring internal services is the core use case.
+func validateURLTarget(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return nil
+	}
+	// Block known metadata hostnames
+	lower := strings.ToLower(host)
+	if lower == "metadata.google.internal" || lower == "metadata" {
+		return fmt.Errorf("URL target %q is a blocked cloud metadata endpoint", host)
+	}
+	// Resolve and check IPs
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil // allow — resolution may fail transiently
+	}
+	for _, ip := range ips {
+		if isCloudMetadataIP(ip) {
+			return fmt.Errorf("URL target %q resolves to blocked cloud metadata IP %s", host, ip)
+		}
+	}
+	return nil
+}
 
 // CheckOptions defines parameters for a service health check.
 type CheckOptions struct {
@@ -93,7 +140,11 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 		log.Printf("dns check success hostname=%s resolved to %v", hostname, addrs)
 		return true, 0, ms, ""
 	default:
-		// HTTP/HTTPS
+		// HTTP/HTTPS — SSRF: block cloud metadata endpoints
+		if err := validateURLTarget(url); err != nil {
+			log.Printf("SSRF blocked: %v", err)
+			return false, 0, nil, err.Error()
+		}
 		client := &http.Client{Timeout: opts.Timeout}
 		t0 := time.Now()
 

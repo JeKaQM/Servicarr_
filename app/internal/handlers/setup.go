@@ -104,12 +104,12 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		if req.Password == "" || len(req.Password) < 6 {
+		if req.Password == "" || len(req.Password) < 8 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]any{
 				"success": false,
-				"error":   "Password must be at least 6 characters",
+				"error":   "Password must be at least 8 characters",
 			})
 			return
 		}
@@ -200,6 +200,18 @@ func createDummyService() {
 func HandleAddFirstService(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Only allow during initial setup
+	complete, _ := database.IsSetupComplete()
+	if complete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   "Setup already completed",
+		})
 		return
 	}
 

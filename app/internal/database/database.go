@@ -214,6 +214,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	// Service dependencies
 	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN depends_on TEXT DEFAULT '';`)
 
+	// Connected/integrated services
+	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN connected_to TEXT DEFAULT '';`)
+
 	// Maintenance windows
 	_, _ = DB.Exec(`CREATE TABLE IF NOT EXISTS maintenance_windows (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -382,7 +385,7 @@ func GetAllServices() ([]models.ServiceConfig, error) {
 	rows, err := DB.Query(`
 		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
 		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
-		       COALESCE(depends_on, ''), created_at, COALESCE(updated_at, '')
+		       COALESCE(depends_on, ''), COALESCE(connected_to, ''), created_at, COALESCE(updated_at, '')
 		FROM services ORDER BY display_order ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -395,7 +398,7 @@ func GetAllServices() ([]models.ServiceConfig, error) {
 		var visible int
 		err := rows.Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
 			&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
-			&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.CreatedAt, &s.UpdatedAt)
+			&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.ConnectedTo, &s.CreatedAt, &s.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -410,7 +413,7 @@ func GetVisibleServices() ([]models.ServiceConfig, error) {
 	rows, err := DB.Query(`
 		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
 		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
-		       COALESCE(depends_on, ''), created_at, COALESCE(updated_at, '')
+		       COALESCE(depends_on, ''), COALESCE(connected_to, ''), created_at, COALESCE(updated_at, '')
 		FROM services WHERE visible = 1 ORDER BY display_order ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -423,7 +426,7 @@ func GetVisibleServices() ([]models.ServiceConfig, error) {
 		var visible int
 		err := rows.Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
 			&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
-			&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.CreatedAt, &s.UpdatedAt)
+			&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.ConnectedTo, &s.CreatedAt, &s.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -440,11 +443,11 @@ func GetServiceByID(id int) (*models.ServiceConfig, error) {
 	err := DB.QueryRow(`
 		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
 		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
-		       COALESCE(depends_on, ''), created_at, COALESCE(updated_at, '')
+		       COALESCE(depends_on, ''), COALESCE(connected_to, ''), created_at, COALESCE(updated_at, '')
 		FROM services WHERE id = ?`, id).Scan(
 		&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
 		&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
-		&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.CreatedAt, &s.UpdatedAt)
+		&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.ConnectedTo, &s.CreatedAt, &s.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -462,11 +465,11 @@ func GetServiceByKey(key string) (*models.ServiceConfig, error) {
 	err := DB.QueryRow(`
 		SELECT id, key, name, url, service_type, COALESCE(icon, ''), COALESCE(icon_url, ''), COALESCE(api_token, ''),
 		       display_order, visible, check_type, check_interval, timeout, expected_min, expected_max,
-		       COALESCE(depends_on, ''), created_at, COALESCE(updated_at, '')
+		       COALESCE(depends_on, ''), COALESCE(connected_to, ''), created_at, COALESCE(updated_at, '')
 		FROM services WHERE key = ?`, key).Scan(
 		&s.ID, &s.Key, &s.Name, &s.URL, &s.ServiceType, &s.Icon, &s.IconURL, &s.APIToken,
 		&s.DisplayOrder, &visible, &s.CheckType, &s.CheckInterval, &s.Timeout,
-		&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.CreatedAt, &s.UpdatedAt)
+		&s.ExpectedMin, &s.ExpectedMax, &s.DependsOn, &s.ConnectedTo, &s.CreatedAt, &s.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -493,10 +496,10 @@ func CreateService(s *models.ServiceConfig) (int64, error) {
 
 	result, err := DB.Exec(`
 		INSERT INTO services (key, name, url, service_type, icon, icon_url, api_token, display_order, visible,
-		                      check_type, check_interval, timeout, expected_min, expected_max, depends_on, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		                      check_type, check_interval, timeout, expected_min, expected_max, depends_on, connected_to, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
 		s.Key, s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
-		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn)
+		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn, s.ConnectedTo)
 	if err != nil {
 		return 0, err
 	}
@@ -512,10 +515,10 @@ func UpdateService(s *models.ServiceConfig) error {
 	_, err := DB.Exec(`
 		UPDATE services SET name=?, url=?, service_type=?, icon=?, icon_url=?, api_token=?, display_order=?,
 		                    visible=?, check_type=?, check_interval=?, timeout=?, expected_min=?,
-		                    expected_max=?, depends_on=?, updated_at=datetime('now')
+		                    expected_max=?, depends_on=?, connected_to=?, updated_at=datetime('now')
 		WHERE id = ?`,
 		s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
-		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn, s.ID)
+		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn, s.ConnectedTo, s.ID)
 	return err
 }
 
@@ -719,165 +722,5 @@ func PruneLogs(keepCount int) error {
 	_, err := DB.Exec(`DELETE FROM system_logs WHERE id NOT IN (
 		SELECT id FROM system_logs ORDER BY timestamp DESC, id DESC LIMIT ?
 	)`, keepCount)
-	return err
-}
-
-// ── Maintenance Windows ─────────────────────────────────────────────
-
-// GetMaintenanceWindows returns all maintenance windows, optionally filtered by service key
-func GetMaintenanceWindows(serviceKey string) ([]models.MaintenanceWindow, error) {
-	query := `SELECT id, service_key, title, start_time, end_time, created_at FROM maintenance_windows`
-	args := []interface{}{}
-	if serviceKey != "" {
-		query += " WHERE service_key = ?"
-		args = append(args, serviceKey)
-	}
-	query += " ORDER BY start_time DESC"
-
-	rows, err := DB.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var windows []models.MaintenanceWindow
-	for rows.Next() {
-		var w models.MaintenanceWindow
-		if err := rows.Scan(&w.ID, &w.ServiceKey, &w.Title, &w.StartTime, &w.EndTime, &w.CreatedAt); err != nil {
-			return nil, err
-		}
-		windows = append(windows, w)
-	}
-	return windows, nil
-}
-
-// CreateMaintenanceWindow inserts a new maintenance window
-func CreateMaintenanceWindow(w *models.MaintenanceWindow) (int64, error) {
-	result, err := DB.Exec(`INSERT INTO maintenance_windows (service_key, title, start_time, end_time, created_at)
-		VALUES (?, ?, ?, ?, datetime('now'))`, w.ServiceKey, w.Title, w.StartTime, w.EndTime)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
-}
-
-// DeleteMaintenanceWindow removes a maintenance window by ID
-func DeleteMaintenanceWindow(id int) error {
-	_, err := DB.Exec(`DELETE FROM maintenance_windows WHERE id = ?`, id)
-	return err
-}
-
-// IsInMaintenanceWindow checks if a service is currently in a maintenance window
-func IsInMaintenanceWindow(serviceKey string) (bool, string, error) {
-	var title string
-	err := DB.QueryRow(`SELECT title FROM maintenance_windows
-		WHERE service_key = ? AND datetime('now') BETWEEN start_time AND end_time
-		ORDER BY start_time LIMIT 1`, serviceKey).Scan(&title)
-	if err == sql.ErrNoRows {
-		return false, "", nil
-	}
-	if err != nil {
-		return false, "", err
-	}
-	return true, title, nil
-}
-
-// GetActiveMaintenanceWindows returns all currently active maintenance windows
-func GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, error) {
-	rows, err := DB.Query(`SELECT id, service_key, title, start_time, end_time, created_at
-		FROM maintenance_windows WHERE datetime('now') BETWEEN start_time AND end_time
-		ORDER BY start_time`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var windows []models.MaintenanceWindow
-	for rows.Next() {
-		var w models.MaintenanceWindow
-		if err := rows.Scan(&w.ID, &w.ServiceKey, &w.Title, &w.StartTime, &w.EndTime, &w.CreatedAt); err != nil {
-			return nil, err
-		}
-		windows = append(windows, w)
-	}
-	return windows, nil
-}
-
-// ── Incident Events ─────────────────────────────────────────────────
-
-// GetIncidentEvents returns incident events, optionally filtered by service key
-func GetIncidentEvents(serviceKey string, limit int) ([]models.IncidentEvent, error) {
-	query := `SELECT id, service_key, service_name, event_type, started_at,
-		COALESCE(resolved_at, ''), COALESCE(duration_s, 0), COALESCE(details, ''), COALESCE(postmortem, '')
-		FROM incident_events`
-	args := []interface{}{}
-	if serviceKey != "" {
-		query += " WHERE service_key = ?"
-		args = append(args, serviceKey)
-	}
-	query += " ORDER BY started_at DESC"
-	if limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, limit)
-	}
-
-	rows, err := DB.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []models.IncidentEvent
-	for rows.Next() {
-		var e models.IncidentEvent
-		if err := rows.Scan(&e.ID, &e.ServiceKey, &e.ServiceName, &e.EventType, &e.StartedAt,
-			&e.ResolvedAt, &e.DurationS, &e.Details, &e.Postmortem); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	return events, nil
-}
-
-// CreateIncidentEvent records a new incident event (status change)
-func CreateIncidentEvent(e *models.IncidentEvent) (int64, error) {
-	result, err := DB.Exec(`INSERT INTO incident_events (service_key, service_name, event_type, started_at, details)
-		VALUES (?, ?, ?, datetime('now'), ?)`, e.ServiceKey, e.ServiceName, e.EventType, e.Details)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
-}
-
-// ResolveIncidentEvent marks an active incident as resolved and calculates duration
-func ResolveIncidentEvent(serviceKey string) error {
-	_, err := DB.Exec(`UPDATE incident_events
-		SET resolved_at = datetime('now'),
-		    duration_s = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
-		WHERE service_key = ? AND resolved_at IS NULL OR resolved_at = ''`, serviceKey)
-	return err
-}
-
-// GetActiveIncident returns the currently unresolved incident for a service, if any
-func GetActiveIncident(serviceKey string) (*models.IncidentEvent, error) {
-	var e models.IncidentEvent
-	err := DB.QueryRow(`SELECT id, service_key, service_name, event_type, started_at,
-		COALESCE(resolved_at, ''), COALESCE(duration_s, 0), COALESCE(details, ''), COALESCE(postmortem, '')
-		FROM incident_events WHERE service_key = ? AND (resolved_at IS NULL OR resolved_at = '')
-		ORDER BY started_at DESC LIMIT 1`, serviceKey).Scan(
-		&e.ID, &e.ServiceKey, &e.ServiceName, &e.EventType, &e.StartedAt,
-		&e.ResolvedAt, &e.DurationS, &e.Details, &e.Postmortem)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &e, nil
-}
-
-// UpdatePostmortem updates the postmortem text for an incident event
-func UpdatePostmortem(id int, postmortem string) error {
-	_, err := DB.Exec(`UPDATE incident_events SET postmortem = ? WHERE id = ?`, postmortem, id)
 	return err
 }

@@ -52,7 +52,7 @@ func LoadBasic() (*Config, error) {
 
 	cfg := &Config{
 		AuthUser:        getenv("AUTH_USER", ""),
-		InsecureDev:     envBool("INSECURE_DEV", true),
+		InsecureDev:     envBool("INSECURE_DEV", false),
 		SessionMaxAgeS:  envInt("SESSION_MAX_AGE_SECONDS", 86400),
 		UnblockToken:    getenv("UNBLOCK_TOKEN", ""),
 		Port:            getenv("PORT", "4555"),
@@ -91,7 +91,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		AuthUser:        getenv("AUTH_USER", "admin"),
-		InsecureDev:     envBool("INSECURE_DEV", true),
+		InsecureDev:     envBool("INSECURE_DEV", false),
 		SessionMaxAgeS:  envInt("SESSION_MAX_AGE_SECONDS", 86400),
 		UnblockToken:    getenv("UNBLOCK_TOKEN", ""),
 		Port:            getenv("PORT", "4555"),

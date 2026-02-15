@@ -11,16 +11,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM debian:bookworm-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata wget && rm -rf /var/lib/apt/lists/*
+RUN groupadd -r servicarr && useradd -r -g servicarr servicarr
 COPY --from=build /out/status /usr/local/bin/status
 COPY web/ ./web/
-RUN mkdir -p /data
+RUN mkdir -p /data && chown -R servicarr:servicarr /app /data
 VOLUME ["/data"]
+USER servicarr
 ENV TZ=Europe/London \
     PORT=4555 \
     DB_PATH=/data/uptime.db \
     POLL_SECONDS=60 \
     ENABLE_SCHEDULER=true \
-    INSECURE_DEV=true \
+    INSECURE_DEV=false \
     UNBLOCK_TOKEN="" \
     SERVER_HEALTH_URL="" \
     OVERSEERR_STATUS_URL="" \

@@ -10,18 +10,20 @@ A lightweight, self-hosted status page that monitors your services and displays 
 
 ## Features
 
-- **Service Monitoring** — HTTP, TCP, DNS and "always up" health checks with configurable intervals and timeouts
+- **Service Monitoring** — HTTP, TCP, DNS and "always up" health checks with configurable per-service intervals and timeouts
+- **Service Relationships** — Define `depends_on` (hierarchical) and `connected_to` (peer) relationships with visual matrix view
 - **Setup Wizard** — First-run wizard to configure credentials, add services and optionally import a database backup
 - **20+ Service Templates** — Pre-built templates for Plex, Sonarr, Radarr, Jellyfin, Nextcloud, Home Assistant, Pi-hole and more
-- **Uptime Bars** — 30-day visual uptime history per service with daily granularity
+- **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
+- **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances)
-- **Email Alerts** — SMTP notifications when services go down or recover
+- **Multi-Channel Alerts** — SMTP, webhook, Discord, Slack, Telegram, Gotify, Pushover, ntfy and Apprise notifications
 - **Status Alerts** — Public maintenance/incident banners
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
-- **Security** — IP-based rate limiting, automatic blocking after failed logins, IP whitelist/blacklist, CSRF protection, CSP headers
+- **Security** — CSRF protection, CSP headers (no unsafe-inline for scripts), HSTS, IP-based rate limiting, auto-blocking after failed logins, IP whitelist/blacklist, SSRF protection, request body size limits
 - **Responsive** — Mobile-optimised layout with touch-friendly uptime tooltips
 - **Logging** — Structured internal logs (info/warn/error) with search, filtering and auto-pruning
-- **Docker Ready** — Multi-stage build, single container, SQLite storage
+- **Docker Ready** — Multi-stage build, non-root container, SQLite storage
 
 ## Quick Start
 
@@ -70,10 +72,12 @@ All settings are stored in SQLite after the setup wizard completes. The followin
 | `DB_PATH` | `data/status.db` | SQLite database path |
 | `POLL_SECONDS` | `60` | Scheduler polling interval |
 | `ENABLE_SCHEDULER` | `true` | Run background health checks |
-| `INSECURE_DEV` | `true` | Set to `false` when behind HTTPS |
+| `INSECURE_DEV` | `false` | Set to `true` only for local HTTP development (disables Secure cookie flag) |
 | `UNBLOCK_TOKEN` | — | Secret token for the self-unblock endpoint |
 | `SESSION_MAX_AGE` | `86400` | Session cookie lifetime in seconds |
 | `STATUS_PAGE_URL` | — | Public URL included in alert emails |
+
+> **Production deployment**: Always run behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS. The application sets `Strict-Transport-Security`, `X-Frame-Options: DENY`, and strict CSP headers automatically.
 
 ## Default Credentials
 
@@ -84,13 +88,17 @@ Set during the setup wizard. Defaults if using env-based config:
 
 ## Security
 
-- **Rate limiting**: Login 20/min, public API 120/min, health-check 30/min per IP
-- **Auto-blocking**: Configurable failed-login threshold + duration
+- **Rate limiting**: Login 10/min, public API 120/min, health-check 30/min per IP
+- **Auto-blocking**: 3 failed login attempts → 24-hour IP block
 - **IP whitelist / blacklist**: Managed from the admin panel
-- **CSRF tokens**: Required on all state-changing requests
-- **Session auth**: HMAC-signed cookies with configurable TTL
-- **CSP headers**: Strict Content-Security-Policy on all responses
-- **Self-unblock**: `POST /api/self-unblock?token=<UNBLOCK_TOKEN>` to remove your own IP block
+- **CSRF tokens**: Double-submit cookie pattern on all state-changing requests
+- **Session auth**: HMAC-SHA256 signed cookies with `HttpOnly`, `SameSite=Lax`, `Secure` flags
+- **CSP headers**: Strict Content-Security-Policy (no `unsafe-inline` for scripts)
+- **HSTS**: `Strict-Transport-Security` header on all responses
+- **SSRF protection**: Cloud metadata endpoints blocked in health-check URLs
+- **Request limits**: 35 MB global body size limit; minimum 8-character passwords
+- **Non-root container**: Docker image runs as unprivileged `servicarr` user
+- **Self-unblock**: `POST /api/self-unblock` with `{"token": "<UNBLOCK_TOKEN>"}` to remove your own IP block
 
 ## Project Structure
 
@@ -131,6 +139,7 @@ Servicarr_/
 | `GET` | `/api/check` | Live status of all services |
 | `GET` | `/api/metrics?days=30` | Historical uptime data (daily buckets) |
 | `GET` | `/api/metrics?hours=24` | Historical uptime data (hourly buckets) |
+| `GET` | `/api/metrics/day-detail` | Hour-by-hour breakdown for a specific day |
 | `GET` | `/api/uptime?service=KEY` | Pre-computed uptime stats |
 | `GET` | `/api/heartbeats?service=KEY` | Recent heartbeats |
 | `GET` | `/api/resources` | System resource snapshot (Glances) |

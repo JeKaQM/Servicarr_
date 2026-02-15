@@ -60,6 +60,12 @@ func HandleStatic() http.HandlerFunc {
 		case strings.HasSuffix(r.URL.Path, "/utils.js"):
 			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 			http.ServeFile(w, r, "web/static/js/utils.js")
+		case strings.HasSuffix(r.URL.Path, "/setup.js"):
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			http.ServeFile(w, r, "web/static/js/setup.js")
+		case strings.HasSuffix(r.URL.Path, "/blocked.js"):
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			http.ServeFile(w, r, "web/static/js/blocked.js")
 		case strings.HasSuffix(r.URL.Path, "/main.css"):
 			w.Header().Set("Content-Type", "text/css; charset=utf-8")
 			http.ServeFile(w, r, "web/static/css/main.css")

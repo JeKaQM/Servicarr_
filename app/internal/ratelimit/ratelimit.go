@@ -149,10 +149,10 @@ func (l *Limiter) Reset(key string) {
 
 // Global rate limiters
 var (
-	// LoginLimiter limits login attempts to 20 per minute per IP
+	// LoginLimiter limits login attempts to 10 per minute per IP
 	LoginLimiter = New(Config{
-		TokensPerMinute: 20,
-		MaxTokens:       20,
+		TokensPerMinute: 10,
+		MaxTokens:       10,
 		ErrorMessage:    "Too many login attempts. Please try again later.",
 	})
 

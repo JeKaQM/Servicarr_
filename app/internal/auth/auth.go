@@ -10,11 +10,15 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Auth holds authentication configuration
 type Auth struct {
+	mu             sync.RWMutex
 	User           string
 	Hash           []byte
 	HmacSecret     []byte
@@ -72,6 +76,8 @@ func (a *Auth) VerifyCSRF(r *http.Request) bool {
 
 // MakeSessionCookie creates a session cookie
 func (a *Auth) MakeSessionCookie(w http.ResponseWriter, username string, maxAge time.Duration) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	exp := time.Now().Add(maxAge).Unix()
 	payload := fmt.Sprintf(`{"u":"%s","exp":%d}`, username, exp)
 	sig := a.sign([]byte(payload))
@@ -98,6 +104,8 @@ func (a *Auth) ClearSessionCookie(w http.ResponseWriter) {
 
 // ParseSession parses and validates a session cookie
 func (a *Auth) ParseSession(r *http.Request) (*Session, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	c, err := r.Cookie("sess")
 	if err != nil || c.Value == "" {
 		return nil, errors.New("no session")
@@ -149,7 +157,26 @@ func (a *Auth) sign(b []byte) string {
 
 // Reload updates the auth credentials (used after setup completes)
 func (a *Auth) Reload(user string, hash []byte, secret []byte) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.User = user
 	a.Hash = hash
 	a.HmacSecret = secret
+}
+
+// CheckCredentials validates a username/password pair (thread-safe)
+func (a *Auth) CheckCredentials(username, password string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if username != a.User {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword(a.Hash, []byte(password)) == nil
+}
+
+// SessionMaxAge returns the session max age as a Duration (thread-safe)
+func (a *Auth) SessionMaxAge() time.Duration {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return time.Duration(a.SessionMaxAgeS) * time.Second
 }

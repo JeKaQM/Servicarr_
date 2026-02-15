@@ -59,16 +59,7 @@
       <ul id="incidents"></ul>
     </section>
 
-    <!-- Public Incident Timeline -->
-    <section class="card fade-in incident-timeline-card" id="incidentTimelineSection">
-      <div class="row">
-        <div>
-          <strong>Incident History</strong>
-          <div class="label">Recorded status events</div>
-        </div>
-      </div>
-      <div id="publicIncidentTimeline" class="public-incident-timeline"></div>
-    </section>
+
   </main>
 
   <!-- Full-width Resources Section - start hidden, JS shows based on config -->
@@ -322,8 +313,6 @@
     <div class="admin-tabs">
       <button class="tab-btn active" data-tab="services">Services</button>
       <button class="tab-btn" data-tab="banners">Banners</button>
-      <button class="tab-btn" data-tab="maintenance">Maintenance</button>
-      <button class="tab-btn" data-tab="incidents">Incidents</button>
       <button class="tab-btn" data-tab="logs">Logs</button>
       <button class="tab-btn" data-tab="security">Security</button>
       <button class="tab-btn" data-tab="resources">Resources</button>
@@ -409,58 +398,7 @@
       </div>
     </div>
 
-    <!-- Maintenance Tab -->
-    <div id="tab-maintenance" class="tab-content">
-      <h2>Maintenance Windows</h2>
-      <p class="muted">Schedule maintenance windows to suppress alerts and show maintenance status on the dashboard.</p>
-      
-      <div class="admin-section">
-        <h3>Schedule Maintenance</h3>
-        <div class="form-group">
-          <label for="maintService">Service</label>
-          <select id="maintService">
-            <option value="">-- Select a service --</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="maintTitle">Title</label>
-          <input type="text" id="maintTitle" placeholder="e.g., Scheduled server update">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="maintStart">Start Time</label>
-            <input type="datetime-local" id="maintStart">
-          </div>
-          <div class="form-group">
-            <label for="maintEnd">End Time</label>
-            <input type="datetime-local" id="maintEnd">
-          </div>
-        </div>
-        <div class="ops">
-          <button type="button" id="createMaintenance" class="btn">Create Window</button>
-        </div>
-        <div id="maintStatus" class="status-message hidden"></div>
-      </div>
-      
-      <div class="admin-section">
-        <h3>Scheduled Windows</h3>
-        <div id="maintenanceList" class="maintenance-list">
-          <div class="muted">Loading...</div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Incidents Tab -->
-    <div id="tab-incidents" class="tab-content">
-      <h2>Incident Timeline</h2>
-      <p class="muted">View recorded incidents and add postmortems. Incidents are created automatically when services go down.</p>
-      
-      <div class="admin-section">
-        <div id="adminIncidentsList" class="incidents-timeline">
-          <div class="muted">Loading...</div>
-        </div>
-      </div>
-    </div>
 
     <!-- Logs Tab -->
     <div id="tab-logs" class="tab-content">
@@ -1078,11 +1016,19 @@
         </div>
         
         <div class="form-group">
-          <label for="serviceDependsOn">Depends On</label>
-          <select id="serviceDependsOn" multiple>
-            <!-- Populated dynamically with service keys -->
-          </select>
+          <label>Depends On</label>
+          <div id="serviceDependsOnList" class="depends-on-checklist">
+            <!-- Populated dynamically with checkboxes -->
+          </div>
           <small class="help-text">Select upstream dependencies. Alerts are suppressed when a dependency is down.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Connected To</label>
+          <div id="serviceConnectedToList" class="depends-on-checklist">
+            <!-- Populated dynamically with checkboxes -->
+          </div>
+          <small class="help-text">Select services that share data or are integrated with this one.</small>
         </div>
       </details>
       
@@ -1133,6 +1079,18 @@
     </div>
   </dialog>
   {{end}}
+
+  <!-- Day Detail Popup (Hourly Breakdown) -->
+  <dialog id="dayDetailDialog" class="day-detail-dialog">
+    <div class="day-detail-header">
+      <h3 id="dayDetailTitle">Hourly Breakdown</h3>
+      <button type="button" class="close-btn" id="closeDayDetail">&times;</button>
+    </div>
+    <div id="dayDetailContent" class="day-detail-content">
+      <div class="day-detail-hours" id="dayDetailHours"></div>
+      <div class="day-detail-events" id="dayDetailEvents"></div>
+    </div>
+  </dialog>
 
   <footer>Auto-refreshing every 15s. Metrics need a few minutes to populate.</footer>
 </body>

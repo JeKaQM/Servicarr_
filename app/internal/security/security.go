@@ -11,18 +11,22 @@ import (
 	"status/app/internal/models"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // SecureHeaders adds security headers to responses
 func SecureHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	const csp = "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Limit request body to 35MB (covers multipart uploads + overhead)
+		r.Body = http.MaxBytesReader(w, r.Body, 35<<20)
 		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -33,7 +37,10 @@ type rlEntry struct {
 	last   time.Time
 }
 
-var rl = map[string]*rlEntry{}
+var (
+	rl   = map[string]*rlEntry{}
+	rlMu sync.Mutex
+)
 
 // RateLimit implements token bucket rate limiting
 func RateLimit(next http.Handler) http.Handler {
@@ -67,6 +74,7 @@ func RateLimit(next http.Handler) http.Handler {
 			log.Printf("error checking IP block: %v", err)
 		}
 
+		rlMu.Lock()
 		e := rl[ip]
 		now := time.Now()
 		if e == nil {
@@ -82,10 +90,12 @@ func RateLimit(next http.Handler) http.Handler {
 			e.last = now
 		}
 		if e.tokens <= 0 {
+			rlMu.Unlock()
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
 		e.tokens--
+		rlMu.Unlock()
 		next.ServeHTTP(w, r)
 	})
 }

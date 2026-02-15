@@ -88,10 +88,10 @@ func HandleChangePassword(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		if len(req.NewPassword) < 6 {
+		if len(req.NewPassword) < 8 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "New password must be at least 6 characters"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "New password must be at least 8 characters"})
 			return
 		}
 

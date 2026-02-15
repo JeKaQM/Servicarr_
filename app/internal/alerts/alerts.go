@@ -161,14 +161,6 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 		return
 	}
 
-	// Check if service is in a maintenance window — suppress all alerts
-	inMaint, maintTitle, _ := database.IsInMaintenanceWindow(serviceKey)
-	if inMaint {
-		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
-			"Alert suppressed — maintenance window active", maintTitle)
-		return
-	}
-
 	// Dependency-aware suppression: if upstream dependency is down, suppress
 	svc, _ := database.GetServiceByKey(serviceKey)
 	if svc != nil && svc.DependsOn != "" {
@@ -178,12 +170,12 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			if dk == "" {
 				continue
 			}
-			depIncident, _ := database.GetActiveIncident(dk)
-			if depIncident != nil {
+			// Check if the upstream dependency is currently marked as down
+			var depOK int
+			err := database.DB.QueryRow(`SELECT ok FROM service_status_history WHERE service_key = ?`, dk).Scan(&depOK)
+			if err == nil && depOK == 0 {
 				_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
 					"Alert suppressed — upstream dependency down", fmt.Sprintf("depends_on=%s", dk))
-				// Still record incident event, but don't send notifications
-				m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
 				m.updateStatusHistory(serviceKey, ok, degraded)
 				return
 			}
@@ -202,13 +194,11 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", serviceName)
 			m.dispatchAll(subject, "down", serviceName, serviceKey, message)
-			m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
 		} else if ok && degraded && m.config.AlertOnDegraded {
 			_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert (first status)", serviceName)
 			subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", serviceName)
 			m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
-			m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
 		}
 
 		_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))`,
@@ -237,43 +227,8 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 		m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
 	}
 
-	// Record incident events on status transitions
-	m.recordIncidentEvent(serviceKey, serviceName, ok, degraded)
-
 	// Update status history
 	m.updateStatusHistory(serviceKey, ok, degraded)
-}
-
-// recordIncidentEvent creates/resolves incident events based on status transitions
-func (m *Manager) recordIncidentEvent(serviceKey, serviceName string, ok, degraded bool) {
-	activeIncident, _ := database.GetActiveIncident(serviceKey)
-
-	if !ok {
-		// Service is down — create incident if none exists
-		if activeIncident == nil {
-			_, _ = database.CreateIncidentEvent(&models.IncidentEvent{
-				ServiceKey:  serviceKey,
-				ServiceName: serviceName,
-				EventType:   "down",
-				Details:     "Service became unreachable",
-			})
-		}
-	} else if degraded {
-		// Service is degraded — create incident if none exists
-		if activeIncident == nil {
-			_, _ = database.CreateIncidentEvent(&models.IncidentEvent{
-				ServiceKey:  serviceKey,
-				ServiceName: serviceName,
-				EventType:   "degraded",
-				Details:     "Service experiencing high latency",
-			})
-		}
-	} else {
-		// Service is healthy — resolve any active incident
-		if activeIncident != nil {
-			_ = database.ResolveIncidentEvent(serviceKey)
-		}
-	}
 }
 
 // updateStatusHistory persists the current status for comparison on next check

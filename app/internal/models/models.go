@@ -33,6 +33,7 @@ type ServiceConfig struct {
 	ExpectedMin   int    `json:"expected_min"`   // Min HTTP status code for OK
 	ExpectedMax   int    `json:"expected_max"`   // Max HTTP status code for OK
 	DependsOn     string `json:"depends_on"`     // Comma-separated keys of upstream dependencies
+	ConnectedTo   string `json:"connected_to"`   // Comma-separated keys of connected/integrated services
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 }
@@ -59,9 +60,9 @@ type LiveResult struct {
 	MS          *int   `json:"ms,omitempty"`
 	Disabled    bool   `json:"disabled"`
 	Degraded    bool   `json:"degraded"`
-	CheckType   string `json:"check_type,omitempty"`
-	Maintenance string `json:"maintenance,omitempty"` // Non-empty when in maintenance window
-	DependsOn   string `json:"depends_on,omitempty"`  // Comma-separated upstream dependency keys
+	CheckType string `json:"check_type,omitempty"`
+	DependsOn   string `json:"depends_on,omitempty"`   // Comma-separated upstream dependency keys
+	ConnectedTo string `json:"connected_to,omitempty"` // Comma-separated connected/integrated service keys
 }
 
 // LivePayload represents a collection of service statuses
@@ -96,29 +97,6 @@ type AlertConfig struct {
 	WebhookURL         string `json:"webhook_url"`
 	WebhookSecret      string `json:"webhook_secret"`
 	WebhookEnabled     bool   `json:"webhook_enabled"`
-}
-
-// MaintenanceWindow represents a scheduled maintenance period
-type MaintenanceWindow struct {
-	ID         int    `json:"id"`
-	ServiceKey string `json:"service_key"` // empty = all services
-	Title      string `json:"title"`
-	StartTime  string `json:"start_time"`
-	EndTime    string `json:"end_time"`
-	CreatedAt  string `json:"created_at"`
-}
-
-// IncidentEvent represents an auto-generated incident timeline entry
-type IncidentEvent struct {
-	ID          int    `json:"id"`
-	ServiceKey  string `json:"service_key"`
-	ServiceName string `json:"service_name"`
-	EventType   string `json:"event_type"` // down, recovered, degraded, maintenance_start, maintenance_end
-	StartedAt   string `json:"started_at"`
-	ResolvedAt  string `json:"resolved_at,omitempty"`
-	DurationS   int    `json:"duration_s,omitempty"`
-	Details     string `json:"details,omitempty"`
-	Postmortem  string `json:"postmortem,omitempty"` // admin-written
 }
 
 // ResourcesUIConfig stores admin configuration for the Resources section/widgets
