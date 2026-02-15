@@ -60,7 +60,7 @@ type LiveResult struct {
 	MS          *int   `json:"ms,omitempty"`
 	Disabled    bool   `json:"disabled"`
 	Degraded    bool   `json:"degraded"`
-	CheckType string `json:"check_type,omitempty"`
+	CheckType   string `json:"check_type,omitempty"`
 	DependsOn   string `json:"depends_on,omitempty"`   // Comma-separated upstream dependency keys
 	ConnectedTo string `json:"connected_to,omitempty"` // Comma-separated connected/integrated service keys
 }
@@ -87,16 +87,16 @@ type AlertConfig struct {
 	AlertOnUp       bool   `json:"alert_on_up"`
 
 	// Multi-channel notification fields
-	DiscordWebhookURL  string `json:"discord_webhook_url"`
-	DiscordEnabled     bool   `json:"discord_enabled"`
-	SlackWebhookURL    string `json:"slack_webhook_url"`
-	SlackEnabled       bool   `json:"slack_enabled"`
-	TelegramBotToken   string `json:"telegram_bot_token"`
-	TelegramChatID     string `json:"telegram_chat_id"`
-	TelegramEnabled    bool   `json:"telegram_enabled"`
-	WebhookURL         string `json:"webhook_url"`
-	WebhookSecret      string `json:"webhook_secret"`
-	WebhookEnabled     bool   `json:"webhook_enabled"`
+	DiscordWebhookURL string `json:"discord_webhook_url"`
+	DiscordEnabled    bool   `json:"discord_enabled"`
+	SlackWebhookURL   string `json:"slack_webhook_url"`
+	SlackEnabled      bool   `json:"slack_enabled"`
+	TelegramBotToken  string `json:"telegram_bot_token"`
+	TelegramChatID    string `json:"telegram_chat_id"`
+	TelegramEnabled   bool   `json:"telegram_enabled"`
+	WebhookURL        string `json:"webhook_url"`
+	WebhookSecret     string `json:"webhook_secret"`
+	WebhookEnabled    bool   `json:"webhook_enabled"`
 }
 
 // ResourcesUIConfig stores admin configuration for the Resources section/widgets

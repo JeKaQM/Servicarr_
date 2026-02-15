@@ -318,9 +318,9 @@ func (m *Manager) SendSlack(subject, statusType, serviceName, message, statusPag
 		"icon_emoji": emojiMap[statusType],
 		"attachments": []map[string]interface{}{
 			{
-				"color":  colorMap[statusType],
-				"title":  subject,
-				"text":   plainMsg,
+				"color": colorMap[statusType],
+				"title": subject,
+				"text":  plainMsg,
 				"fields": []map[string]interface{}{
 					{"title": "Service", "value": serviceName, "short": true},
 					{"title": "Status", "value": strings.ToUpper(statusType), "short": true},
