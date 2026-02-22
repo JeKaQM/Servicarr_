@@ -2704,15 +2704,15 @@ function animateMatrixLines(canvas, nodePositions) {
 
       if (isDisabled) {
         // Dim, barely visible dashed line for disabled
-        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.15)');
-        grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.08)');
+        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.1)');
+        grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.05)');
         ctx.save();
-        ctx.setLineDash([4, 6]);
+        ctx.setLineDash([2, 4]);
         ctx.beginPath();
         ctx.moveTo(n.x, n.y);
         ctx.lineTo(cx, cy);
         ctx.strokeStyle = grad;
-        ctx.lineWidth = 0.8;
+        ctx.lineWidth = 0.5;
         ctx.stroke();
         ctx.restore();
         // No particle for disabled — line only
@@ -2721,35 +2721,17 @@ function animateMatrixLines(canvas, nodePositions) {
 
       if (isDown) {
         // Broken/fractured line for DOWN — dashed red with glow
-        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.7)');
-        grad.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.1)');
+        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.5)');
+        grad.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.05)');
         ctx.save();
-        ctx.setLineDash([3, 8]);
+        ctx.setLineDash([4, 6]);
         ctx.beginPath();
         ctx.moveTo(n.x, n.y);
         ctx.lineTo(cx, cy);
         ctx.strokeStyle = grad;
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.6)';
-        ctx.shadowBlur = 6;
-        ctx.stroke();
-        ctx.restore();
-
-        // Draw a static "break" mark at the midpoint of the line
-        const mx = (n.x + cx) / 2;
-        const my = (n.y + cy) / 2;
-        ctx.save();
-        // Red X mark
-        const sz = 5;
-        ctx.strokeStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.8)';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.7)';
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.moveTo(mx - sz, my - sz);
-        ctx.lineTo(mx + sz, my + sz);
-        ctx.moveTo(mx + sz, my - sz);
-        ctx.lineTo(mx - sz, my + sz);
+        ctx.lineWidth = 1;
+        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.4)';
+        ctx.shadowBlur = 4;
         ctx.stroke();
         ctx.restore();
         // No traveling particle for down
@@ -2757,14 +2739,14 @@ function animateMatrixLines(canvas, nodePositions) {
       }
 
       // Normal line for up / degraded / unknown
-      grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.55)');
-      grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.25)');
+      grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.4)');
+      grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.15)');
 
       ctx.beginPath();
       ctx.moveTo(n.x, n.y);
       ctx.lineTo(cx, cy);
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1;
       ctx.stroke();
 
       // Pulsating particle travelling node → hub
@@ -2773,18 +2755,18 @@ function animateMatrixLines(canvas, nodePositions) {
       const px     = n.x + (cx - n.x) * prog;
       const py     = n.y + (cy - n.y) * prog;
       const pulse  = 0.5 + 0.5 * Math.sin(prog * Math.PI);
-      const radius = 2 + pulse * 2;
+      const radius = 1.5 + pulse * 1.5;
 
       ctx.beginPath();
       ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',' + (0.6 + pulse * 0.4) + ')';
+      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',' + (0.5 + pulse * 0.5) + ')';
       ctx.fill();
 
       // Soft glow around particle
       ctx.beginPath();
-      ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
-      const glow = ctx.createRadialGradient(px, py, 0, px, py, radius + 4);
-      glow.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.3)');
+      ctx.arc(px, py, radius + 3, 0, Math.PI * 2);
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, radius + 3);
+      glow.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.2)');
       glow.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0)');
       ctx.fillStyle = glow;
       ctx.fill();
@@ -2798,8 +2780,8 @@ function animateMatrixLines(canvas, nodePositions) {
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = 'rgba(99,102,241,0.08)';
-      ctx.lineWidth = 0.7;
+      ctx.strokeStyle = 'rgba(99,102,241,0.04)';
+      ctx.lineWidth = 0.5;
       ctx.stroke();
     }
 
@@ -2822,21 +2804,21 @@ function animateMatrixLines(canvas, nodePositions) {
 
         // Gradient: orange/amber dependency color
         const depGrad = ctx.createLinearGradient(n.x, n.y, dep.x, dep.y);
-        depGrad.addColorStop(0, 'rgba(251,146,60,0.55)');
-        depGrad.addColorStop(1, 'rgba(245,158,11,0.55)');
+        depGrad.addColorStop(0, 'rgba(251,146,60,0.4)');
+        depGrad.addColorStop(1, 'rgba(245,158,11,0.4)');
 
         ctx.save();
-        ctx.setLineDash([6, 4]);
+        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(n.x, n.y);
         ctx.quadraticCurveTo(ctrlX, ctrlY, dep.x, dep.y);
         ctx.strokeStyle = depGrad;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.restore();
 
         // Arrow head at the upstream (dep) end
-        const arrowSize = 7;
+        const arrowSize = 6;
         // Approximate tangent at the end of the quadratic curve
         const tgx = dep.x - ctrlX;
         const tgy = dep.y - ctrlY;
@@ -2844,14 +2826,14 @@ function animateMatrixLines(canvas, nodePositions) {
         const ux = tgx / tgLen;
         const uy = tgy / tgLen;
         // Arrow tip is slightly before the node ring
-        const tipX = dep.x - ux * 26;
-        const tipY = dep.y - uy * 26;
+        const tipX = dep.x - ux * 22;
+        const tipY = dep.y - uy * 22;
         ctx.beginPath();
         ctx.moveTo(tipX, tipY);
         ctx.lineTo(tipX - ux * arrowSize - uy * arrowSize * 0.6, tipY - uy * arrowSize + ux * arrowSize * 0.6);
         ctx.lineTo(tipX - ux * arrowSize + uy * arrowSize * 0.6, tipY - uy * arrowSize - ux * arrowSize * 0.6);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(251,146,60,0.7)';
+        ctx.fillStyle = 'rgba(251,146,60,0.6)';
         ctx.fill();
 
         // Animated particle travelling along the dependency curve
@@ -2862,16 +2844,16 @@ function animateMatrixLines(canvas, nodePositions) {
         const dpx = bp * bp * n.x + 2 * bp * depProg * ctrlX + depProg * depProg * dep.x;
         const dpy = bp * bp * n.y + 2 * bp * depProg * ctrlY + depProg * depProg * dep.y;
         const dpPulse = 0.5 + 0.5 * Math.sin(depProg * Math.PI);
-        const dpRadius = 1.5 + dpPulse * 1.5;
+        const dpRadius = 1.2 + dpPulse * 1.2;
         ctx.beginPath();
         ctx.arc(dpx, dpy, dpRadius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(251,146,60,' + (0.5 + dpPulse * 0.5) + ')';
+        ctx.fillStyle = 'rgba(251,146,60,' + (0.4 + dpPulse * 0.4) + ')';
         ctx.fill();
         // Glow
         ctx.beginPath();
-        ctx.arc(dpx, dpy, dpRadius + 3, 0, Math.PI * 2);
-        const dpGlow = ctx.createRadialGradient(dpx, dpy, 0, dpx, dpy, dpRadius + 3);
-        dpGlow.addColorStop(0, 'rgba(251,146,60,0.25)');
+        ctx.arc(dpx, dpy, dpRadius + 2, 0, Math.PI * 2);
+        const dpGlow = ctx.createRadialGradient(dpx, dpy, 0, dpx, dpy, dpRadius + 2);
+        dpGlow.addColorStop(0, 'rgba(251,146,60,0.2)');
         dpGlow.addColorStop(1, 'rgba(251,146,60,0)');
         ctx.fillStyle = dpGlow;
         ctx.fill();
@@ -2902,8 +2884,8 @@ function animateMatrixLines(canvas, nodePositions) {
 
         // Gradient: emerald/green color for connections
         const connGrad = ctx.createLinearGradient(n.x, n.y, peer.x, peer.y);
-        connGrad.addColorStop(0, 'rgba(52,211,153,0.45)');
-        connGrad.addColorStop(1, 'rgba(16,185,129,0.45)');
+        connGrad.addColorStop(0, 'rgba(52,211,153,0.3)');
+        connGrad.addColorStop(1, 'rgba(16,185,129,0.3)');
 
         ctx.save();
         ctx.setLineDash([]);  // solid line (unlike dashed dependency)
@@ -2911,20 +2893,20 @@ function animateMatrixLines(canvas, nodePositions) {
         ctx.moveTo(n.x, n.y);
         ctx.quadraticCurveTo(ctrlX, ctrlY, peer.x, peer.y);
         ctx.strokeStyle = connGrad;
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1;
         ctx.stroke();
         ctx.restore();
 
         // Small diamond at both ends (peer relationship indicator)
-        const diamondSize = 4;
+        const diamondSize = 3;
         [{ from: n, to: peer }, { from: peer, to: n }].forEach(({ from, to }) => {
           const tgx = to.x - ctrlX;
           const tgy = to.y - ctrlY;
           const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) || 1;
           const ux = tgx / tgLen;
           const uy = tgy / tgLen;
-          const diaX = to.x - ux * 26;
-          const diaY = to.y - uy * 26;
+          const diaX = to.x - ux * 22;
+          const diaY = to.y - uy * 22;
           ctx.save();
           ctx.translate(diaX, diaY);
           ctx.rotate(Math.atan2(uy, ux));
@@ -2934,7 +2916,7 @@ function animateMatrixLines(canvas, nodePositions) {
           ctx.lineTo(0, diamondSize);
           ctx.lineTo(-diamondSize, 0);
           ctx.closePath();
-          ctx.fillStyle = 'rgba(52,211,153,0.6)';
+          ctx.fillStyle = 'rgba(52,211,153,0.5)';
           ctx.fill();
           ctx.restore();
         });
@@ -2946,16 +2928,16 @@ function animateMatrixLines(canvas, nodePositions) {
         const cpx = cbp * cbp * n.x + 2 * cbp * connProg * ctrlX + connProg * connProg * peer.x;
         const cpy = cbp * cbp * n.y + 2 * cbp * connProg * ctrlY + connProg * connProg * peer.y;
         const cpPulse = 0.5 + 0.5 * Math.sin(connProg * Math.PI);
-        const cpRadius = 1.2 + cpPulse * 1.2;
+        const cpRadius = 1 + cpPulse * 1;
         ctx.beginPath();
         ctx.arc(cpx, cpy, cpRadius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(52,211,153,' + (0.4 + cpPulse * 0.5) + ')';
+        ctx.fillStyle = 'rgba(52,211,153,' + (0.3 + cpPulse * 0.4) + ')';
         ctx.fill();
         // Glow
         ctx.beginPath();
-        ctx.arc(cpx, cpy, cpRadius + 3, 0, Math.PI * 2);
-        const cpGlow = ctx.createRadialGradient(cpx, cpy, 0, cpx, cpy, cpRadius + 3);
-        cpGlow.addColorStop(0, 'rgba(52,211,153,0.2)');
+        ctx.arc(cpx, cpy, cpRadius + 2, 0, Math.PI * 2);
+        const cpGlow = ctx.createRadialGradient(cpx, cpy, 0, cpx, cpy, cpRadius + 2);
+        cpGlow.addColorStop(0, 'rgba(52,211,153,0.15)');
         cpGlow.addColorStop(1, 'rgba(52,211,153,0)');
         ctx.fillStyle = cpGlow;
         ctx.fill();
@@ -2984,7 +2966,7 @@ function renderMatrix() {
 
   // ── Dynamic sizing based on service count ──
   const count    = servicesData.length;
-  const RING_D   = 48;   // node ring diameter (px)
+  const RING_D   = 40;   // node ring diameter (px)
   const NODE_PAD = 40;   // extra clearance around each node for label
   const HUB_PAD  = 60;   // minimum space from hub to ring
   // Ideal orbital radius grows with count so nodes don't overlap
@@ -3001,7 +2983,7 @@ function renderMatrix() {
   // Centre hub
   const hub = document.createElement('div');
   hub.className = 'matrix-hub';
-  hub.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-9.5-9.5h4m14 0h4M4.2 4.2l2.8 2.8m10 10l2.8 2.8M4.2 19.8l2.8-2.8m10-10l2.8-2.8"/></svg>';
+  hub.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
   container.appendChild(hub);
 
   // Nodes layer
@@ -3049,7 +3031,7 @@ function renderMatrix() {
     // Calculate orbital radii — elliptical, capped to available space
     const rx = Math.min(cx - RING_D - 20, idealRadius);  // horizontal radius
     const ry = Math.min(cy - RING_D - 20, idealRadius);  // vertical radius
-    const ringHalf = RING_D / 2; // 24 px — half the ring height
+    const ringHalf = RING_D / 2; // 20 px — half the ring height
     const nodePositions = [];
 
     servicesData.forEach((svc, i) => {
