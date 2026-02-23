@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"status/app/internal/checker"
 	"status/app/internal/database"
 	"status/app/internal/models"
 )
@@ -274,10 +275,11 @@ func HandleGetServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Don't expose API tokens to non-admin
+	// Don't expose API tokens or internal URLs to non-admin
 	if !isAdmin {
 		for i := range services {
 			services[i].APIToken = ""
+			services[i].URL = ""
 		}
 	}
 
@@ -525,6 +527,14 @@ func HandleTestServiceConnection(w http.ResponseWriter, r *http.Request) {
 
 // testServiceConnection performs the actual connection test
 func testServiceConnection(url, apiToken, checkType, serviceType string, timeout int) map[string]any {
+	// SSRF protection: validate URL target
+	if err := checker.ValidateURLTarget(url); err != nil {
+		return map[string]any{
+			"success": false,
+			"error":   "URL target is not allowed",
+		}
+	}
+
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

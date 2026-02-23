@@ -169,4 +169,11 @@ var (
 		MaxTokens:       30,
 		ErrorMessage:    "Too many status check requests. Please slow down.",
 	})
+
+	// SetupLimiter limits setup/self-unblock endpoints to 5 per minute per IP
+	SetupLimiter = New(Config{
+		TokensPerMinute: 5,
+		MaxTokens:       5,
+		ErrorMessage:    "Too many requests. Please try again later.",
+	})
 )

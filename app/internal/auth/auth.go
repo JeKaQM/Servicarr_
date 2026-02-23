@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,9 +78,13 @@ func (a *Auth) MakeSessionCookie(w http.ResponseWriter, username string, maxAge 
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	exp := time.Now().Add(maxAge).Unix()
-	payload := fmt.Sprintf(`{"u":"%s","exp":%d}`, username, exp)
-	sig := a.sign([]byte(payload))
-	val := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + sig
+	payloadObj := Session{U: username, Exp: exp}
+	payloadBytes, err := json.Marshal(payloadObj)
+	if err != nil {
+		return err
+	}
+	sig := a.sign(payloadBytes)
+	val := base64.RawURLEncoding.EncodeToString(payloadBytes) + "." + sig
 	c := &http.Cookie{
 		Name:     "sess",
 		Value:    val,

@@ -28,9 +28,9 @@ func isCloudMetadataIP(ip net.IP) bool {
 	return false
 }
 
-// validateURLTarget rejects URLs that resolve to cloud metadata endpoints (SSRF protection).
+// ValidateURLTarget rejects URLs that resolve to cloud metadata endpoints (SSRF protection).
 // Private RFC1918 IPs are allowed since monitoring internal services is the core use case.
-func validateURLTarget(rawURL string) error {
+func ValidateURLTarget(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -141,7 +141,7 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 		return true, 0, ms, ""
 	default:
 		// HTTP/HTTPS — SSRF: block cloud metadata endpoints
-		if err := validateURLTarget(url); err != nil {
+		if err := ValidateURLTarget(url); err != nil {
 			log.Printf("SSRF blocked: %v", err)
 			return false, 0, nil, err.Error()
 		}

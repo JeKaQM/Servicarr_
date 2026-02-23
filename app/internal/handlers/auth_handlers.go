@@ -65,6 +65,8 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		log.Printf("login: success for user %s from %s", c.Username, ip)
+		// Clear any failed login attempts for this IP on successful login
+		_ = security.ClearIPBlock(ip)
 		_ = authMgr.MakeSessionCookie(w, c.Username, authMgr.SessionMaxAge())
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})

@@ -211,13 +211,13 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 
 	// Setup routes (must be accessible before setup is complete)
 	mux.HandleFunc("/setup", HandleSetupPage)
-	mux.HandleFunc("/api/setup", HandleCompleteSetup(authMgr))
-	mux.HandleFunc("/api/setup/status", HandleSetupStatus)
-	mux.HandleFunc("/api/setup/service", HandleAddFirstService)
-	mux.HandleFunc("/api/setup/import", HandleSetupImport(authMgr))
+	mux.Handle("/api/setup", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleCompleteSetup(authMgr))))
+	mux.Handle("/api/setup/status", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleSetupStatus)))
+	mux.Handle("/api/setup/service", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleAddFirstService)))
+	mux.Handle("/api/setup/import", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleSetupImport(authMgr))))
 
-	// Self-unblock endpoint (accessible even when blocked)
-	mux.HandleFunc("/api/self-unblock", HandleSelfUnblock())
+	// Self-unblock endpoint (accessible even when blocked, but rate limited)
+	mux.Handle("/api/self-unblock", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleSelfUnblock())))
 
 	// Apply rate limiting based on endpoint type
 	// Login endpoints: 20 requests/minute (prevents brute force)
@@ -232,7 +232,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(tracker))))
 
 	// Other public API endpoints: standard rate limit
-	mux.HandleFunc("/api/status-alerts", HandleGetStatusAlerts()) // Public, no rate limit
+	mux.Handle("/api/status-alerts", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleGetStatusAlerts())))
 	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
 
 	mux.HandleFunc("/static/", HandleStatic())

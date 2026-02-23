@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -514,8 +515,14 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			_, _ = database.DB.Exec(`DELETE FROM ` + table)
 		}
 
+		// Generate a fresh random temporary secret
+		tempSecret := make([]byte, 32)
+		if _, err := rand.Read(tempSecret); err != nil {
+			tempSecret = []byte("reset-fallback")
+		}
+
 		// Reset auth manager
-		authMgr.Reload("", []byte{}, []byte("temporary-secret-for-setup-only!"))
+		authMgr.Reload("", []byte{}, tempSecret)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Database reset complete"})

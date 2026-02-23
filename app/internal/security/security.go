@@ -42,6 +42,22 @@ var (
 	rlMu sync.Mutex
 )
 
+func init() {
+	// Cleanup stale rate limiter entries every 5 minutes
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			rlMu.Lock()
+			now := time.Now()
+			for k, e := range rl {
+				if now.Sub(e.last) > 10*time.Minute {
+					delete(rl, k)
+				}
+			}
+			rlMu.Unlock()
+		}
+	}()
+}
+
 // RateLimit implements token bucket rate limiting
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

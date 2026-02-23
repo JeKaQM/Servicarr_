@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"status/app/internal/alerts"
 	"status/app/internal/checker"
@@ -197,6 +199,12 @@ func HandleUnblockIP() http.HandlerFunc {
 			return
 		}
 
+		// Validate IP address
+		if net.ParseIP(req.IP) == nil {
+			http.Error(w, "invalid IP address", http.StatusBadRequest)
+			return
+		}
+
 		if err := security.ClearIPBlock(req.IP); err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -259,6 +267,14 @@ func HandleAddToWhitelist() http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+
+		// Validate IP address or CIDR
+		if net.ParseIP(req.IP) == nil {
+			if _, _, err := net.ParseCIDR(req.IP); err != nil {
+				http.Error(w, "invalid IP address or CIDR", http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := security.AddToWhitelist(req.IP, req.Note); err != nil {
@@ -327,6 +343,14 @@ func HandleAddToBlacklist() http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+
+		// Validate IP address or CIDR
+		if net.ParseIP(req.IP) == nil {
+			if _, _, err := net.ParseCIDR(req.IP); err != nil {
+				http.Error(w, "invalid IP address or CIDR", http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := security.AddToBlacklist(req.IP, req.Note, req.Permanent); err != nil {
@@ -434,11 +458,12 @@ func HandleTestEmail(alertMgr *alerts.Manager) http.HandlerFunc {
 
 		err := alertMgr.SendEmail(subject, body)
 		if err != nil {
+			log.Printf("Test email failed: %v", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"message": fmt.Sprintf("Failed to send test email: %v", err),
+				"message": "Failed to send test email. Check your SMTP settings.",
 			})
 			return
 		}

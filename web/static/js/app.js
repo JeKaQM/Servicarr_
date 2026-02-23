@@ -677,7 +677,7 @@ function updCard(id, data) {
 
   const pill = $('.pill', el);
   const k = $('.kpi', el);
-  const h = $('.kpirow .label', el); // More specific selector for status label
+  const h = $('.kpi-status', el); // More specific selector for status label
   const toggle = $('.monitorToggle', el);
 
   if (!pill || !k || !h) {
@@ -792,12 +792,14 @@ function renderChart(overall) {
 
 function renderIncidents(items) {
   const list = $('#incidents');
+  const VISIBLE_LIMIT = 5;
+
   if (!items?.length) {
     list.innerHTML = '<li class="no-incidents"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg> No incidents in last 24h</li>';
     return;
   }
 
-  list.innerHTML = items.map(i => {
+  const rendered = items.map((i, idx) => {
     const rawTs = i.taken_at || i.time || '';
     let ts = '';
     if (rawTs) {
@@ -838,8 +840,11 @@ function renderIncidents(items) {
       error: err || ''
     }).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 
+    const hiddenClass = idx >= VISIBLE_LIMIT ? ' incident-hidden' : '';
+    const hiddenAttr = idx >= VISIBLE_LIMIT ? ' data-hidden="true"' : '';
+
     return `
-      <li class="incident-item" data-incident="${payload}">
+      <li class="incident-item${hiddenClass}"${hiddenAttr} data-incident="${payload}">
         <span class="dot"></span>
         <div class="incident-content">
           <span class="incident-time">${escapeHtml(ts)}</span>
@@ -848,7 +853,43 @@ function renderIncidents(items) {
         <span class="incident-action">Details <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
       </li>
     `;
-  }).join('');
+  });
+
+  // Add "View more" button if there are hidden items
+  const hiddenCount = items.length - VISIBLE_LIMIT;
+  if (hiddenCount > 0) {
+    rendered.push(`
+      <li class="incidents-toggle" id="incidentsToggle">
+        <button class="btn ghost incidents-toggle-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          View ${hiddenCount} more incident${hiddenCount > 1 ? 's' : ''}
+        </button>
+      </li>
+    `);
+  }
+
+  list.innerHTML = rendered.join('');
+
+  // Wire up toggle button
+  const toggleBtn = $('#incidentsToggle button');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const hidden = $$('#incidents .incident-item[data-hidden]');
+      const isExpanded = toggleBtn.dataset.expanded === 'true';
+      hidden.forEach(el => {
+        if (isExpanded) {
+          el.classList.add('incident-hidden');
+        } else {
+          el.classList.remove('incident-hidden');
+        }
+      });
+      toggleBtn.dataset.expanded = isExpanded ? 'false' : 'true';
+      toggleBtn.innerHTML = isExpanded
+        ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg> View ${hiddenCount} more incident${hiddenCount > 1 ? 's' : ''}`
+        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg> Show less`;
+    });
+  }
 
   $$('#incidents .incident-item').forEach(item => {
     item.addEventListener('click', () => showIncidentDetails(item));
@@ -1871,26 +1912,27 @@ async function checkNowFor(card) {
         body: JSON.stringify({ service: key })
       });
       updCard('card-' + key, res);
-      /* also refresh metrics in background */
-      refresh();
     },
     `Check completed for ${key}`
   );
 }
 
 window.addEventListener('load', async () => {
-  // IMPORTANT: Load resources config FIRST before any refresh calls.
-  // This prevents hidden tiles from briefly appearing due to race conditions.
-  await loadResourcesConfig();
+  // Load resources config and services in parallel for fastest possible render.
+  // Neither should block the other.
+  const [, services] = await Promise.all([
+    loadResourcesConfig().catch(e => {
+      console.warn('Resources config load failed, continuing:', e);
+    }),
+    loadServices().catch(e => {
+      console.error('Failed to load services on init', e);
+      return [];
+    })
+  ]);
 
-  // Load services dynamically and render them (non-blocking)
-  loadServices().then(services => {
-    if (services.length > 0) {
-      renderDynamicUptimeBars(services);
-    }
-  }).catch(e => {
-    console.error('Failed to load services on init', e);
-  });
+  if (services && services.length > 0) {
+    renderDynamicUptimeBars(services);
+  }
 
   // Initialize services management (admin features)
   initServicesManagement();
@@ -1901,7 +1943,7 @@ window.addEventListener('load', async () => {
   // Initialize view toggle (Cards / Hive)
   initViewToggle();
 
-  // Start the refresh cycle immediately (don't wait for services)
+  // Now start refresh — cards are guaranteed to be in the DOM
   refresh();
   whoami();
   setInterval(refresh, REFRESH_MS);
@@ -2390,8 +2432,11 @@ function getServiceIconHtml(serviceTypeOrObj, iconUrl = null) {
 
   // Use custom icon URL if provided
   if (customIconUrl) {
-    // Use a data attribute for fallback, handle error in CSS/JS
-    return `<img src="${customIconUrl}" class="icon service-icon-img" alt="${serviceType}" data-fallback="${serviceType}"/><span class="icon icon-fallback" style="display:none;">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
+    // Sanitize URL - only allow http(s), data, and relative paths
+    const safeUrl = /^(https?:\/\/|data:image\/|\/static\/)/.test(customIconUrl) ? escapeHtml(customIconUrl) : '';
+    if (safeUrl) {
+      return `<img src="${safeUrl}" class="icon service-icon-img" alt="${escapeHtml(serviceType)}" data-fallback="${escapeHtml(serviceType)}"/><span class="icon icon-fallback" style="display:none;">${SERVICE_ICONS[serviceType] || SERVICE_ICONS.custom}</span>`;
+    }
   }
 
   // Use local image file if available
@@ -2473,30 +2518,38 @@ function renderServiceCards(services) {
 
     // Match original structure - no clickable link exposing URL
     card.innerHTML = `
-      <div class="row">
-        <div class="row-left">
+      <div class="card-header">
+        <div class="card-icon-wrapper">
           ${iconHtml}
-          <div><strong>${svcName}</strong><div class="label">${svcLabel}</div></div>
         </div>
-        <span class="pill warn">—</span>
-      </div>
-      <div class="row kpirow">
-        <div class="kpi">—</div>
-        <div class="label kpi-status">—</div>
+        <div class="card-title-wrapper">
+          <strong class="card-title">${svcName}</strong>
+          <div class="card-subtitle">${svcLabel}</div>
+        </div>
+        <div class="card-status-indicator">
+          <span class="pill warn">—</span>
+        </div>
       </div>
       
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Uptime</div>
-          <div class="stat-value" id="uptime-24h-${svc.key}">—</div>
+      <div class="card-body">
+        <div class="kpi-container">
+          <div class="kpi">—</div>
+          <div class="label kpi-status">—</div>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">Response</div>
-          <div class="stat-value" id="avg-response-${svc.key}">—</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Checked</div>
-          <div class="stat-value" id="last-check-${svc.key}">—</div>
+        
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" id="uptime-24h-${svc.key}">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Response</div>
+            <div class="stat-value" id="avg-response-${svc.key}">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Checked</div>
+            <div class="stat-value" id="last-check-${svc.key}">—</div>
+          </div>
         </div>
       </div>
       
@@ -2693,254 +2746,221 @@ function animateMatrixLines(canvas, nodePositions) {
     const cx = w / 2;
     const cy = h / 2;
 
-    // Draw lines from each node to the centre hub
+    // 1. Draw Hub to Node lines
     nodePositions.forEach(n => {
       const col = MATRIX_COLORS[n.status] || MATRIX_COLORS.unknown;
       const isDisabled = n.status === 'disabled';
       const isDown     = n.status === 'down';
+      const isDegraded = n.status === 'degraded';
 
-      // Gradient along the line
       const grad = ctx.createLinearGradient(n.x, n.y, cx, cy);
 
       if (isDisabled) {
-        // Dim, barely visible dashed line for disabled
-        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.1)');
-        grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.05)');
-        ctx.save();
-        ctx.setLineDash([2, 4]);
-        ctx.beginPath();
-        ctx.moveTo(n.x, n.y);
-        ctx.lineTo(cx, cy);
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-        ctx.restore();
-        // No particle for disabled — line only
-        return;
-      }
-
-      if (isDown) {
-        // Broken/fractured line for DOWN — dashed red with glow
-        grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.5)');
-        grad.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.05)');
-        ctx.save();
-        ctx.setLineDash([4, 6]);
+        grad.addColorStop(0, `rgba(${col.r},${col.g},${col.b},0.1)`);
+        grad.addColorStop(1, `rgba(${MATRIX_COLORS.hub.r},${MATRIX_COLORS.hub.g},${MATRIX_COLORS.hub.b},0.02)`);
         ctx.beginPath();
         ctx.moveTo(n.x, n.y);
         ctx.lineTo(cx, cy);
         ctx.strokeStyle = grad;
         ctx.lineWidth = 1;
-        ctx.shadowColor = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.4)';
-        ctx.shadowBlur = 4;
+        ctx.setLineDash([2, 4]);
         ctx.stroke();
-        ctx.restore();
-        // No traveling particle for down
+        ctx.setLineDash([]);
         return;
       }
 
-      // Normal line for up / degraded / unknown
-      grad.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.4)');
-      grad.addColorStop(1, 'rgba(' + MATRIX_COLORS.hub.r + ',' + MATRIX_COLORS.hub.g + ',' + MATRIX_COLORS.hub.b + ',0.15)');
+      if (isDown) {
+        grad.addColorStop(0, `rgba(${col.r},${col.g},${col.b},0.4)`);
+        grad.addColorStop(1, `rgba(${col.r},${col.g},${col.b},0.05)`);
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(cx, cy);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 8]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Draw a small "X" or break in the middle of the line
+        const mx = (n.x + cx) / 2;
+        const my = (n.y + cy) / 2;
+        ctx.save();
+        const sz = 4;
+        ctx.strokeStyle = `rgba(${col.r},${col.g},${col.b},0.8)`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(mx - sz, my - sz);
+        ctx.lineTo(mx + sz, my + sz);
+        ctx.moveTo(mx + sz, my - sz);
+        ctx.lineTo(mx - sz, my + sz);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      if (isDegraded) {
+        grad.addColorStop(0, `rgba(${col.r},${col.g},${col.b},0.4)`);
+        grad.addColorStop(1, `rgba(${MATRIX_COLORS.hub.r},${MATRIX_COLORS.hub.g},${MATRIX_COLORS.hub.b},0.05)`);
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(cx, cy);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]); // Dashed but less broken than down
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // No particles for degraded
+        return;
+      }
+
+      grad.addColorStop(0, `rgba(${col.r},${col.g},${col.b},0.3)`);
+      grad.addColorStop(1, `rgba(${MATRIX_COLORS.hub.r},${MATRIX_COLORS.hub.g},${MATRIX_COLORS.hub.b},0.05)`);
 
       ctx.beginPath();
       ctx.moveTo(n.x, n.y);
       ctx.lineTo(cx, cy);
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Pulsating particle travelling node → hub
-      const speed  = 4000; // ms per full trip
-      const prog   = ((t + n.phase) % speed) / speed;
-      const px     = n.x + (cx - n.x) * prog;
-      const py     = n.y + (cy - n.y) * prog;
-      const pulse  = 0.5 + 0.5 * Math.sin(prog * Math.PI);
-      const radius = 1.5 + pulse * 1.5;
-
+      // Particle
+      const speed = 3000;
+      const prog = ((t + n.phase) % speed) / speed;
+      
+      const px = n.x + (cx - n.x) * prog;
+      const py = n.y + (cy - n.y) * prog;
+      
+      const alpha = Math.sin(prog * Math.PI); // fade in and out
+      
       ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',' + (0.5 + pulse * 0.5) + ')';
+      ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${col.r},${col.g},${col.b},${alpha})`;
       ctx.fill();
-
-      // Soft glow around particle
+      
       ctx.beginPath();
-      ctx.arc(px, py, radius + 3, 0, Math.PI * 2);
-      const glow = ctx.createRadialGradient(px, py, 0, px, py, radius + 3);
-      glow.addColorStop(0, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.2)');
-      glow.addColorStop(1, 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0)');
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 4);
+      glow.addColorStop(0, `rgba(${col.r},${col.g},${col.b},${alpha * 0.5})`);
+      glow.addColorStop(1, `rgba(${col.r},${col.g},${col.b},0)`);
       ctx.fillStyle = glow;
       ctx.fill();
     });
 
-    // Draw faint interconnect lines between adjacent nodes
-    for (let i = 0; i < nodePositions.length; i++) {
-      const j = (i + 1) % nodePositions.length;
-      const a = nodePositions[i];
-      const b = nodePositions[j];
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = 'rgba(99,102,241,0.04)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-    }
-
-    // ── Dependency connection lines (service → upstream) ──
     const nodeByKey = {};
     nodePositions.forEach(n => { nodeByKey[n.key] = n; });
+    const drawnConnPairs = new Set();
 
+    // Helper to draw curved links
+    function drawLink(n, target, defaultColorStr, isDashed, phaseOffset, t) {
+      const dx = target.x - n.x;
+      const dy = target.y - n.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const midX = (n.x + target.x) / 2;
+      const midY = (n.y + target.y) / 2;
+      
+      // Normal vector
+      const nx = -dy / dist;
+      const ny = dx / dist;
+      
+      // Curve control point
+      const curveAmount = dist * 0.25;
+      const ctrlX = midX + nx * curveAmount;
+      const ctrlY = midY + ny * curveAmount;
+
+      // Determine link state based on node statuses
+      let linkColorStr = defaultColorStr;
+      let linkDashed = isDashed;
+      let showParticles = true;
+      let linkOpacity = 0.4;
+
+      if (n.status === 'disabled' || target.status === 'disabled') {
+        linkColorStr = `${MATRIX_COLORS.disabled.r},${MATRIX_COLORS.disabled.g},${MATRIX_COLORS.disabled.b}`;
+        linkDashed = true;
+        showParticles = false;
+        linkOpacity = 0.15;
+      } else if (n.status === 'down' || target.status === 'down') {
+        linkColorStr = `${MATRIX_COLORS.down.r},${MATRIX_COLORS.down.g},${MATRIX_COLORS.down.b}`;
+        linkDashed = true;
+        showParticles = false;
+        linkOpacity = 0.3;
+      } else if (n.status === 'degraded' || target.status === 'degraded') {
+        linkColorStr = `${MATRIX_COLORS.degraded.r},${MATRIX_COLORS.degraded.g},${MATRIX_COLORS.degraded.b}`;
+        linkDashed = true;
+        showParticles = false;
+        linkOpacity = 0.3;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(n.x, n.y);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, target.x, target.y);
+      
+      const grad = ctx.createLinearGradient(n.x, n.y, target.x, target.y);
+      grad.addColorStop(0, `rgba(${linkColorStr}, 0.05)`);
+      grad.addColorStop(0.5, `rgba(${linkColorStr}, ${linkOpacity})`);
+      grad.addColorStop(1, `rgba(${linkColorStr}, 0.05)`);
+      
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.5;
+      
+      if (linkDashed) {
+        if (n.status === 'down' || target.status === 'down') {
+          ctx.setLineDash([4, 8]); // More broken for down
+        } else {
+          ctx.setLineDash([4, 4]);
+        }
+      } else {
+        ctx.setLineDash([]);
+      }
+      
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (!showParticles) return;
+
+      // Particle
+      const speed = 4000;
+      const prog = ((t + n.phase + phaseOffset) % speed) / speed;
+      const bp = 1 - prog;
+      const px = bp * bp * n.x + 2 * bp * prog * ctrlX + prog * prog * target.x;
+      const py = bp * bp * n.y + 2 * bp * prog * ctrlY + prog * prog * target.y;
+      
+      const alpha = Math.sin(prog * Math.PI);
+      
+      ctx.beginPath();
+      ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${linkColorStr}, ${alpha})`;
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, Math.PI * 2);
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 5);
+      glow.addColorStop(0, `rgba(${linkColorStr}, ${alpha * 0.4})`);
+      glow.addColorStop(1, `rgba(${linkColorStr}, 0)`);
+      ctx.fillStyle = glow;
+      ctx.fill();
+    }
+
+    // 2. Dependencies
     nodePositions.forEach(n => {
-      if (!n.depends_on || n.depends_on.length === 0) return;
+      if (!n.depends_on) return;
       n.depends_on.forEach(depKey => {
         const dep = nodeByKey[depKey];
         if (!dep) return;
-
-        // Draw a curved dependency arc from dependent → upstream
-        const midX = (n.x + dep.x) / 2;
-        const midY = (n.y + dep.y) / 2;
-        // Offset the control point toward the hub for a nice curve
-        const ctrlX = midX + (cx - midX) * 0.45;
-        const ctrlY = midY + (cy - midY) * 0.45;
-
-        // Gradient: orange/amber dependency color
-        const depGrad = ctx.createLinearGradient(n.x, n.y, dep.x, dep.y);
-        depGrad.addColorStop(0, 'rgba(251,146,60,0.4)');
-        depGrad.addColorStop(1, 'rgba(245,158,11,0.4)');
-
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(n.x, n.y);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, dep.x, dep.y);
-        ctx.strokeStyle = depGrad;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.restore();
-
-        // Arrow head at the upstream (dep) end
-        const arrowSize = 6;
-        // Approximate tangent at the end of the quadratic curve
-        const tgx = dep.x - ctrlX;
-        const tgy = dep.y - ctrlY;
-        const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) || 1;
-        const ux = tgx / tgLen;
-        const uy = tgy / tgLen;
-        // Arrow tip is slightly before the node ring
-        const tipX = dep.x - ux * 22;
-        const tipY = dep.y - uy * 22;
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - ux * arrowSize - uy * arrowSize * 0.6, tipY - uy * arrowSize + ux * arrowSize * 0.6);
-        ctx.lineTo(tipX - ux * arrowSize + uy * arrowSize * 0.6, tipY - uy * arrowSize - ux * arrowSize * 0.6);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(251,146,60,0.6)';
-        ctx.fill();
-
-        // Animated particle travelling along the dependency curve
-        const depSpeed = 3000;
-        const depProg = ((t + n.phase + 300) % depSpeed) / depSpeed;
-        // Quadratic bezier interpolation: B(t) = (1-t)²P0 + 2(1-t)tC + t²P1
-        const bp = 1 - depProg;
-        const dpx = bp * bp * n.x + 2 * bp * depProg * ctrlX + depProg * depProg * dep.x;
-        const dpy = bp * bp * n.y + 2 * bp * depProg * ctrlY + depProg * depProg * dep.y;
-        const dpPulse = 0.5 + 0.5 * Math.sin(depProg * Math.PI);
-        const dpRadius = 1.2 + dpPulse * 1.2;
-        ctx.beginPath();
-        ctx.arc(dpx, dpy, dpRadius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(251,146,60,' + (0.4 + dpPulse * 0.4) + ')';
-        ctx.fill();
-        // Glow
-        ctx.beginPath();
-        ctx.arc(dpx, dpy, dpRadius + 2, 0, Math.PI * 2);
-        const dpGlow = ctx.createRadialGradient(dpx, dpy, 0, dpx, dpy, dpRadius + 2);
-        dpGlow.addColorStop(0, 'rgba(251,146,60,0.2)');
-        dpGlow.addColorStop(1, 'rgba(251,146,60,0)');
-        ctx.fillStyle = dpGlow;
-        ctx.fill();
+        drawLink(n, dep, "251,146,60", true, 300, t); // Orange
       });
     });
 
-    // ── Connected-to lines (peer/integration links) ──
-    // Track drawn pairs to avoid duplicates (A↔B = B↔A)
-    const drawnConnPairs = new Set();
-
+    // 3. Connections
     nodePositions.forEach(n => {
-      if (!n.connected_to || n.connected_to.length === 0) return;
+      if (!n.connected_to) return;
       n.connected_to.forEach(connKey => {
         const peer = nodeByKey[connKey];
         if (!peer) return;
-
-        // Deduplicate: only draw each pair once
         const pairKey = [n.key, connKey].sort().join('|');
         if (drawnConnPairs.has(pairKey)) return;
         drawnConnPairs.add(pairKey);
-
-        // Draw a solid curved line (distinct from dashed dependency arcs)
-        const midX = (n.x + peer.x) / 2;
-        const midY = (n.y + peer.y) / 2;
-        // Offset control point away from hub (opposite direction from dependencies)
-        const ctrlX = midX - (cx - midX) * 0.35;
-        const ctrlY = midY - (cy - midY) * 0.35;
-
-        // Gradient: emerald/green color for connections
-        const connGrad = ctx.createLinearGradient(n.x, n.y, peer.x, peer.y);
-        connGrad.addColorStop(0, 'rgba(52,211,153,0.3)');
-        connGrad.addColorStop(1, 'rgba(16,185,129,0.3)');
-
-        ctx.save();
-        ctx.setLineDash([]);  // solid line (unlike dashed dependency)
-        ctx.beginPath();
-        ctx.moveTo(n.x, n.y);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, peer.x, peer.y);
-        ctx.strokeStyle = connGrad;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.restore();
-
-        // Small diamond at both ends (peer relationship indicator)
-        const diamondSize = 3;
-        [{ from: n, to: peer }, { from: peer, to: n }].forEach(({ from, to }) => {
-          const tgx = to.x - ctrlX;
-          const tgy = to.y - ctrlY;
-          const tgLen = Math.sqrt(tgx * tgx + tgy * tgy) || 1;
-          const ux = tgx / tgLen;
-          const uy = tgy / tgLen;
-          const diaX = to.x - ux * 22;
-          const diaY = to.y - uy * 22;
-          ctx.save();
-          ctx.translate(diaX, diaY);
-          ctx.rotate(Math.atan2(uy, ux));
-          ctx.beginPath();
-          ctx.moveTo(0, -diamondSize);
-          ctx.lineTo(diamondSize, 0);
-          ctx.lineTo(0, diamondSize);
-          ctx.lineTo(-diamondSize, 0);
-          ctx.closePath();
-          ctx.fillStyle = 'rgba(52,211,153,0.5)';
-          ctx.fill();
-          ctx.restore();
-        });
-
-        // Animated particle along the connection curve
-        const connSpeed = 4000;
-        const connProg = ((t + n.phase + 150) % connSpeed) / connSpeed;
-        const cbp = 1 - connProg;
-        const cpx = cbp * cbp * n.x + 2 * cbp * connProg * ctrlX + connProg * connProg * peer.x;
-        const cpy = cbp * cbp * n.y + 2 * cbp * connProg * ctrlY + connProg * connProg * peer.y;
-        const cpPulse = 0.5 + 0.5 * Math.sin(connProg * Math.PI);
-        const cpRadius = 1 + cpPulse * 1;
-        ctx.beginPath();
-        ctx.arc(cpx, cpy, cpRadius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(52,211,153,' + (0.3 + cpPulse * 0.4) + ')';
-        ctx.fill();
-        // Glow
-        ctx.beginPath();
-        ctx.arc(cpx, cpy, cpRadius + 2, 0, Math.PI * 2);
-        const cpGlow = ctx.createRadialGradient(cpx, cpy, 0, cpx, cpy, cpRadius + 2);
-        cpGlow.addColorStop(0, 'rgba(52,211,153,0.15)');
-        cpGlow.addColorStop(1, 'rgba(52,211,153,0)');
-        ctx.fillStyle = cpGlow;
-        ctx.fill();
+        
+        drawLink(n, peer, "52,211,153", false, 150, t); // Emerald
       });
     });
 
@@ -2966,13 +2986,14 @@ function renderMatrix() {
 
   // ── Dynamic sizing based on service count ──
   const count    = servicesData.length;
-  const RING_D   = 40;   // node ring diameter (px)
-  const NODE_PAD = 40;   // extra clearance around each node for label
-  const HUB_PAD  = 60;   // minimum space from hub to ring
+  const RING_D   = 44;   // node ring diameter (px)
+  const NODE_PAD = 60;   // extra clearance around each node for label
+  const HUB_PAD  = 100;  // minimum space from hub to ring
+  
   // Ideal orbital radius grows with count so nodes don't overlap
-  const idealRadius = Math.max(120, HUB_PAD + (count * (RING_D + NODE_PAD)) / (2 * Math.PI));
+  const idealRadius = Math.max(160, HUB_PAD + (count * (RING_D + NODE_PAD)) / (2 * Math.PI));
   // Container must fit the full orbit + node overflow + padding
-  const containerH = Math.max(300, Math.ceil((idealRadius + RING_D + NODE_PAD) * 2 + 40));
+  const containerH = Math.max(400, Math.ceil((idealRadius + RING_D + NODE_PAD) * 2 + 60));
   container.style.height = containerH + 'px';
 
   // Canvas for animated lines
@@ -3029,13 +3050,20 @@ function renderMatrix() {
     hub.style.top  = cy + 'px';
 
     // Calculate orbital radii — elliptical, capped to available space
-    const rx = Math.min(cx - RING_D - 20, idealRadius);  // horizontal radius
-    const ry = Math.min(cy - RING_D - 20, idealRadius);  // vertical radius
-    const ringHalf = RING_D / 2; // 20 px — half the ring height
+    // Alternate radius slightly to prevent overlap when crowded
+    const baseRx = Math.min(cx - RING_D - 30, idealRadius);
+    const baseRy = Math.min(cy - RING_D - 30, idealRadius);
+    const ringHalf = RING_D / 2;
     const nodePositions = [];
 
     servicesData.forEach((svc, i) => {
       const angle = (2 * Math.PI * i / count) - Math.PI / 2;
+      
+      // Zig-zag radius if there are many nodes to prevent cramping
+      const rOffset = (count > 8 && i % 2 !== 0) ? 30 : 0;
+      const rx = Math.max(HUB_PAD, baseRx - rOffset);
+      const ry = Math.max(HUB_PAD, baseRy - rOffset);
+
       // Ring centre coordinates — this is where lines will connect
       const ringCX = cx + rx * Math.cos(angle);
       const ringCY = cy + ry * Math.sin(angle);
@@ -3043,8 +3071,8 @@ function renderMatrix() {
 
       // Build icon HTML
       let iconHtml = '';
-      if (svc.icon_url) {
-        iconHtml = '<img src="' + svc.icon_url + '" class="matrix-node-icon" alt="">';
+      if (svc.icon_url && /^(https?:\/\/|data:image\/|\/static\/)/.test(svc.icon_url)) {
+        iconHtml = '<img src="' + escapeHtml(svc.icon_url) + '" class="matrix-node-icon" alt="">';
       } else {
         const raw = getServiceIconHtml(svc);
         if (raw.includes('<img')) {
@@ -3386,8 +3414,14 @@ function updateIconPreview(iconUrl) {
   if (!preview) return;
 
   if (iconUrl) {
-    preview.innerHTML = `<img src="${iconUrl}" class="icon-preview-img" alt="Icon preview" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
-    preview.classList.remove('hidden');
+    const safeUrl = /^(https?:\/\/|data:image\/|\/static\/)/.test(iconUrl) ? escapeHtml(iconUrl) : '';
+    if (safeUrl) {
+      preview.innerHTML = `<img src="${safeUrl}" class="icon-preview-img" alt="Icon preview" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
+      preview.classList.remove('hidden');
+    } else {
+      preview.innerHTML = '<span class="icon-preview-fallback">Invalid URL</span>';
+      preview.classList.remove('hidden');
+    }
   } else {
     preview.innerHTML = '';
     preview.classList.add('hidden');
@@ -3783,6 +3817,13 @@ function initServicesManagement() {
       btn.addEventListener('click', loadAllServices);
     }
   });
+
+  // Load admin services list immediately if the panel exists
+  if ($('#servicesList')) {
+    loadAllServices().catch(e => {
+      console.warn('Initial admin services load failed (not logged in?):', e);
+    });
+  }
 }
 
 // ============ Settings Tab Handlers ============
@@ -4291,15 +4332,15 @@ function showLogDetails(el) {
         <div class="log-detail-body">
           <div class="log-detail-row">
             <span class="log-detail-label">Time</span>
-            <span class="log-detail-value">${data.time}</span>
+            <span class="log-detail-value">${escapeHtml(data.time)}</span>
           </div>
           ${data.category ? `<div class="log-detail-row">
             <span class="log-detail-label">Category</span>
-            <span class="log-detail-value">${data.category}</span>
+            <span class="log-detail-value">${escapeHtml(data.category)}</span>
           </div>` : ''}
           ${data.service ? `<div class="log-detail-row">
             <span class="log-detail-label">Service</span>
-            <span class="log-detail-value">${data.service}</span>
+            <span class="log-detail-value">${escapeHtml(data.service)}</span>
           </div>` : ''}
           <div class="log-detail-row">
             <span class="log-detail-label">Message</span>

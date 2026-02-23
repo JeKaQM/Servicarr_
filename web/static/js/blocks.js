@@ -37,13 +37,14 @@ function setupBlocksAdmin() {
                 const expires = new Date(block.expires_at);
                 const item = document.createElement('div');
                 item.className = 'block-item';
+                const safeIp = block.ip ? block.ip.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) : '';
                 item.innerHTML = `
                     <div class="block-info">
-                        <strong>${block.ip}</strong>
-                        <span class="muted">Attempts: ${block.attempts}</span>
+                        <strong>${safeIp}</strong>
+                        <span class="muted">Attempts: ${parseInt(block.attempts, 10) || 0}</span>
                         <span class="muted">Expires: ${expires.toLocaleString()}</span>
                     </div>
-                    <button class="btn mini unblock" data-ip="${block.ip}">Unblock</button>
+                    <button class="btn mini unblock" data-ip="${safeIp}">Unblock</button>
                 `;
                 blocksList.appendChild(item);
             });

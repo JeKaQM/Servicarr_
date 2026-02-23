@@ -36,7 +36,8 @@ func HandleSetupPage(w http.ResponseWriter, r *http.Request) {
 	tmplPath := filepath.Join("web", "templates", "setup.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("Setup template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -148,11 +149,12 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		if err := database.SaveAppSettings(settings); err != nil {
+			log.Printf("Setup: failed to save settings: %v", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]any{
 				"success": false,
-				"error":   "Failed to save settings: " + err.Error(),
+				"error":   "Failed to save settings",
 			})
 			return
 		}
@@ -265,11 +267,12 @@ func HandleAddFirstService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := database.CreateService(service); err != nil {
+		log.Printf("Setup: failed to create service: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
-			"error":   "Failed to create service: " + err.Error(),
+			"error":   "Failed to create service",
 		})
 		return
 	}
