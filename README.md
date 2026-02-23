@@ -88,16 +88,19 @@ Set during the setup wizard. Defaults if using env-based config:
 
 ## Security
 
-- **Rate limiting**: Login 10/min, public API 120/min, health-check 30/min per IP
-- **Auto-blocking**: 3 failed login attempts → 24-hour IP block
+- **Rate limiting**: Login 10/min, public API 120/min, health-check 30/min, setup/unblock 5/min per IP
+- **Auto-blocking**: 3 failed login attempts → 24-hour IP block (cleared on successful login)
 - **IP whitelist / blacklist**: Managed from the admin panel
 - **CSRF tokens**: Double-submit cookie pattern on all state-changing requests
-- **Session auth**: HMAC-SHA256 signed cookies with `HttpOnly`, `SameSite=Lax`, `Secure` flags
+- **Session auth**: HMAC-SHA256 signed cookies with `HttpOnly`, `SameSite=Lax`, `Secure` flags; crypto/rand generated secret
 - **CSP headers**: Strict Content-Security-Policy (no `unsafe-inline` for scripts)
 - **HSTS**: `Strict-Transport-Security` header on all responses
-- **SSRF protection**: Cloud metadata endpoints blocked in health-check URLs
+- **SSRF protection**: Cloud metadata endpoints (169.254.169.254, metadata.google.internal) blocked in health-check URLs
 - **Request limits**: 35 MB global body size limit; minimum 8-character passwords
-- **Non-root container**: Docker image runs as unprivileged `servicarr` user
+- **Slowloris protection**: `ReadHeaderTimeout` set on the HTTP server
+- **Graceful shutdown**: SIGINT/SIGTERM signal handling with connection draining
+- **SQLite hardening**: WAL mode, busy timeout, single-connection pool
+- **Non-root container**: Docker image runs as unprivileged `servicarr` user; port bound to `127.0.0.1`
 - **Self-unblock**: `POST /api/self-unblock` with `{"token": "<UNBLOCK_TOKEN>"}` to remove your own IP block
 
 ## Project Structure
@@ -145,24 +148,75 @@ Servicarr_/
 | `GET` | `/api/resources` | System resource snapshot (Glances) |
 | `GET` | `/api/resources/config` | Resources UI tile visibility |
 | `GET` | `/api/services` | Visible service list |
+| `GET` | `/api/services/templates` | Available service templates |
 | `GET` | `/api/status-alerts` | Active maintenance/incident banners |
 
-### Admin Endpoints (require auth)
+### Authentication Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `POST` | `/api/login` | Authenticate and receive session cookie |
+| `POST` | `/api/logout` | Clear session cookie |
+| `GET` | `/api/me` | Current authenticated user info |
+| `POST` | `/api/self-unblock` | Remove own IP block (requires `UNBLOCK_TOKEN`) |
+
+### Setup Endpoints (first-run only)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/setup/status` | Check if setup is complete |
+| `POST` | `/api/setup` | Complete initial setup (credentials + settings) |
+| `POST` | `/api/setup/service` | Add a service during setup |
+| `POST` | `/api/setup/import` | Import database backup during setup |
+
+### Admin — Service Management (require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/services` | List all services (includes hidden) |
+| `POST` | `/api/admin/services` | Create a new service |
+| `PUT` | `/api/admin/services/{id}` | Update a service |
+| `DELETE` | `/api/admin/services/{id}` | Delete a service |
+| `PUT` | `/api/admin/services/{id}/visibility` | Toggle service visibility |
+| `POST` | `/api/admin/services/reorder` | Reorder service cards |
+| `POST` | `/api/admin/services/test` | Test service connection |
 | `POST` | `/api/admin/toggle-monitoring` | Enable/disable monitoring for a service |
 | `POST` | `/api/admin/ingest-now` | Force an immediate health-check cycle |
-| `POST` | `/api/admin/services` | Create a new service |
-| `PUT`  | `/api/admin/services/{id}` | Update a service |
-| `DELETE` | `/api/admin/services/{id}` | Delete a service |
-| `POST` | `/api/admin/services/reorder` | Reorder service cards |
-| `GET/POST` | `/api/admin/alerts/config` | Get/save email alert settings |
-| `GET/POST` | `/api/admin/resources/config` | Get/save resources tile settings |
+| `POST` | `/api/admin/check` | Run admin health check |
+| `POST` | `/api/admin/reset-recent` | Reset recent check data |
+
+### Admin — Alerts & Notifications (require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/admin/alerts/config` | Get/save alert channel settings |
+| `POST` | `/api/admin/alerts/test` | Send test email notification |
+| `POST` | `/api/admin/alerts/test-channel` | Test any notification channel |
+| `GET/POST/DELETE` | `/api/admin/status-alerts` | Manage maintenance/incident banners |
+
+### Admin — Settings (require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/admin/settings/app-name` | Update application name |
 | `POST` | `/api/admin/settings/password` | Change admin password |
 | `GET` | `/api/admin/settings/export` | Download database backup |
 | `POST` | `/api/admin/settings/import` | Import database backup |
+| `POST` | `/api/admin/settings/reset` | Factory reset the database |
+| `GET/POST` | `/api/admin/resources/config` | Get/save resources tile settings |
+
+### Admin — Security & Logs (require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/blocks` | List blocked IPs |
+| `POST` | `/api/admin/unblock` | Unblock a specific IP |
+| `POST` | `/api/admin/clear-blocks` | Clear all IP blocks |
+| `GET/POST/DELETE` | `/api/admin/whitelist` | Manage IP whitelist |
+| `GET/POST/DELETE` | `/api/admin/blacklist` | Manage IP blacklist |
 | `GET` | `/api/admin/logs` | Query structured logs |
+| `DELETE` | `/api/admin/logs` | Clear all logs |
+| `GET` | `/api/admin/logs/stats` | Log statistics summary |
 
 ## Development
 
@@ -177,6 +231,8 @@ docker build -f deploy/Dockerfile -t servicarr:latest .
 ```bash
 go test ./...
 ```
+
+Test suites cover 6 packages (76 tests): `auth`, `cache`, `checker`, `monitor`, `ratelimit`, `security`.
 
 ## Troubleshooting
 
