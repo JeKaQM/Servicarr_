@@ -5,7 +5,7 @@
 *.dylib
 *.test
 *.out
-.gocache
+.gocache/
 /bin/
 /dist/
 
@@ -24,7 +24,6 @@ node_modules/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Database
 *.db
@@ -34,9 +33,9 @@ node_modules/
 # Logs
 *.log
 
-# Build artifacts
-app.exe
-status.exe
+# Coverage
+coverage/
+*.out
 
 # OS
 Thumbs.db

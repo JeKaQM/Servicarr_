@@ -10,7 +10,7 @@
   "jest": {
     "testEnvironment": "jsdom",
     "roots": [
-      "<rootDir>/web/static/js"
+      "<rootDir>/tests/js"
     ],
     "testMatch": [
       "**/*.test.js"

@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const JS_DIR = path.resolve(__dirname);
+const JS_DIR = path.resolve(__dirname, '..', '..', 'web', 'static', 'js');
 
 /**
  * Evaluate a source file in the current (global / jsdom) scope.

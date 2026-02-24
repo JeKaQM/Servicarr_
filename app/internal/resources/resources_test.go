@@ -916,10 +916,10 @@ func TestFetchSnapshot_FSExcludesSystemMounts(t *testing.T) {
 	srv := glancesMockServer(t, map[string]interface{}{
 		"/fs": []map[string]interface{}{
 			{"mnt_point": "/", "size": 1000, "used": 400, "free": 600},
-			{"mnt_point": "/etc/host", "size": 500, "used": 200, "free": 300},     // excluded
-			{"mnt_point": "/proc", "size": 500, "used": 0, "free": 500},           // excluded
-			{"mnt_point": "/sys/firmware", "size": 100, "used": 100, "free": 0},   // excluded
-			{"mnt_point": "/dev/shm", "size": 200, "used": 50, "free": 150},       // excluded
+			{"mnt_point": "/etc/host", "size": 500, "used": 200, "free": 300},   // excluded
+			{"mnt_point": "/proc", "size": 500, "used": 0, "free": 500},         // excluded
+			{"mnt_point": "/sys/firmware", "size": 100, "used": 100, "free": 0}, // excluded
+			{"mnt_point": "/dev/shm", "size": 200, "used": 50, "free": 150},     // excluded
 			{"mnt_point": "/home", "size": 2000, "used": 1000, "free": 1000},
 		},
 	})

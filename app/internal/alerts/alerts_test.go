@@ -375,10 +375,10 @@ func TestCheckAndSendAlerts_FirstTimeDegraded(t *testing.T) {
 
 	m := &Manager{
 		config: &models.AlertConfig{
-			Enabled:        true,
+			Enabled:         true,
 			AlertOnDegraded: true,
-			WebhookEnabled: true,
-			WebhookURL:     srv.URL,
+			WebhookEnabled:  true,
+			WebhookURL:      srv.URL,
 		},
 	}
 
