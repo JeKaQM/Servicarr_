@@ -10,82 +10,6 @@ import (
 	"time"
 )
 
-// Snapshot is a normalized, UI-friendly view of system resources.
-// Values are best-effort based on Glances API v4.
-//
-// All percentages are 0..100.
-// All bytes values are raw bytes.
-//
-// If a field is nil, it means the source metric was unavailable.
-type Snapshot struct {
-	TakenAt time.Time `json:"taken_at"`
-
-	Host     string `json:"host"`
-	Platform string `json:"platform"`
-
-	UptimeSeconds *float64 `json:"uptime_seconds,omitempty"`
-	UptimeString  string   `json:"uptime_string,omitempty"`
-
-	CPUPercent        *float64  `json:"cpu_percent,omitempty"`
-	CPUUserPercent    *float64  `json:"cpu_user_percent,omitempty"`
-	CPUSystemPercent  *float64  `json:"cpu_system_percent,omitempty"`
-	CPUIOWaitPercent  *float64  `json:"cpu_iowait_percent,omitempty"`
-	CPUIdlePercent    *float64  `json:"cpu_idle_percent,omitempty"`
-	CPUCores          *uint64   `json:"cpu_cores,omitempty"`
-	CPUPerCorePercent []float64 `json:"cpu_per_core_percent,omitempty"`
-
-	Load1  *float64 `json:"load_1,omitempty"`
-	Load5  *float64 `json:"load_5,omitempty"`
-	Load15 *float64 `json:"load_15,omitempty"`
-
-	MemUsedBytes  *uint64  `json:"mem_used_bytes,omitempty"`
-	MemTotalBytes *uint64  `json:"mem_total_bytes,omitempty"`
-	MemPercent    *float64 `json:"mem_percent,omitempty"`
-
-	SwapUsedBytes  *uint64  `json:"swap_used_bytes,omitempty"`
-	SwapTotalBytes *uint64  `json:"swap_total_bytes,omitempty"`
-	SwapPercent    *float64 `json:"swap_percent,omitempty"`
-
-	ProcTotal    *uint64 `json:"proc_total,omitempty"`
-	ProcRunning  *uint64 `json:"proc_running,omitempty"`
-	ProcSleeping *uint64 `json:"proc_sleeping,omitempty"`
-	ProcThreads  *uint64 `json:"proc_threads,omitempty"`
-
-	TempC    *float64 `json:"temp_c,omitempty"`
-	TempMinC *float64 `json:"temp_min_c,omitempty"`
-	TempMaxC *float64 `json:"temp_max_c,omitempty"`
-
-	NetRxBytesPerSec *float64 `json:"net_rx_bytes_per_sec,omitempty"`
-	NetTxBytesPerSec *float64 `json:"net_tx_bytes_per_sec,omitempty"`
-
-	DiskReadBytesPerSec  *float64 `json:"disk_read_bytes_per_sec,omitempty"`
-	DiskWriteBytesPerSec *float64 `json:"disk_write_bytes_per_sec,omitempty"`
-
-	FSTotalBytes  *uint64  `json:"fs_total_bytes,omitempty"`
-	FSUsedBytes   *uint64  `json:"fs_used_bytes,omitempty"`
-	FSFreeBytes   *uint64  `json:"fs_free_bytes,omitempty"`
-	FSUsedPercent *float64 `json:"fs_used_percent,omitempty"`
-
-	// GPU metrics
-	GPUName    string   `json:"gpu_name,omitempty"`
-	GPUPercent *float64 `json:"gpu_percent,omitempty"`
-	GPUMemPct  *float64 `json:"gpu_mem_percent,omitempty"`
-	GPUTempC   *float64 `json:"gpu_temp_c,omitempty"`
-
-	// Container metrics
-	ContainerCount   *uint64         `json:"container_count,omitempty"`
-	ContainerRunning *uint64         `json:"container_running,omitempty"`
-	Containers       []ContainerInfo `json:"containers,omitempty"`
-}
-
-// ContainerInfo holds basic container stats
-type ContainerInfo struct {
-	Name       string   `json:"name"`
-	Status     string   `json:"status"`
-	CPUPercent *float64 `json:"cpu_percent,omitempty"`
-	MemPercent *float64 `json:"mem_percent,omitempty"`
-}
-
 // Client is a Glances API client for fetching system resource data.
 type Client struct {
 	BaseURL string
@@ -143,172 +67,6 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	dec := json.NewDecoder(resp.Body)
 	dec.UseNumber()
 	return dec.Decode(out)
-}
-
-type glancesCPU struct {
-	Total interface{} `json:"total"`
-	// Some Glances builds expose "total" as a number; we keep it loose.
-	User    interface{} `json:"user"`
-	System  interface{} `json:"system"`
-	IOWait  interface{} `json:"iowait"`
-	Idle    interface{} `json:"idle"`
-	CPUCore interface{} `json:"cpucore"`
-}
-
-type glancesLoad struct {
-	Min1    interface{} `json:"min1"`
-	Min5    interface{} `json:"min5"`
-	Min15   interface{} `json:"min15"`
-	CPUCore interface{} `json:"cpucore"`
-}
-
-type glancesMem struct {
-	Total   interface{} `json:"total"`
-	Used    interface{} `json:"used"`
-	Percent interface{} `json:"percent"`
-}
-
-type glancesSwap struct {
-	Total   interface{} `json:"total"`
-	Used    interface{} `json:"used"`
-	Percent interface{} `json:"percent"`
-}
-
-type glancesProcessCount struct {
-	Total    interface{} `json:"total"`
-	Running  interface{} `json:"running"`
-	Sleeping interface{} `json:"sleeping"`
-	Thread   interface{} `json:"thread"`
-}
-
-type glancesSensor struct {
-	Label    interface{} `json:"label"`
-	Unit     interface{} `json:"unit"`
-	Value    interface{} `json:"value"`
-	Warning  interface{} `json:"warning"`
-	Critical interface{} `json:"critical"`
-	Type     interface{} `json:"type"`
-}
-
-type glancesSystem struct {
-	Hostname interface{} `json:"hostname"`
-	OSName   interface{} `json:"os_name"`
-	Platform interface{} `json:"platform"`
-	Uptime   interface{} `json:"uptime"`
-}
-
-type glancesNet struct {
-	InterfaceName interface{} `json:"interface_name"`
-	// Your Glances exposes bytes_* and bytes_*_rate_per_sec
-	BytesRecvRatePerSec interface{} `json:"bytes_recv_rate_per_sec"`
-	BytesSentRatePerSec interface{} `json:"bytes_sent_rate_per_sec"`
-
-	// Keep compatibility with other Glances builds
-	RxRate interface{} `json:"rx_rate"`
-	TxRate interface{} `json:"tx_rate"`
-}
-
-type glancesPerCPU struct {
-	CPUNumber interface{} `json:"cpu_number"`
-	Total     interface{} `json:"total"`
-}
-
-type glancesDiskIO struct {
-	DiskName             interface{} `json:"disk_name"`
-	ReadBytesRatePerSec  interface{} `json:"read_bytes_rate_per_sec"`
-	WriteBytesRatePerSec interface{} `json:"write_bytes_rate_per_sec"`
-}
-
-type glancesFS struct {
-	DeviceName interface{} `json:"device_name"`
-	FSType     interface{} `json:"fs_type"`
-	MountPoint interface{} `json:"mnt_point"`
-	Options    interface{} `json:"options"`
-	Size       interface{} `json:"size"`
-	Used       interface{} `json:"used"`
-	Free       interface{} `json:"free"`
-	Percent    interface{} `json:"percent"`
-}
-
-type glancesGPU struct {
-	GPUID       interface{} `json:"gpu_id"`
-	Name        interface{} `json:"name"`
-	Mem         interface{} `json:"mem"`
-	Proc        interface{} `json:"proc"`
-	Temperature interface{} `json:"temperature"`
-}
-
-type glancesContainer struct {
-	Name       interface{} `json:"name"`
-	Status     interface{} `json:"status"`
-	CPUPercent interface{} `json:"cpu_percent"`
-	MemUsage   interface{} `json:"memory_usage"`
-	MemLimit   interface{} `json:"memory_limit"`
-}
-
-func asFloatPtr(v interface{}) *float64 {
-	switch x := v.(type) {
-	case nil:
-		return nil
-	case float64:
-		return &x
-	case string:
-		// Some APIs/decoders might return numbers as strings.
-		n := json.Number(x)
-		f, err := n.Float64()
-		if err != nil {
-			return nil
-		}
-		return &f
-	case int:
-		f := float64(x)
-		return &f
-	case int64:
-		f := float64(x)
-		return &f
-	case json.Number:
-		f, err := x.Float64()
-		if err != nil {
-			return nil
-		}
-		return &f
-	default:
-		return nil
-	}
-}
-
-func asUint64Ptr(v interface{}) *uint64 {
-	switch x := v.(type) {
-	case nil:
-		return nil
-	case float64:
-		if x < 0 {
-			return nil
-		}
-		u := uint64(x)
-		return &u
-	case int:
-		if x < 0 {
-			return nil
-		}
-		u := uint64(x)
-		return &u
-	case int64:
-		if x < 0 {
-			return nil
-		}
-		u := uint64(x)
-		return &u
-	case json.Number:
-		f, err := x.Float64()
-		if err != nil || f < 0 {
-			return nil
-		}
-		u := uint64(f)
-		return &u
-	default:
-		return nil
-	}
 }
 
 // FetchSnapshot fetches and caches a system resource snapshot from Glances.
@@ -432,11 +190,9 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.UptimeSeconds = u
 	}
 
-	// cpu.total
-	// Your Glances: {"total": 5.6, ...}
+	// CPU
 	s.CPUPercent = asFloatPtr(cpu.Total)
 	if s.CPUPercent == nil {
-		// some builds might nest, but common is {"total": {"total": 12.3}}
 		if m, ok := cpu.Total.(map[string]any); ok {
 			if inner, ok := m["total"]; ok {
 				s.CPUPercent = asFloatPtr(inner)
@@ -447,19 +203,18 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	s.CPUSystemPercent = asFloatPtr(cpu.System)
 	s.CPUIOWaitPercent = asFloatPtr(cpu.IOWait)
 	s.CPUIdlePercent = asFloatPtr(cpu.Idle)
-	// prefer cpu.cpucore, fallback to load.cpucore
 	if cN := asUint64Ptr(cpu.CPUCore); cN != nil {
 		s.CPUCores = cN
 	} else if cN := asUint64Ptr(load.CPUCore); cN != nil {
 		s.CPUCores = cN
 	}
 
-	// load averages
+	// Load averages
 	s.Load1 = asFloatPtr(load.Min1)
 	s.Load5 = asFloatPtr(load.Min5)
 	s.Load15 = asFloatPtr(load.Min15)
 
-	// mem
+	// Memory
 	s.MemTotalBytes = asUint64Ptr(mem.Total)
 	s.MemUsedBytes = asUint64Ptr(mem.Used)
 	s.MemPercent = asFloatPtr(mem.Percent)
@@ -468,7 +223,7 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.MemPercent = &p
 	}
 
-	// swap
+	// Swap
 	s.SwapTotalBytes = asUint64Ptr(swap.Total)
 	s.SwapUsedBytes = asUint64Ptr(swap.Used)
 	s.SwapPercent = asFloatPtr(swap.Percent)
@@ -477,21 +232,19 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.SwapPercent = &p
 	}
 
-	// process counts
+	// Process counts
 	s.ProcTotal = asUint64Ptr(pc.Total)
 	s.ProcRunning = asUint64Ptr(pc.Running)
 	s.ProcSleeping = asUint64Ptr(pc.Sleeping)
 
-	// temperature: take the highest core temp we can find
+	// Temperature: take the highest core temp
 	var bestTemp *float64
 	for _, sen := range sensors {
-		// Only temperature sensors
 		if t, ok := sen.Type.(string); ok {
 			if t != "temperature_core" && t != "temperature" {
 				continue
 			}
 		}
-		// Prefer Celsius readings
 		if u, ok := sen.Unit.(string); ok {
 			if u != "C" && u != "°C" {
 				continue
@@ -505,7 +258,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	}
 	if bestTemp != nil {
 		s.TempC = bestTemp
-		// Update running min/max for the process lifetime.
 		c.mu.Lock()
 		if !c.tempSeen {
 			c.tempSeen = true
@@ -526,7 +278,7 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.TempMaxC = &max
 	}
 
-	// network: sum rates across interfaces (ignore loopback)
+	// Network: sum rates across interfaces (ignore loopback)
 	var rxRate, txRate float64
 	var hasRate bool
 	for _, n := range nets {
@@ -535,8 +287,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 				continue
 			}
 		}
-
-		// Prefer bytes_*_rate_per_sec (your schema)
 		if r := asFloatPtr(n.BytesRecvRatePerSec); r != nil {
 			rxRate += *r
 			hasRate = true
@@ -544,7 +294,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			rxRate += *r
 			hasRate = true
 		}
-
 		if t := asFloatPtr(n.BytesSentRatePerSec); t != nil {
 			txRate += *t
 			hasRate = true
@@ -558,9 +307,8 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.NetTxBytesPerSec = &txRate
 	}
 
-	// per-cpu totals: order by cpu_number and export totals
+	// Per-CPU totals
 	if len(percpu) > 0 {
-		// We’ll store by cpu index, compacted into a slice.
 		maxIdx := -1
 		vals := map[int]float64{}
 		for _, p := range percpu {
@@ -569,7 +317,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			if idxPtr == nil || valPtr == nil {
 				continue
 			}
-			// G115: bounds check to prevent integer overflow
 			if *idxPtr > uint64(^uint(0)>>1) {
 				continue
 			}
@@ -597,7 +344,7 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		}
 	}
 
-	// disk I/O: sum read/write throughput across disks
+	// Disk I/O: sum read/write throughput
 	if len(diskio) > 0 {
 		var rd, wr float64
 		var has bool
@@ -617,7 +364,7 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		}
 	}
 
-	// filesystem totals: sum size/used/free across real mounts (skip container/system bind mounts)
+	// Filesystem totals
 	if len(fs) > 0 {
 		var total, used, free uint64
 		var has bool
@@ -632,7 +379,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			}
 			seenMnt[mp] = true
 
-			// Skip typical container bind mounts and other pseudo mounts
 			if strings.HasPrefix(mp, "/etc/") || strings.HasPrefix(mp, "/proc") || strings.HasPrefix(mp, "/sys") || strings.HasPrefix(mp, "/dev") {
 				continue
 			}
@@ -643,7 +389,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			if sz == nil || *sz == 0 {
 				continue
 			}
-			// Sometimes free isn't present; compute if possible
 			if fr == nil && u != nil {
 				cfr := *sz - *u
 				fr = &cfr
@@ -679,13 +424,12 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			if proc := asFloatPtr(g.Proc); proc != nil {
 				s.GPUPercent = proc
 			}
-			if mem := asFloatPtr(g.Mem); mem != nil {
-				s.GPUMemPct = mem
+			if memPct := asFloatPtr(g.Mem); memPct != nil {
+				s.GPUMemPct = memPct
 			}
 			if temp := asFloatPtr(g.Temperature); temp != nil {
 				s.GPUTempC = temp
 			}
-			// Only use first GPU
 			if s.GPUName != "" {
 				break
 			}
@@ -697,21 +441,19 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		count := uint64(len(containers))
 		s.ContainerCount = &count
 		var running uint64
-		for _, c := range containers {
-			status, _ := c.Status.(string)
+		for _, ct := range containers {
+			status, _ := ct.Status.(string)
 			if status == "running" {
 				running++
 			}
-			// Add container info
 			info := ContainerInfo{}
-			if name, ok := c.Name.(string); ok {
+			if name, ok := ct.Name.(string); ok {
 				info.Name = name
 			}
 			info.Status = status
-			info.CPUPercent = asFloatPtr(c.CPUPercent)
-			// Calculate memory percent if we have usage and limit
-			if usage := asUint64Ptr(c.MemUsage); usage != nil {
-				if limit := asUint64Ptr(c.MemLimit); limit != nil && *limit > 0 {
+			info.CPUPercent = asFloatPtr(ct.CPUPercent)
+			if usage := asUint64Ptr(ct.MemUsage); usage != nil {
+				if limit := asUint64Ptr(ct.MemLimit); limit != nil && *limit > 0 {
 					pct := (float64(*usage) / float64(*limit)) * 100
 					info.MemPercent = &pct
 				}
