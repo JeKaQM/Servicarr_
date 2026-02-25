@@ -237,9 +237,9 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 
 	// Bundle routes (serve pre-built concatenated assets from memory)
 	mux.HandleFunc("/static/css/public-bundle.css", HandleBundle())
-	mux.HandleFunc("/static/css/admin-bundle.css", HandleBundle())
+	mux.Handle("/static/css/admin-bundle.css", authMgr.RequireAuth(http.HandlerFunc(HandleBundle())))
 	mux.HandleFunc("/static/js/public-bundle.js", HandleBundle())
-	mux.HandleFunc("/static/js/admin-bundle.js", HandleBundle())
+	mux.Handle("/static/js/admin-bundle.js", authMgr.RequireAuth(http.HandlerFunc(HandleBundle())))
 
 	mux.HandleFunc("/static/", HandleStatic())
 	mux.HandleFunc("/favicon.ico", HandleFavicon())
