@@ -1,7 +1,7 @@
 {{define "modals"}}
 <!-- Login Modal -->
 <dialog id="loginModal" class="login-dialog">
-  <div class="login-form">
+  <form class="login-form" autocomplete="on">
     <div class="login-header">
       <div class="login-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -28,7 +28,7 @@
       <button id="doLogin" class="btn primary" type="button">Sign In</button>
       <button id="cancelLogin" class="btn secondary" type="button">Cancel</button>
     </div>
-  </div>
+  </form>
 </dialog>
 
 {{if .IsAdmin}}
@@ -50,25 +50,25 @@
     
     <div class="form-group">
       <label for="serviceName">Name *</label>
-      <input type="text" id="serviceName" placeholder="e.g., My Plex Server" required>
+      <input type="text" id="serviceName" placeholder="e.g., My Plex Server" autocomplete="off" required>
     </div>
     
     <div class="form-group">
       <label for="serviceUrl">URL *</label>
-      <input type="text" id="serviceUrl" placeholder="e.g., http://192.168.1.100:32400" required>
+      <input type="text" id="serviceUrl" placeholder="e.g., http://192.168.1.100:32400" autocomplete="off" required>
       <small class="help-text">TCP: tcp://host:port | DNS: dns://hostname</small>
     </div>
     
     <div class="form-group" id="tokenGroup">
       <label for="serviceToken">API Token</label>
-      <input type="text" id="serviceToken" placeholder="Optional API token or key">
+      <input type="text" id="serviceToken" placeholder="Optional API token or key" autocomplete="off">
       <small class="help-text" id="tokenHelp">Some services require an API token for authentication</small>
     </div>
     
     <div class="form-group">
       <label for="serviceIconUrl">Custom Icon URL</label>
       <div class="icon-url-row">
-        <input type="text" id="serviceIconUrl" placeholder="https://example.com/icon.svg">
+        <input type="text" id="serviceIconUrl" placeholder="https://example.com/icon.svg" autocomplete="off">
         <div id="iconPreview" class="icon-preview hidden"></div>
       </div>
       <small class="help-text">Optional: Enter a URL to a custom icon image (SVG, PNG, etc.)</small>
@@ -158,7 +158,7 @@
   <form id="confirmResetForm">
     <div class="form-group">
       <label for="confirmResetPassword">Enter your password to confirm:</label>
-      <input type="password" id="confirmResetPassword" placeholder="Enter admin password" required>
+      <input type="password" id="confirmResetPassword" placeholder="Enter admin password" autocomplete="current-password" required>
     </div>
     <div id="resetDbError" class="error hidden"></div>
     <div class="actions">

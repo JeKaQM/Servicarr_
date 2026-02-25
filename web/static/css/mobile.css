@@ -71,26 +71,34 @@
 
   /* Service name and uptime header */
   .service-uptime-header {
+    display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    align-items: center;
   }
 
   .service-name {
     font-size: 14px;
     font-weight: 700;
-    min-width: auto;
-    flex: 1;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .protocol-badge {
     font-size: 9px;
     padding: 2px 6px;
+    flex-shrink: 0;
   }
 
   .uptime-percent {
     font-size: 14px;
     font-weight: 800;
     margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   /* Uptime bar container - taller for easier viewing */
@@ -222,16 +230,19 @@
 
   /* Stats grid - stack on mobile */
   .stats-grid {
+    display: flex;
     flex-direction: column;
     gap: 0;
     margin-top: 10px;
   }
 
   .stat-item {
+    display: flex;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 0;
+    padding: 8px 0;
+    gap: 8px;
   }
 
   .stat-item + .stat-item::before {
@@ -244,10 +255,14 @@
 
   .stat-label {
     font-size: 11px;
+    flex-shrink: 0;
   }
 
   .stat-value {
     font-size: 14px;
+    text-align: right;
+    word-break: break-word;
+    overflow-wrap: break-word;
   }
 
   /* KPI values */
@@ -406,6 +421,14 @@
   /* Service names - make them wrap better on tiny screens */
   .service-name {
     font-size: 13px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .uptime-percent {
+    font-size: 13px;
   }
 
   /* Even taller uptime bars for tiny screens */
@@ -482,19 +505,30 @@
 
   /* Stats - compact for tiny screens */
   .stats-grid {
+    display: flex;
+    flex-direction: column;
     margin-top: 8px;
   }
 
   .stat-item {
-    padding: 5px 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    gap: 6px;
   }
 
   .stat-label {
     font-size: 10px;
+    flex-shrink: 0;
   }
 
   .stat-value {
     font-size: 13px;
+    text-align: right;
+    word-break: break-word;
+    overflow-wrap: break-word;
   }
 
   /* Icons */
