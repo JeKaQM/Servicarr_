@@ -156,6 +156,7 @@
   <h3>⚠️ Reset Database</h3>
   <p>This will permanently delete all services, settings, historical data, and reset the application to its initial state. This action cannot be undone.</p>
   <form id="confirmResetForm">
+    <input type="text" name="username" autocomplete="username" value="admin" class="hidden" aria-hidden="true" tabindex="-1">
     <div class="form-group">
       <label for="confirmResetPassword">Enter your password to confirm:</label>
       <input type="password" id="confirmResetPassword" placeholder="Enter admin password" autocomplete="current-password" required>

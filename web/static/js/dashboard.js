@@ -395,11 +395,11 @@ function renderUptimeBars(metrics, days) {
         if (isMobile && tooltipText) {
           showMobileTooltip(block, tooltipText, e.touches[0]);
         }
-      });
+      }, { passive: true });
 
       block.addEventListener('touchend', () => {
         block.style.transition = '';
-      });
+      }, { passive: true });
 
       bar.appendChild(block);
     });

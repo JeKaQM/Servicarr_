@@ -67,7 +67,7 @@ window.addEventListener('load', async () => {
     logoutBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
       logout();
-    });
+    }, { passive: false });
   }
 
   // Uptime filter dropdown
