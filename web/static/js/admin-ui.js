@@ -1,10 +1,4 @@
-﻿function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-async function saveAlertsConfig(e) {
+﻿async function saveAlertsConfig(e) {
   const statusEl = $('#alertStatus');
   const btn = (e && e.target) ? e.target : $('#saveAlerts');
 
@@ -179,82 +173,14 @@ async function checkNowFor(card) {
   );
 }
 
+// ---- Admin-only initialization (admin bundle) ----
+// This only runs for authenticated admin users. Core dashboard init is in app-init.js.
 window.addEventListener('load', async () => {
-  // Load resources config and services in parallel for fastest possible render.
-  // Neither should block the other.
-  const [, services] = await Promise.all([
-    loadResourcesConfig().catch(e => {
-      console.warn('Resources config load failed, continuing:', e);
-    }),
-    loadServices().catch(e => {
-      console.error('Failed to load services on init', e);
-      return [];
-    })
-  ]);
-
-  if (services && services.length > 0) {
-    renderDynamicUptimeBars(services);
-  }
-
   // Initialize services management (admin features)
   initServicesManagement();
 
   // Initialize settings tab (admin features)
   initSettingsTab();
-
-  // Initialize view toggle (Cards / Hive)
-  initViewToggle();
-
-  // Now start refresh — cards are guaranteed to be in the DOM
-  refresh();
-  whoami();
-  setInterval(refresh, REFRESH_MS);
-
-  // Handle both click and touch events for login button
-  const loginBtn = $('#loginBtn');
-  if (loginBtn) {
-    loginBtn.addEventListener('click', doLoginFlow);
-  }
-
-  // Handle login form submission (prevents iOS form submit)
-  const loginForm = document.querySelector('#loginModal .login-form');
-  if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      submitLogin();
-      return false;
-    });
-  }
-
-  // Handle doLogin button
-  const doLoginBtn = $('#doLogin');
-  if (doLoginBtn) {
-    doLoginBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      submitLogin();
-    });
-  }
-
-  // Handle cancel button
-  const cancelBtn = $('#cancelLogin');
-  if (cancelBtn) {
-    cancelBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      $('#loginModal').close();
-    });
-  }
-
-  // Handle both click and touch for logout
-  const logoutBtn = $('#logoutBtn');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', logout);
-    logoutBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      logout();
-    });
-  }
 
   const ingestBtn = $('#ingestNow');
   if (ingestBtn) {
@@ -370,24 +296,6 @@ window.addEventListener('load', async () => {
     toggle.addEventListener('change', (e) => toggleMonitoring(e.target.closest('.card'), e.target.checked))
   );
 
-  // Uptime filter dropdown
-  const uptimeFilter = $('#uptimeFilter');
-  if (uptimeFilter) {
-    uptimeFilter.addEventListener('change', async (e) => {
-      DAYS = parseInt(e.target.value);
-
-      // Fetch new metrics and re-render
-      try {
-        const metrics = await j(`/api/metrics?days=${DAYS}`);
-        $('#window').textContent = `Last ${DAYS} days`;
-        renderUptimeBars(metrics, DAYS);
-      } catch (err) {
-        console.error('Failed to fetch metrics for new time range', err);
-        renderUptimeBars(null, DAYS);
-      }
-    });
-  }
-
   // Banner management
   const createBannerBtn = $('#createBanner');
   if (createBannerBtn) {
@@ -405,7 +313,4 @@ window.addEventListener('load', async () => {
       }
     });
   }
-
-  // Load banners on page load
-  loadBanners();
 });

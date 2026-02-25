@@ -1,13 +1,17 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+
 	"status/app/internal/auth"
 	"status/app/internal/database"
-	"strings"
 )
 
 // PageData holds template data for the index page
@@ -18,8 +22,13 @@ type PageData struct {
 
 // HandleIndex serves the main HTML page with conditional admin rendering
 func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
-	// Parse the template once at startup
-	tmpl := template.Must(template.ParseFiles("web/templates/index.html"))
+	// Parse partials first, then the main template
+	partials, err := filepath.Glob("web/templates/partials/*.html")
+	if err != nil {
+		log.Fatalf("Failed to find template partials: %v", err)
+	}
+	files := append([]string{"web/templates/index.html"}, partials...)
+	tmpl := template.Must(template.ParseFiles(files...))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set CSRF token cookie on every page load (for login form)
@@ -65,10 +74,6 @@ func HandleStatic() http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-
 		urlPath := r.URL.Path
 
 		// Special case: blocked.html is in templates/
@@ -99,6 +104,18 @@ func HandleStatic() http.HandlerFunc {
 			info, err := os.Stat(fsPath)
 			if err != nil || info.IsDir() {
 				http.NotFound(w, r)
+				return
+			}
+
+			// Compute ETag from file size + mod time for efficient caching
+			modHash := sha256.Sum256([]byte(fmt.Sprintf("%d-%d", info.ModTime().UnixNano(), info.Size())))
+			etag := fmt.Sprintf(`"%x"`, modHash[:8])
+			w.Header().Set("ETag", etag)
+			w.Header().Set("Cache-Control", "public, max-age=86400") // 24h, revalidate with ETag
+
+			// Check If-None-Match for conditional requests
+			if match := r.Header.Get("If-None-Match"); match == etag {
+				w.WriteHeader(http.StatusNotModified)
 				return
 			}
 

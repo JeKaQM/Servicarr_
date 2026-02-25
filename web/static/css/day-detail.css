@@ -26,15 +26,21 @@
 }
 
 .uptime-bar[data-days="7"] .uptime-block.up {
-  box-shadow: 0 0 20px rgba(34, 197, 94, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 0 20px rgba(34, 197, 94, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .uptime-bar[data-days="7"] .uptime-block.degraded {
-  box-shadow: 0 0 20px rgba(251, 191, 36, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 0 20px rgba(251, 191, 36, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .uptime-bar[data-days="7"] .uptime-block.down {
-  box-shadow: 0 0 20px rgba(248, 113, 113, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 0 20px rgba(248, 113, 113, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .uptime-footer {
@@ -160,7 +166,9 @@
   width: 100%;
   height: 32px;
   border-radius: 3px;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
   cursor: default;
 }
 
@@ -257,7 +265,7 @@
 }
 
 .dd-event-time {
-  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
@@ -334,7 +342,9 @@ li {
 
 .incidents-card:hover {
   transform: none;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.25);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 6px 18px rgba(0, 0, 0, 0.25);
 }
 
 #incidents {

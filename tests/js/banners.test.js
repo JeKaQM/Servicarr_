@@ -5,7 +5,7 @@ const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
   // banners.js depends on core.js ($, $$) and admin-ui.js (escapeHtml)
-  loadSource('core.js', 'admin-ui.js', 'banners.js');
+  loadSource('core.js', 'utils.js', 'banners.js');
 });
 
 /* ── getAlertIcon ───────────────────────────────────────── */

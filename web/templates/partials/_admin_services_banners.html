@@ -1,0 +1,79 @@
+{{define "admin-services-banners"}}
+<!-- Services Tab -->
+<div id="tab-services" class="tab-content active">
+  <div class="services-header">
+    <h2>Manage Services</h2>
+    <button id="addServiceBtn" class="btn">+ Add Service</button>
+  </div>
+  <p class="muted">Add, edit, or remove monitored services. Drag to reorder.</p>
+  
+  <div class="admin-section">
+    <h3>Quick Actions</h3>
+    <div class="ops">
+      <button id="ingestNowTab" class="btn">Check All Services Now</button>
+      <button id="resetRecentTab" class="btn ghost">Reset Recent Incidents</button>
+    </div>
+  </div>
+  
+  <div id="servicesList" class="services-list">
+    <div class="muted">Loading services...</div>
+  </div>
+</div>
+
+<!-- Banners Tab -->
+<div id="tab-banners" class="tab-content">
+  <h2>Status Banners</h2>
+  <p class="muted">Show alerts/banners to visitors about service issues or maintenance</p>
+  
+  <div class="admin-section">
+    <h3>Create Banner</h3>
+    <div class="form-group">
+      <label for="bannerService">Scope</label>
+      <select id="bannerService">
+        <option value="">Global (top of page)</option>
+        <!-- Services populated dynamically -->
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="bannerTemplate">Quick Templates</label>
+      <select id="bannerTemplate">
+        <option value="">-- Select a template --</option>
+        <optgroup label="Maintenance">
+          <option value="Scheduled maintenance in progress. Service may be temporarily unavailable.">Scheduled maintenance in progress</option>
+          <option value="Maintenance complete. All services restored.">Maintenance complete</option>
+          <option value="Scheduled maintenance tonight between 10 PM - 12 AM.">Scheduled maintenance tonight</option>
+        </optgroup>
+        <optgroup label="Issues">
+          <option value="We are aware of issues and investigating.">Investigating issues</option>
+          <option value="Experiencing degraded performance. Working on a fix.">Degraded performance</option>
+          <option value="Service is currently down. We are working to restore it.">Service down</option>
+          <option value="Intermittent connectivity issues. Please retry if needed.">Intermittent issues</option>
+        </optgroup>
+        <optgroup label="Updates">
+          <option value="Issue has been resolved. Thank you for your patience.">Issue resolved</option>
+          <option value="Update in progress. New features coming soon!">Update in progress</option>
+          <option value="Service restored and operating normally.">Service restored</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="bannerMessage">Message</label>
+      <input type="text" id="bannerMessage" placeholder="e.g., Scheduled maintenance tonight 10-11 PM" />
+    </div>
+    <div class="form-group">
+      <label for="bannerLevel">Type</label>
+      <select id="bannerLevel">
+        <option value="info">Info (Blue)</option>
+        <option value="warning">Warning (Yellow)</option>
+        <option value="error">Error (Red)</option>
+      </select>
+    </div>
+    <div class="ops">
+      <button id="createBanner" class="btn">Create Banner</button>
+    </div>
+    
+    <h3 style="margin-top: 20px;">Active Banners</h3>
+    <div id="bannersList"></div>
+  </div>
+</div>
+{{end}}

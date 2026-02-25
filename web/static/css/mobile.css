@@ -5,46 +5,49 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
-  
-  input, textarea, button, select {
+
+  input,
+  textarea,
+  button,
+  select {
     -webkit-user-select: text;
     user-select: text;
     -webkit-touch-callout: default;
   }
-  
+
   /* Header adjustments */
   header {
     padding: 12px 12px;
     flex-wrap: wrap;
     gap: 8px;
   }
-  
+
   .header-right {
     margin-left: auto;
     gap: 10px;
   }
-  
+
   .last-updated {
     display: none; /* Hide on mobile to save space */
   }
-  
+
   .user {
     gap: 8px;
   }
-  
+
   .user .muted {
     font-size: 12px;
   }
-  
+
   .user .ghost {
     padding: 8px 12px;
     font-size: 13px;
   }
-  
+
   h1 {
     font-size: 16px;
   }
-  
+
   /* Main layout on mobile */
   main {
     padding: 12px;
@@ -54,42 +57,42 @@
   #services-container {
     grid-template-columns: 1fr;
   }
-  
+
   /* Card adjustments */
   .card {
     padding: 12px;
     border-radius: 10px;
   }
-  
+
   /* Uptime section improvements */
   .uptime-section {
     margin: 0 12px 12px 12px;
   }
-  
+
   /* Service name and uptime header */
   .service-uptime-header {
     flex-wrap: wrap;
     gap: 6px;
   }
-  
+
   .service-name {
     font-size: 14px;
     font-weight: 700;
     min-width: auto;
     flex: 1;
   }
-  
+
   .protocol-badge {
     font-size: 9px;
     padding: 2px 6px;
   }
-  
+
   .uptime-percent {
     font-size: 14px;
     font-weight: 800;
     margin-left: auto;
   }
-  
+
   /* Uptime bar container - taller for easier viewing */
   .uptime-bar-container {
     height: 56px;
@@ -101,107 +104,107 @@
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
-  
+
   .uptime-bar-container::-webkit-scrollbar {
     height: 4px;
   }
-  
+
   .uptime-bar-container::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   .uptime-bar-container::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
   }
-  
+
   .uptime-bar-container::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
   }
-  
+
   /* Make uptime bar wider for 180 and 360 days to enable scrolling */
   .uptime-bar[data-days="180"],
   .uptime-bar[data-days="360"] {
     min-width: max-content;
   }
-  
+
   /* Uptime blocks - larger and more visible */
   .uptime-bar {
     gap: 2px;
     border-radius: 6px;
   }
-  
+
   /* Reduce gap for long time periods */
   .uptime-bar[data-days="180"],
   .uptime-bar[data-days="360"] {
     gap: 1px;
   }
-  
+
   .uptime-block {
     min-width: 3px;
     border-radius: 2px;
     cursor: pointer;
     touch-action: manipulation;
   }
-  
+
   /* Enhanced mobile visibility for all day counts */
   .uptime-bar[data-days="7"] .uptime-block {
     min-width: 24px;
     border-radius: 5px;
     border-width: 2px;
   }
-  
+
   .uptime-bar[data-days="30"] .uptime-block {
     min-width: 6px;
     border-width: 1.5px;
   }
-  
+
   .uptime-bar[data-days="90"] .uptime-block {
     min-width: 2.5px;
     border-width: 1px;
   }
-  
+
   .uptime-bar[data-days="180"] .uptime-block {
     min-width: 1.5px;
     border-width: 0.5px;
     gap: 1px;
   }
-  
+
   .uptime-bar[data-days="360"] .uptime-block {
     min-width: 1px;
     border-width: 0.5px;
     gap: 0.5px;
   }
-  
+
   /* Mobile hover effects - use active state */
   .uptime-block:active {
     transform: scale(1.1);
     filter: brightness(1.3);
     z-index: 10;
   }
-  
+
   .uptime-block.up:active {
     background: rgba(34, 197, 94, 0.7);
     box-shadow: 0 2px 16px rgba(34, 197, 94, 0.8);
   }
-  
+
   .uptime-block.degraded:active {
     background: rgba(251, 191, 36, 0.75);
     box-shadow: 0 2px 16px rgba(251, 191, 36, 0.8);
   }
-  
+
   .uptime-block.down:active {
     background: rgba(248, 113, 113, 0.75);
     box-shadow: 0 2px 16px rgba(248, 113, 113, 0.8);
   }
-  
+
   /* Uptime footer */
   .uptime-footer {
     font-size: 10px;
     margin-top: 10px;
     padding-top: 10px;
   }
-  
+
   /* Uptime filter dropdown */
   .uptime-filter {
     padding: 8px 12px;
@@ -216,14 +219,14 @@
     background-size: 16px;
     padding-right: 32px;
   }
-  
+
   /* Stats grid - stack on mobile */
   .stats-grid {
     flex-direction: column;
     gap: 0;
     margin-top: 10px;
   }
-  
+
   .stat-item {
     flex-direction: row;
     justify-content: space-between;
@@ -238,43 +241,43 @@
   .stat-item + .stat-item {
     border-top: 1px solid rgba(255, 255, 255, 0.04);
   }
-  
+
   .stat-label {
     font-size: 11px;
   }
-  
+
   .stat-value {
     font-size: 14px;
   }
-  
+
   /* KPI values */
   .kpi {
     font-size: 20px;
   }
-  
+
   .label {
     font-size: 11px;
   }
-  
+
   /* Icon sizes */
   .icon {
     width: 24px;
     height: 24px;
   }
-  
+
   /* Pill badges */
   .pill {
     padding: 3px 8px;
     font-size: 11px;
   }
-  
+
   /* Footer */
   footer {
     padding: 0 12px 12px;
     font-size: 11px;
     text-align: center;
   }
-  
+
   /* Admin panel improvements */
   .admin-tabs {
     gap: 6px;
@@ -286,11 +289,11 @@
     padding-left: 16px;
     padding-right: 16px;
   }
-  
+
   .admin-tabs::-webkit-scrollbar {
     display: none;
   }
-  
+
   .tab-btn {
     padding: 12px 18px;
     font-size: 14px;
@@ -302,20 +305,20 @@
     border: 1px solid var(--border);
     margin-bottom: 0;
   }
-  
+
   .tab-btn.active {
     background: rgba(22, 163, 74, 0.15);
     border-color: #16a34a;
   }
-  
+
   .admin-section {
     padding: 14px;
   }
-  
+
   .admin-section h3 {
     font-size: 16px;
   }
-  
+
   /* Blocks list mobile */
   .block-item {
     flex-direction: column;
@@ -323,28 +326,28 @@
     gap: 10px;
     padding: 12px;
   }
-  
+
   .block-info {
     width: 100%;
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
   }
-  
+
   .block-item .btn {
     width: 100%;
     justify-content: center;
   }
-  
+
   /* Form groups */
   .form-group {
     margin-bottom: 16px;
   }
-  
+
   .form-group label {
     font-size: 13px;
   }
-  
+
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="password"],
@@ -353,7 +356,7 @@
     font-size: 14px;
     min-height: 42px;
   }
-  
+
   /* Toast positioning */
   .toast {
     bottom: 16px;
@@ -370,19 +373,19 @@
   header {
     padding: 10px;
   }
-  
+
   h1 {
     font-size: 15px;
   }
-  
+
   .brand {
     gap: 8px;
   }
-  
+
   .brand small {
     font-size: 11px;
   }
-  
+
   main {
     padding: 10px;
     gap: 10px;
@@ -391,162 +394,162 @@
   #services-container {
     grid-template-columns: 1fr;
   }
-  
+
   .card {
     padding: 10px;
   }
-  
+
   .uptime-section {
     margin: 0 10px 10px 10px;
   }
-  
+
   /* Service names - make them wrap better on tiny screens */
   .service-name {
     font-size: 13px;
   }
-  
+
   /* Even taller uptime bars for tiny screens */
   .uptime-bar-container {
     height: 60px;
     padding: 6px;
   }
-  
+
   /* Make 7-day blocks even larger on phones */
   .uptime-bar[data-days="7"] .uptime-block {
     min-width: 28px;
     border-radius: 6px;
   }
-  
+
   /* 30-day blocks more visible */
   .uptime-bar[data-days="30"] .uptime-block {
     min-width: 7px;
   }
-  
+
   /* 90-day blocks */
   .uptime-bar[data-days="90"] .uptime-block {
     min-width: 2.5px;
   }
-  
+
   /* 180-day blocks - make them slightly more visible */
   .uptime-bar[data-days="180"] .uptime-block {
     min-width: 1.5px;
     border-width: 0.5px;
   }
-  
+
   /* 360-day blocks - absolute minimum but visible */
   .uptime-bar[data-days="360"] .uptime-block {
     min-width: 1px;
     border-width: 0.5px;
   }
-  
+
   /* Enhance glow for longer time periods on small screens */
   .uptime-bar[data-days="180"] .uptime-block.up,
   .uptime-bar[data-days="360"] .uptime-block.up {
     box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
   }
-  
+
   .uptime-bar[data-days="180"] .uptime-block.degraded,
   .uptime-bar[data-days="360"] .uptime-block.degraded {
     box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
   }
-  
+
   .uptime-bar[data-days="180"] .uptime-block.down,
   .uptime-bar[data-days="360"] .uptime-block.down {
     box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
   }
-  
+
   /* Uptime percentage */
   .uptime-percent {
     font-size: 13px;
     font-weight: 700;
   }
-  
+
   /* Filter select */
   .uptime-filter {
     font-size: 13px;
     padding: 6px 28px 6px 10px;
     background-size: 14px;
   }
-  
+
   /* Row layouts */
   .row {
     gap: 6px;
   }
-  
+
   .row-left {
     gap: 8px;
   }
-  
+
   /* Stats - compact for tiny screens */
   .stats-grid {
     margin-top: 8px;
   }
-  
+
   .stat-item {
     padding: 5px 0;
   }
-  
+
   .stat-label {
     font-size: 10px;
   }
-  
+
   .stat-value {
     font-size: 13px;
   }
-  
+
   /* Icons */
   .icon {
     width: 22px;
     height: 22px;
   }
-  
+
   /* KPI */
   .kpi {
     font-size: 18px;
   }
-  
+
   /* Pills */
   .pill {
     padding: 2px 7px;
     font-size: 10px;
   }
-  
+
   /* Incidents list */
   ul {
     max-height: 180px;
   }
-  
+
   li {
     font-size: 12px;
     padding: 5px 0;
   }
-  
+
   /* Footer */
   footer {
     font-size: 10px;
     padding: 0 10px 10px;
   }
-  
+
   /* Admin tabs - ensure good touch targets */
   .tab-btn {
     padding: 10px 14px;
     font-size: 13px;
     min-height: 44px;
   }
-  
+
   /* Blocks list */
   .block-item {
     padding: 10px;
   }
-  
+
   .block-info {
     font-size: 13px;
   }
-  
+
   .block-info strong {
     font-size: 14px;
   }
-  
+
   .block-info .muted {
     font-size: 11px;
   }
@@ -557,11 +560,11 @@
   #services-container {
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   }
-  
+
   .uptime-section {
     grid-column: 1/-1;
   }
-  
+
   .uptime-bar-container {
     height: 44px;
   }
@@ -582,44 +585,44 @@
     overflow-y: auto;
     border-radius: 12px;
   }
-  
+
   /* Service Modal - Mobile */
   #serviceModal {
     width: calc(100% - 24px);
     max-height: calc(100vh - 24px);
     max-height: calc(100dvh - 24px);
   }
-  
+
   .service-form {
     padding: 20px 16px;
     gap: 14px;
   }
-  
+
   .modal-header h3 {
     font-size: 17px;
   }
-  
+
   .service-form .form-group label {
     font-size: 13px;
   }
-  
+
   .service-form input,
   .service-form select {
     min-height: 44px;
     font-size: 16px; /* Prevents iOS zoom */
     padding: 10px 12px;
   }
-  
+
   .modal-actions {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .modal-actions .btn {
     width: 100%;
     min-height: 44px;
   }
-  
+
   /* Confirmation dialogs - centered */
   dialog.confirm-dialog {
     position: fixed;
@@ -630,12 +633,12 @@
     width: calc(100% - 32px);
     max-width: 380px;
   }
-  
+
   .confirm-dialog .actions {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .confirm-dialog .actions .btn {
     width: 100%;
     min-height: 44px;
@@ -655,40 +658,40 @@
     overflow-y: auto;
     border-radius: 14px;
   }
-  
+
   .login-form {
     padding: 24px 20px;
     gap: 20px;
   }
-  
+
   .login-icon {
     width: 44px;
     height: 44px;
     margin-bottom: 12px;
     border-radius: 10px;
   }
-  
+
   .login-icon svg {
     width: 22px;
     height: 22px;
   }
-  
+
   .login-header h3 {
     font-size: 18px;
   }
-  
+
   .login-header p {
     font-size: 13px;
   }
-  
+
   .login-fields {
     gap: 14px;
   }
-  
+
   .form-field label {
     font-size: 13px;
   }
-  
+
   .form-field input {
     min-height: 48px;
     padding: 12px 14px;
@@ -696,46 +699,47 @@
     -webkit-appearance: none;
     appearance: none;
   }
-  
+
   .login-error {
     font-size: 12px;
     padding: 10px 12px;
   }
-  
+
   .login-actions {
     gap: 10px;
   }
-  
+
   .login-actions .btn {
     min-height: 48px;
     font-size: 15px;
     -webkit-user-select: none;
     user-select: none;
   }
-  
+
   .login-actions .btn:active {
     transform: scale(0.98);
   }
-  
-  .btn, .ghost {
+
+  .btn,
+  .ghost {
     min-height: 44px;
     padding: 8px 16px;
   }
-  
+
   .btn.mini {
     min-height: 36px;
     padding: 6px 12px;
   }
-  
+
   .toggle {
     min-height: 44px;
   }
-  
+
   /* Admin Panel - Mobile */
   .admin-panel {
     margin-top: 12px;
   }
-  
+
   /* Admin Tabs - Horizontal scroll on mobile */
   .admin-tabs {
     display: flex;
@@ -749,68 +753,68 @@
     padding-left: 12px;
     padding-right: 12px;
   }
-  
+
   .admin-tabs::-webkit-scrollbar {
     display: none;
   }
-  
+
   .tab-btn {
     flex-shrink: 0;
     padding: 12px 16px;
     font-size: 13px;
     min-height: 44px;
   }
-  
+
   /* Tab Content - Mobile */
   .tab-content {
     padding: 0;
   }
-  
+
   .tab-content h2 {
     font-size: 18px;
     margin-bottom: 12px;
   }
-  
+
   .tab-content > p.muted {
     margin-bottom: 16px;
     font-size: 13px;
   }
-  
+
   /* Admin Sections - Mobile */
   .admin-section {
     margin-bottom: 16px;
     padding: 16px;
     border-radius: 10px;
   }
-  
+
   .admin-section h3 {
     font-size: 16px;
   }
-  
+
   .admin-section > p.muted {
     font-size: 13px;
   }
-  
+
   /* Form group checkbox labels - keep left aligned */
   .form-group label:has(input[type="checkbox"]) {
     justify-content: flex-start;
     text-align: left;
   }
-  
+
   /* Tiles group checkboxes */
   .tiles-group {
     justify-content: flex-start;
   }
-  
+
   .tiles-group label {
     justify-content: flex-start;
   }
-  
+
   /* Form Groups - Mobile */
   .form-group {
     margin-bottom: 14px;
   }
-  
+
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="password"],
@@ -820,125 +824,125 @@
     font-size: 16px; /* Prevents iOS zoom */
     padding: 10px 12px;
   }
-  
+
   /* Ops buttons - Stack on mobile */
   .ops {
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .ops .btn,
   .ops .ghost {
     width: 100%;
     justify-content: center;
     min-height: 44px;
   }
-  
+
   /* Danger Zone - Mobile */
   .danger-zone {
     padding: 14px;
     margin-top: 16px;
   }
-  
+
   .danger-zone h3 {
     text-align: center;
   }
-  
+
   .danger-action {
     flex-direction: column;
     text-align: left;
     gap: 12px;
   }
-  
+
   .danger-action .btn {
     width: 100%;
     min-height: 44px;
   }
-  
+
   /* Desktop/Mobile visibility - Mobile */
   .desktop-only {
     display: none !important;
   }
-  
+
   .mobile-only {
     display: flex !important;
   }
-  
+
   /* Service List in Services Tab - Mobile */
   .services-list {
     gap: 10px;
   }
-  
+
   .service-item {
     padding: 12px;
     flex-direction: row;
     align-items: center;
     gap: 10px;
   }
-  
+
   .service-item .service-icon-wrap {
     width: 36px;
     height: 36px;
   }
-  
+
   .service-item .service-icon-wrap .icon,
   .service-item .service-icon-wrap img {
     width: 32px;
     height: 32px;
   }
-  
+
   .service-item .service-info {
     flex: 1;
     min-width: 0;
   }
-  
+
   .service-item .service-name {
     font-size: 14px;
   }
-  
+
   .service-item .service-url {
     font-size: 11px;
   }
-  
+
   .service-item .service-actions {
     gap: 6px;
   }
-  
+
   .service-item .action-btn {
     padding: 10px;
     min-width: 40px;
     min-height: 40px;
   }
-  
+
   .service-item .action-btn svg {
     width: 18px;
     height: 18px;
   }
-  
+
   /* Card Admin Row - Mobile */
   .adminRow {
     flex-direction: column;
     gap: 10px;
     padding-top: 12px;
   }
-  
+
   .adminRow .label {
     display: none;
   }
-  
+
   .adminRow .ops {
     flex-direction: row;
     width: 100%;
     gap: 10px;
   }
-  
+
   .adminRow .ops .btn.mini {
     flex: 1;
     min-height: 40px;
     font-size: 13px;
   }
-  
+
   .adminRow .ops .toggle {
     flex: 1;
     justify-content: center;
@@ -948,21 +952,21 @@
     padding: 8px 12px;
     min-height: 40px;
   }
-  
+
   .adminRow .ops .toggle .slider {
     width: 32px;
     height: 18px;
   }
-  
+
   .adminRow .ops .toggle .slider:before {
     width: 14px;
     height: 14px;
   }
-  
+
   .adminRow .ops .toggle input:checked + .slider:before {
     transform: translateX(14px);
   }
-  
+
   .adminRow .ops .toggle .toggleLabel {
     font-size: 13px;
   }
@@ -971,59 +975,59 @@
   .banners-list {
     gap: 10px;
   }
-  
+
   .banner-item {
     flex-direction: column;
     gap: 10px;
     padding: 14px;
     text-align: left;
   }
-  
+
   .banner-item .banner-actions {
     width: 100%;
     justify-content: flex-start;
     gap: 10px;
   }
-  
+
   /* Security Lists - Mobile */
   .blocks-list {
     gap: 8px;
   }
-  
+
   .block-item {
     flex-direction: column;
     gap: 10px;
     padding: 12px;
     text-align: left;
   }
-  
+
   .block-item .btn {
     width: 100%;
     min-height: 40px;
   }
-  
+
   /* IP Add Forms - Mobile */
   .ip-add-form {
     flex-direction: column;
     gap: 10px;
   }
-  
+
   .ip-add-form input[type="text"] {
     width: 100%;
     min-height: 44px;
     font-size: 16px;
   }
-  
+
   .ip-add-form .btn {
     width: 100%;
     min-height: 44px;
   }
-  
+
   /* Checkbox label - Mobile */
   .checkbox-label {
     justify-content: flex-start;
   }
-  
+
   /* Backup info - Mobile */
   .backup-info {
     text-align: center;

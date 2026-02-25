@@ -1,0 +1,71 @@
+{{define "admin-settings"}}
+<!-- Settings Tab -->
+<div id="tab-settings" class="tab-content">
+  <h2>Application Settings</h2>
+  
+  <div class="admin-section">
+    <h3>🏷️ App Name</h3>
+    <p class="muted">Customize the name displayed in the header and browser tab</p>
+    <div class="form-group">
+      <label for="appNameInput">Display Name</label>
+      <input type="text" id="appNameInput" placeholder="Service Status" value="{{.AppName}}" maxlength="50">
+    </div>
+    <div class="ops">
+      <button type="button" id="saveAppNameBtn" class="btn">Save Name</button>
+    </div>
+    <div id="appNameStatus" class="status-message hidden"></div>
+  </div>
+
+  <div class="admin-section">
+    <h3>🔐 Change Password</h3>
+    <p class="muted">Update your admin account password</p>
+    <form id="changePasswordForm">
+      <div class="form-group">
+        <label for="currentPassword">Current Password</label>
+        <input type="password" id="currentPassword" placeholder="Enter current password" required>
+      </div>
+      <div class="form-group">
+        <label for="newPassword">New Password</label>
+        <input type="password" id="newPassword" placeholder="Enter new password" required minlength="6">
+      </div>
+      <div class="form-group">
+        <label for="confirmPassword">Confirm New Password</label>
+        <input type="password" id="confirmPassword" placeholder="Confirm new password" required>
+      </div>
+      <div class="ops">
+        <button type="button" id="changePasswordBtn" class="btn">Change Password</button>
+      </div>
+      <div id="passwordStatus" class="status-message hidden"></div>
+    </form>
+  </div>
+
+  <div class="admin-section">
+    <h3>💾 Backup & Restore</h3>
+    <p class="muted">Export or import your database for backup/migration purposes</p>
+    <div class="backup-info">
+      <p>Export includes: services, settings, alert configuration, and historical data.</p>
+    </div>
+    <div class="ops">
+      <button type="button" id="exportDbBtn" class="btn">📤 Export Database</button>
+      <label class="btn ghost file-upload-btn">
+        📥 Import Database
+        <input type="file" id="importDbFile" accept=".json,.db,.sqlite,application/json" hidden>
+      </label>
+    </div>
+    <div id="backupStatus" class="status-message hidden"></div>
+  </div>
+
+  <div class="admin-section danger-zone">
+    <h3>⚠️ Danger Zone</h3>
+    <p class="muted">These actions are irreversible. Use with caution.</p>
+    
+    <div class="danger-action">
+      <div class="danger-info">
+        <strong>Reset Database</strong>
+        <p>Delete all services, settings, and historical data. This will restore the app to initial state.</p>
+      </div>
+      <button type="button" id="resetDbBtn" class="btn danger">Reset Database</button>
+    </div>
+  </div>
+</div>
+{{end}}

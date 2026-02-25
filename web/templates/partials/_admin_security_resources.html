@@ -1,0 +1,124 @@
+{{define "admin-security-resources"}}
+<!-- Security Tab -->
+<div id="tab-security" class="tab-content">
+  <div class="security-header">
+    <div>
+      <h2>Security & Access</h2>
+      <p class="muted">Manage blocked IPs and access lists for trusted networks.</p>
+    </div>
+  </div>
+
+  <div class="security-grid">
+    <!-- Temporary Blocks Section -->
+    <div class="admin-section security-card security-blocks">
+      <div class="blocks-header">
+        <h3>Temporary Blocks</h3>
+        <button id="resetBlocks" class="btn danger small">Clear All</button>
+      </div>
+      <p class="muted">IPs temporarily blocked due to failed login attempts. These expire automatically.</p>
+      <div id="blocksList" class="blocks-list">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Whitelist Section -->
+    <div class="admin-section security-card">
+      <h3>Whitelist</h3>
+      <p class="muted">Whitelisted IPs bypass all rate limiting. Use for trusted networks.</p>
+      <div class="ip-add-form">
+        <input type="text" id="whitelistIP" placeholder="IP address (e.g., 192.168.1.100)">
+        <input type="text" id="whitelistNote" placeholder="Note (optional)">
+        <button id="addWhitelist" class="btn small">Add</button>
+      </div>
+      <div id="whitelistList" class="blocks-list">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Blacklist Section -->
+    <div class="admin-section security-card">
+      <h3>Blacklist</h3>
+      <p class="muted">Blacklisted IPs cannot log in. Permanent bans block all access.</p>
+    <div class="ip-add-form">
+      <input type="text" id="blacklistIP" placeholder="IP address (e.g., 192.168.1.100)">
+      <input type="text" id="blacklistNote" placeholder="Note (optional)">
+      <button id="addBlacklist" class="btn danger small">Block</button>
+      <label class="checkbox-label">
+        <input type="checkbox" id="blacklistPermanent"> Permanent ban
+      </label>
+    </div>
+      <div id="blacklistList" class="blocks-list">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Resources Tab -->
+<div id="tab-resources" class="tab-content">
+  <h2>Resources Monitoring</h2>
+  <p class="muted">Monitor system resources using Glances. Requires <a href="https://nicolargo.github.io/glances/" target="_blank">Glances</a> running with web server enabled.</p>
+
+  <div class="admin-section">
+    <h3>Glances Connection</h3>
+    <form id="resourcesForm">
+      <div class="form-group">
+        <label for="glancesUrl">Glances Host:Port</label>
+        <input type="text" id="glancesUrl" placeholder="e.g., 192.168.1.100:61208 or server.local:61208">
+        <small class="help-text">Enter the host and port where Glances web server is running. API path /api/4 is added automatically.</small>
+      </div>
+      
+      <div class="form-group">
+        <label for="resourcesEnabled">
+          <input type="checkbox" id="resourcesEnabled"> Enable Resources section
+        </label>
+        <small class="help-text">Resources will only show when Glances is configured and reachable.</small>
+      </div>
+
+      <h3>Visible Tiles</h3>
+      <div class="form-group tiles-group">
+        <label>
+          <input type="checkbox" id="resourcesCPU" checked> 🖥️ CPU
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesMemory" checked> 💾 RAM
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesNetwork" checked> 📡 Network
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesTemp" checked> 🌡 Temperature
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesStorage" checked> 🗄 Storage
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesSwap"> 💿 Swap
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesLoad"> 📊 Load Average
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesGPU"> 🎮 GPU
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesContainers"> 🐳 Containers
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesProcesses"> ⚙️ Processes
+        </label>
+        <label>
+          <input type="checkbox" id="resourcesUptime"> ⏱️ Uptime
+        </label>
+      </div>
+
+      <div class="ops">
+        <button type="button" id="testGlances" class="btn ghost">Test Connection</button>
+        <button type="button" id="saveResources" class="btn">Save Settings</button>
+      </div>
+
+      <div id="resourcesStatus" class="status-message hidden"></div>
+    </form>
+  </div>
+</div>
+{{end}}

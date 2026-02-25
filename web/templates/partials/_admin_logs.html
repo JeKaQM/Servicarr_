@@ -1,0 +1,138 @@
+{{define "admin-logs"}}
+<!-- Logs Tab -->
+<div id="tab-logs" class="tab-content">
+  <h2>System Logs</h2>
+  <p class="muted">View system activity, service checks, email alerts, and errors.</p>
+  
+  <!-- Log Stats Summary -->
+  <div class="admin-section log-stats">
+    <div class="log-stats-grid">
+      <div class="log-stat-box total">
+        <div class="log-stat-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <div class="log-stat-content">
+          <span class="log-stat-value" id="logTotalCount">0</span>
+          <span class="log-stat-label">Total</span>
+        </div>
+      </div>
+      <div class="log-stat-box errors">
+        <div class="log-stat-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div class="log-stat-content">
+          <span class="log-stat-value" id="logErrorCount">0</span>
+          <span class="log-stat-label">Errors</span>
+        </div>
+      </div>
+      <div class="log-stat-box warnings">
+        <div class="log-stat-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+        <div class="log-stat-content">
+          <span class="log-stat-value" id="logWarnCount">0</span>
+          <span class="log-stat-label">Warnings</span>
+        </div>
+      </div>
+      <div class="log-stat-box info">
+        <div class="log-stat-icon">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div class="log-stat-content">
+          <span class="log-stat-value" id="logInfoCount">0</span>
+          <span class="log-stat-label">Info</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Actions Bar -->
+  <div class="admin-section log-actions-bar">
+    <div class="log-filters">
+      <select id="logLevelFilter" class="log-select">
+        <option value="">All Levels</option>
+        <option value="error">Errors</option>
+        <option value="warn">Warnings</option>
+        <option value="info">Info</option>
+        <option value="debug">Debug</option>
+      </select>
+      <select id="logCategoryFilter" class="log-select">
+        <option value="">All Categories</option>
+        <option value="check">Service Checks</option>
+        <option value="email">Email Alerts</option>
+        <option value="security">Security</option>
+        <option value="system">System</option>
+        <option value="schedule">Scheduler</option>
+      </select>
+      <select id="logServiceFilter" class="log-select">
+        <option value="">All Services</option>
+        <!-- Populated dynamically -->
+      </select>
+    </div>
+    <div class="log-buttons">
+      <button id="refreshLogsBtn" class="log-btn refresh" title="Refresh logs">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        <span class="btn-text">Refresh</span>
+      </button>
+      <button id="clearLogsBtn" class="log-btn danger" title="Clear all logs">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+        </svg>
+        <span class="btn-text">Clear</span>
+      </button>
+    </div>
+  </div>
+  
+  <!-- Error/Warning Highlights -->
+  <div class="admin-section log-highlights" id="logHighlights">
+    <div class="log-section-header">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <h3>Recent Errors & Warnings</h3>
+    </div>
+    <div id="errorLogsList" class="logs-list">
+      <div class="logs-empty">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <p>No errors or warnings</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- All Logs -->
+  <div class="admin-section log-all">
+    <div class="log-section-header">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+      </svg>
+      <h3>All Activity</h3>
+    </div>
+    <div id="allLogsList" class="logs-list">
+      <div class="logs-loading">
+        <div class="spinner"></div>
+        <p>Loading logs...</p>
+      </div>
+    </div>
+    <div class="logs-pagination">
+      <button id="loadMoreLogs" class="log-btn ghost" style="display: none;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+        <span>Load More</span>
+      </button>
+    </div>
+  </div>
+</div>
+{{end}}
