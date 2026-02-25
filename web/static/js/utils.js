@@ -30,3 +30,10 @@ window.showToast = function(message, type = 'success') {
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 };
+
+// HTML escaping — used across public and admin bundles
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}

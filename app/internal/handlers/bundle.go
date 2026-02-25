@@ -88,10 +88,18 @@ func InitBundles() {
 func buildBundle(files []string, contentType string) *Bundle {
 	var sb strings.Builder
 
+	// UTF-8 BOM (EF BB BF) — must be stripped from each file before concatenation,
+	// otherwise BOMs end up mid-stream and break CSS/JS parsing in browsers.
+	bom := []byte{0xEF, 0xBB, 0xBF}
+
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			log.Fatalf("Bundle: failed to read %s: %v", f, err)
+		}
+		// Strip UTF-8 BOM if present
+		if len(data) >= 3 && data[0] == bom[0] && data[1] == bom[1] && data[2] == bom[2] {
+			data = data[3:]
 		}
 		// Section marker for debugging (cheap, compresses to nothing with gzip)
 		sb.WriteString("/* === ")

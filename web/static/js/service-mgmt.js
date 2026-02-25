@@ -1,52 +1,3 @@
-﻿function getProtocolBadge(svc) {
-  const url = (svc.url || '').toLowerCase();
-  const checkType = (svc.check_type || 'http').toLowerCase();
-  
-  if (checkType === 'always_up') {
-    return 'DEMO';
-  }
-  if (checkType === 'tcp' || url.startsWith('tcp://')) {
-    return 'TCP';
-  }
-  if (checkType === 'dns' || url.startsWith('dns://')) {
-    return 'DNS';
-  }
-  // For HTTP check type, detect from URL
-  if (url.startsWith('https://')) {
-    return 'HTTPS';
-  }
-  if (url.startsWith('http://')) {
-    return 'HTTP';
-  }
-  // Default fallback
-  return checkType.toUpperCase();
-}
-
-function renderDynamicUptimeBars(services) {
-  const container = $('#uptime-bars-container');
-  if (!container) return;
-
-  container.innerHTML = '';
-
-  services.forEach(svc => {
-    const protocolBadge = getProtocolBadge(svc);
-    const svcName = escapeHtml(svc.name || '');
-    const row = document.createElement('div');
-    row.className = 'service-uptime';
-    row.innerHTML = `
-      <div class="service-uptime-header">
-        <span class="service-name">${svcName}</span>
-        <span class="protocol-badge">${protocolBadge}</span>
-        <span class="uptime-percent" id="uptime-${svc.key}">—%</span>
-      </div>
-      <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-${svc.key}"></div>
-      </div>
-    `;
-    container.appendChild(row);
-  });
-}
-
 function renderAdminServicesList(services) {
   const list = $('#servicesList');
   if (!list) return;
@@ -69,10 +20,10 @@ function renderAdminServicesList(services) {
     const svcName = escapeHtml(svc.name || '');
 
     item.innerHTML = `
-      <span class="drag-handle desktop-only">â‹®â‹®</span>
+      <span class="drag-handle desktop-only">⋮⋮</span>
       <div class="reorder-buttons mobile-only">
-        <button class="reorder-btn move-up" ${index === 0 ? 'disabled' : ''} title="Move up">â–²</button>
-        <button class="reorder-btn move-down" ${index === totalServices - 1 ? 'disabled' : ''} title="Move down">â–¼</button>
+        <button class="reorder-btn move-up" ${index === 0 ? 'disabled' : ''} title="Move up">▲</button>
+        <button class="reorder-btn move-down" ${index === totalServices - 1 ? 'disabled' : ''} title="Move down">▼</button>
       </div>
       <span class="service-icon-wrap">${iconHtml}</span>
       <div class="service-info">
@@ -274,7 +225,7 @@ function updateIconPreview(iconUrl) {
   if (iconUrl) {
     const safeUrl = /^(https?:\/\/|data:image\/|\/static\/)/.test(iconUrl) ? escapeHtml(iconUrl) : '';
     if (safeUrl) {
-      preview.innerHTML = `<img src="${safeUrl}" class="icon-preview-img" alt="Icon preview" /><span class="icon-preview-fallback" style="display:none;">âš ï¸</span>`;
+      preview.innerHTML = `<img src="${safeUrl}" class="icon-preview-img" alt="Icon preview" /><span class="icon-preview-fallback" style="display:none;">⚠️</span>`;
       preview.classList.remove('hidden');
     } else {
       preview.innerHTML = '<span class="icon-preview-fallback">Invalid URL</span>';
@@ -468,7 +419,7 @@ async function testServiceConnection() {
 
     if (resultEl) {
       if (resp.success) {
-        let msg = 'âœ“ Connection successful';
+        let msg = '✓ Connection successful';
         if (resp.status_code) {
           msg += ` (${resp.status_code})`;
         }
@@ -478,7 +429,7 @@ async function testServiceConnection() {
         resultEl.textContent = msg;
         resultEl.className = 'test-result success';
       } else {
-        resultEl.textContent = 'âœ— ' + (resp.error || 'Connection failed');
+        resultEl.textContent = '✗ ' + (resp.error || 'Connection failed');
         resultEl.className = 'test-result error';
       }
       resultEl.classList.remove('hidden');
@@ -486,7 +437,7 @@ async function testServiceConnection() {
   } catch (e) {
     console.error('Connection test failed:', e);
     if (resultEl) {
-      resultEl.textContent = 'âœ— ' + (e.body?.error || e.message || 'Connection test failed');
+      resultEl.textContent = '✗ ' + (e.body?.error || e.message || 'Connection test failed');
       resultEl.className = 'test-result error';
       resultEl.classList.remove('hidden');
     }

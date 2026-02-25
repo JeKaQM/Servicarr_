@@ -108,6 +108,13 @@ func GzipMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(grw, r)
 
+		// If handler called WriteHeader but never Write (e.g. 304 Not Modified,
+		// empty redirects), forward the deferred status now so the client gets
+		// the correct response code instead of a default 200.
+		if grw.wroteHeader && !grw.decided {
+			grw.ResponseWriter.WriteHeader(grw.statusCode)
+		}
+
 		// Close the gzip writer if we used it
 		if grw.gzipping {
 			gz.Close()

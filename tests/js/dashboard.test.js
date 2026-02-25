@@ -4,7 +4,7 @@
 const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
-  loadSource('core.js', 'resources.js', 'admin-ui.js', 'dashboard.js');
+  loadSource('core.js', 'utils.js', 'resources.js', 'dashboard.js');
 });
 
 /* ── helper to build a card DOM ─────────────────────────── */

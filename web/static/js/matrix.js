@@ -1,4 +1,4 @@
-﻿let currentView = 'cards';       // 'cards' | 'matrix'
+let currentView = 'cards';       // 'cards' | 'matrix'
 let latestLiveStatus = null;     // cache last /api/check result for matrix
 let matrixAnimFrame = null;      // requestAnimationFrame id
 let matrixTooltipEl = null;      // shared tooltip element
@@ -12,7 +12,7 @@ function initViewToggle() {
   btnMatrix.addEventListener('click', () => switchView('matrix'));
 }
 
-/* â”€â”€ Global Health Dot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Global Health Dot ─────────────────────────────────── */
 function updateHealthDot(statusMap) {
   const dot = $('#healthDot');
   if (!dot) return;
@@ -32,7 +32,7 @@ function updateHealthDot(statusMap) {
   else                   dot.classList.add('all-up');
 }
 
-/* â”€â”€ Status Summary Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Status Summary Bar ────────────────────────────────── */
 function updateStatusSummary(statusMap) {
   const bar = $('#statusSummary');
   if (!bar) return;
@@ -79,7 +79,7 @@ function switchView(view) {
   }
 }
 
-/* â”€â”€ Matrix status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Matrix status helpers ──────────────────────────────── */
 function matrixStatusOf(svc) {
   let statusClass = 'unknown', statusLabel = 'Unknown', ms = null;
   if (latestLiveStatus && latestLiveStatus[svc.key]) {
@@ -102,7 +102,7 @@ const MATRIX_COLORS = {
   hub:      { r: 99,  g: 102, b: 241 }
 };
 
-/* â”€â”€ Canvas line animation engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Canvas line animation engine ───────────────────────── */
 function stopMatrixAnimation() {
   if (matrixAnimFrame) { cancelAnimationFrame(matrixAnimFrame); matrixAnimFrame = null; }
 }
@@ -349,7 +349,7 @@ function animateMatrixLines(canvas, nodePositions) {
   matrixAnimFrame = requestAnimationFrame(frame);
 }
 
-/* â”€â”€ Render the full matrix view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Render the full matrix view ────────────────────────── */
 function renderMatrix() {
   const container = $('#matrix-container');
   if (!container) return;
@@ -363,7 +363,7 @@ function renderMatrix() {
 
   container.innerHTML = '';
 
-  // â”€â”€ Dynamic sizing based on service count â”€â”€
+  // ── Dynamic sizing based on service count ──
   const count    = servicesData.length;
   const RING_D   = 44;   // node ring diameter (px)
   const NODE_PAD = 60;   // extra clearance around each node for label
