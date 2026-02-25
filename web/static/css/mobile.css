@@ -232,8 +232,9 @@
   .stats-grid {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    margin-top: 10px;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 12px;
   }
 
   .stat-item {
@@ -241,8 +242,10 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 0;
+    padding: 11px 14px;
     gap: 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .stat-item + .stat-item::before {
@@ -250,7 +253,7 @@
   }
 
   .stat-item + .stat-item {
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: none;
   }
 
   .stat-label {
@@ -507,7 +510,9 @@
   .stats-grid {
     display: flex;
     flex-direction: column;
-    margin-top: 8px;
+    gap: 5px;
+    margin-top: 10px;
+    padding-top: 10px;
   }
 
   .stat-item {
@@ -515,8 +520,10 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 0;
+    padding: 9px 12px;
     gap: 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .stat-label {
