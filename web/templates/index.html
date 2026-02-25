@@ -8,13 +8,13 @@
   <meta name="theme-color" content="#0c121c"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <link rel="stylesheet" href="/static/css/public-bundle.css"/>
+  <link rel="stylesheet" href="/static/css/public-bundle.css?v={{.CSSVersion}}"/>
   {{if .IsAdmin}}
-  <link rel="stylesheet" href="/static/css/admin-bundle.css"/>
+  <link rel="stylesheet" href="/static/css/admin-bundle.css?v={{.CSSVersion}}"/>
   {{end}}
-  <script src="/static/js/public-bundle.js" defer></script>
+  <script src="/static/js/public-bundle.js?v={{.JSVersion}}" defer></script>
   {{if .IsAdmin}}
-  <script src="/static/js/admin-bundle.js" defer></script>
+  <script src="/static/js/admin-bundle.js?v={{.JSVersion}}" defer></script>
   {{end}}
 </head>
 <body>

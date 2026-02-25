@@ -153,7 +153,7 @@ func HandleBundle() http.HandlerFunc {
 		}
 
 		w.Header().Set("ETag", bundle.ETag)
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Set("Cache-Control", "public, no-cache")
 
 		// Support conditional requests
 		if match := r.Header.Get("If-None-Match"); match == bundle.ETag {
