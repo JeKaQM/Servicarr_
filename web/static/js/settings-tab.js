@@ -152,6 +152,12 @@ async function confirmImportDatabase() {
       body: formData
     });
 
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error(res.status === 413
+        ? 'File too large for your reverse proxy. Increase its upload limit (e.g. client_max_body_size in Nginx or Cloudflare upload size).'
+        : `Server returned ${res.status} with a non-JSON response. Check your reverse proxy configuration.`);
+    }
     const data = await res.json();
 
     const dialog = $('#confirmImportDialog');
