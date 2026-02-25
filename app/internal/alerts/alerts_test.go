@@ -12,6 +12,7 @@ import (
 	"status/app/internal/models"
 	"strings"
 	"testing"
+	"time"
 )
 
 // initTestDB sets up an in-memory SQLite database for testing.
@@ -733,32 +734,20 @@ func TestUpdateStatusHistory(t *testing.T) {
 
 func waitForCondition(t *testing.T, cond func() bool, msg string) {
 	t.Helper()
-	for i := 0; i < 50; i++ {
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
 		if cond() {
 			return
 		}
-		// brief sleep
-		sleepBriefly()
+		time.Sleep(1 * time.Millisecond)
 	}
 	t.Errorf("timed out: %s", msg)
 }
 
 func waitBriefly() {
-	sleepBriefly()
-	sleepBriefly()
-	sleepBriefly()
+	time.Sleep(5 * time.Millisecond)
 }
 
 func sleepBriefly() {
-	// Use a channel-based sleep to avoid importing time in a way that makes
-	// the test non-deterministic. 50ms is enough for goroutine scheduling.
-	ch := make(chan struct{})
-	go func() {
-		defer close(ch)
-		// Small spin to yield
-		for i := 0; i < 5000000; i++ {
-			_ = i
-		}
-	}()
-	<-ch
+	time.Sleep(1 * time.Millisecond)
 }

@@ -1,4 +1,4 @@
-﻿function updCard(id, data) {
+function updCard(id, data) {
   const el = document.getElementById(id);
   if (!el) {
     console.error('Card element not found:', id);
@@ -90,35 +90,7 @@ async function toggleMonitoring(card, enabled) {
   }
 }
 
-let chart;
-function renderChart(overall) {
-  if (!window.Chart) return;
-  // Get service keys from the servicesData array (dynamic)
-  const labels = servicesData.map(s => s.key);
-  if (labels.length === 0) return;
 
-  const vals = labels.map(k => +(overall?.[k] ?? 0).toFixed(1));
-  const ctx = document.getElementById('uptimeChart');
-  if (!ctx) return;
-
-  const data = { labels, datasets: [{ label: 'Uptime %', data: vals, borderWidth: 1 }] };
-
-  if (chart) {
-    chart.data = data;
-    chart.update();
-    return;
-  }
-
-  chart = new Chart(ctx.getContext('2d'), {
-    type: 'bar',
-    data,
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, max: 100 } }
-    }
-  });
-}
 
 function renderIncidents(items) {
   const list = $('#incidents');
@@ -294,9 +266,9 @@ function renderUptimeBars(metrics, days) {
   if (globalTimestamp) {
     if (earliestDate) {
       const startDate = earliestDate.toLocaleDateString();
-      globalTimestamp.textContent = `Tracking since ${startDate} â€¢ Hover over blocks for details`;
+      globalTimestamp.textContent = `Tracking since ${startDate} • Hover over blocks for details`;
     } else {
-      globalTimestamp.textContent = `No data yet â€¢ Hover over blocks for details`;
+      globalTimestamp.textContent = `No data yet • Hover over blocks for details`;
     }
   }
 
@@ -390,15 +362,15 @@ function renderUptimeBars(metrics, days) {
       } else if (uptime >= 100) {
         // 100% uptime = green
         block.classList.add('up');
-        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\nâœ“ Fully operational`;
+        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\n✓ Fully operational`;
       } else if (uptime >= 50) {
         // 50-99% uptime = orange (partial outage)
         block.classList.add('degraded');
-        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\nâš  Partial outage`;
+        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\n⚠ Partial outage`;
       } else {
         // Below 50% = red (major outage)
         block.classList.add('down');
-        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\nâœ— Major outage`;
+        tooltipText = `${formattedDate}\n${uptime.toFixed(1)}% uptime\n✗ Major outage`;
       }
 
       block.title = tooltipText;
@@ -447,7 +419,7 @@ function showMobileTooltip(element, text, touch) {
 
   const tooltip = document.createElement('div');
   tooltip.className = 'mobile-tooltip';
-  tooltip.textContent = text.replace(/\n/g, ' â€¢ ');
+  tooltip.textContent = text.replace(/\n/g, ' • ');
   tooltip.style.cssText = `
     position: fixed;
     background: rgba(0, 0, 0, 0.9);
@@ -472,6 +444,71 @@ function showMobileTooltip(element, text, touch) {
     tooltip.style.animation = 'fadeOut 0.2s ease-out';
     setTimeout(() => tooltip.remove(), 200);
   }, 2000);
+}
+
+// ============ Incident Details Modal ============
+function showIncidentDetails(el) {
+  try {
+    const data = JSON.parse(el.dataset.incident.replace(/&#39;/g, "'"));
+    const levelIcon = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+
+    const modal = document.createElement('div');
+    modal.className = 'log-detail-modal';
+    modal.innerHTML = `
+      <div class="log-detail-content">
+        <div class="log-detail-header">
+          <div class="log-detail-level level-error">
+            ${levelIcon}
+            <span>INCIDENT</span>
+          </div>
+          <button class="log-detail-close" data-action="close-modal">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="log-detail-body">
+          <div class="log-detail-row">
+            <span class="log-detail-label">Time</span>
+            <span class="log-detail-value">${escapeHtml(data.time || '')}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Service</span>
+            <span class="log-detail-value">${escapeHtml(data.service || '')}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Check</span>
+            <span class="log-detail-value">${escapeHtml((data.check_type || 'http').toUpperCase())}</span>
+          </div>
+          <div class="log-detail-row">
+            <span class="log-detail-label">Status</span>
+            <span class="log-detail-value">${escapeHtml(data.status || 'Down')}</span>
+          </div>
+          ${data.latency ? `<div class="log-detail-row">
+            <span class="log-detail-label">Latency</span>
+            <span class="log-detail-value">${escapeHtml(data.latency)}</span>
+          </div>` : ''}
+          ${data.error ? `<div class="log-detail-row">
+            <span class="log-detail-label">Error</span>
+            <span class="log-detail-value">${escapeHtml(data.error)}</span>
+          </div>` : ''}
+          <div class="log-detail-row">
+            <span class="log-detail-label">Details</span>
+            <span class="log-detail-value">${escapeHtml(data.detail || '')}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.querySelector('[data-action="close-modal"]').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+
+    document.body.appendChild(modal);
+  } catch (err) {
+    console.error('Failed to show incident details:', err);
+  }
 }
 
 // ============ Day Detail Popup ============

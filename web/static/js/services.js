@@ -1,4 +1,4 @@
-﻿let servicesData = [];
+let servicesData = [];
 let serviceTemplates = [];
 let editingServiceId = null;
 
@@ -78,6 +78,53 @@ function populateTemplateDropdown() {
     opt.value = t.type; // Templates use 'type' field
     opt.textContent = t.name;
     select.appendChild(opt);
+  });
+}
+
+function getProtocolBadge(svc) {
+  const url = (svc.url || '').toLowerCase();
+  const checkType = (svc.check_type || 'http').toLowerCase();
+
+  if (checkType === 'always_up') {
+    return 'DEMO';
+  }
+  if (checkType === 'tcp' || url.startsWith('tcp://')) {
+    return 'TCP';
+  }
+  if (checkType === 'dns' || url.startsWith('dns://')) {
+    return 'DNS';
+  }
+  if (url.startsWith('https://')) {
+    return 'HTTPS';
+  }
+  if (url.startsWith('http://')) {
+    return 'HTTP';
+  }
+  return checkType.toUpperCase();
+}
+
+function renderDynamicUptimeBars(services) {
+  const container = $('#uptime-bars-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  services.forEach(svc => {
+    const protocolBadge = getProtocolBadge(svc);
+    const svcName = escapeHtml(svc.name || '');
+    const row = document.createElement('div');
+    row.className = 'service-uptime';
+    row.innerHTML = `
+      <div class="service-uptime-header">
+        <span class="service-name">${svcName}</span>
+        <span class="protocol-badge">${protocolBadge}</span>
+        <span class="uptime-percent" id="uptime-${svc.key}">—%</span>
+      </div>
+      <div class="uptime-bar-container">
+        <div class="uptime-bar" id="uptime-bar-${svc.key}"></div>
+      </div>
+    `;
+    container.appendChild(row);
   });
 }
 
@@ -228,4 +275,4 @@ function toggleMonitoringHandler(e) {
   toggleMonitoring(e.target.closest('.card'), e.target.checked);
 }
 
-/* â”€â”€ View Toggle (Cards â†” Matrix) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── View Toggle (Cards ↔ Matrix) ──────────────────────── */

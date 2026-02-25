@@ -4,7 +4,7 @@
 const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
-  loadSource('core.js', 'admin-ui.js', 'services.js', 'matrix.js');
+  loadSource('core.js', 'utils.js', 'services.js', 'matrix.js');
 });
 
 /* ── matrixStatusOf ─────────────────────────────────────── */

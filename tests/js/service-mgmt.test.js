@@ -4,9 +4,9 @@
 const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
-  // service-mgmt.js depends on core.js ($, $$), admin-ui.js (escapeHtml),
+  // service-mgmt.js depends on core.js ($, $$), utils.js (escapeHtml),
   // and services.js (getServiceIconHtml, etc.)
-  loadSource('core.js', 'admin-ui.js', 'services.js', 'service-mgmt.js');
+  loadSource('core.js', 'utils.js', 'services.js', 'service-mgmt.js');
 });
 
 /* ── getProtocolBadge ───────────────────────────────────── */

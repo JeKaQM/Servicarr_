@@ -8,27 +8,14 @@
   <meta name="theme-color" content="#0c121c"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <link rel="stylesheet" href="/static/css/main.css"/>
-  <link rel="stylesheet" href="/static/css/blocks.css"/>
-  <!-- Load utils first, without defer -->
-  <script src="/static/js/utils.js"></script>
-  <!-- Then load other scripts with defer -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <!-- App modules (split from app.js) - order matters -->
-  <script src="/static/js/core.js" defer></script>
-  <script src="/static/js/resources.js" defer></script>
-  <script src="/static/js/dashboard.js" defer></script>
-  <script src="/static/js/day-detail.js" defer></script>
-  <script src="/static/js/auth.js" defer></script>
-  <script src="/static/js/admin-ui.js" defer></script>
-  <script src="/static/js/banners.js" defer></script>
-  <script src="/static/js/services.js" defer></script>
-  <script src="/static/js/matrix.js" defer></script>
-  <script src="/static/js/service-mgmt.js" defer></script>
-  <script src="/static/js/settings-tab.js" defer></script>
-  <script src="/static/js/logs-tab.js" defer></script>
-  <script src="/static/js/app-init.js" defer></script>
-  <script src="/static/js/blocks.js" defer></script>
+  <link rel="stylesheet" href="/static/css/public-bundle.css"/>
+  {{if .IsAdmin}}
+  <link rel="stylesheet" href="/static/css/admin-bundle.css"/>
+  {{end}}
+  <script src="/static/js/public-bundle.js" defer></script>
+  {{if .IsAdmin}}
+  <script src="/static/js/admin-bundle.js" defer></script>
+  {{end}}
 </head>
 <body>
   <!-- Site Alerts Banner -->

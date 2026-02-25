@@ -6,7 +6,9 @@
   border-radius: 16px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 4px 24px -4px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -33,7 +35,9 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  transition: color 0.2s ease, background 0.2s ease;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
   white-space: nowrap;
   position: relative;
   letter-spacing: 0.2px;
@@ -81,7 +85,9 @@
   background: rgba(255, 255, 255, 0.02);
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.04);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .admin-section:hover {
@@ -101,7 +107,7 @@
 }
 
 .admin-section h3::before {
-  content: '';
+  content: "";
   display: block;
   width: 3px;
   height: 12px;
@@ -435,7 +441,9 @@
   color: #fff;
   font-size: 13px;
   box-sizing: border-box;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .form-group input[type="text"]:focus,

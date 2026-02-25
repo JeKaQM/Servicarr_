@@ -1,8 +1,9 @@
 /*
  * Servicarr - Main Stylesheet (Module Aggregator)
  *
- * This file imports all CSS modules in the correct cascade order.
- * Each module can be found in this same directory.
+ * This file imports public CSS modules in the correct cascade order.
+ * Admin-only modules (admin-tabs, settings, logs) are lazy-loaded
+ * via the template when the user is authenticated.
  *
  * Module breakdown:
  *   base.css       - CSS variables, resets, layout, status summary, typography
@@ -12,12 +13,14 @@
  *   day-detail.css - Day detail dialog, hourly bars, events, incidents
  *   admin.css      - Admin section, buttons, toggle switch, toast, login
  *   dialogs.css    - Dialog/modal styles, service modal, drag-and-drop
- *   mobile.css     - All responsive/mobile media queries
- *   admin-tabs.css - Admin panel tabs, security tab, IP block lists
  *   banners.css    - Site alert banners, per-service banners
+ *   matrix.css     - Matrix network graph, view toggle, depends-on badges
+ *   mobile.css     - All responsive/mobile media queries (must be last)
+ *
+ * Admin-only (lazy-loaded via template):
+ *   admin-tabs.css - Admin panel tabs, security tab, IP block lists
  *   settings.css   - Settings tab, confirmation dialog
  *   logs.css       - Logs tab (stats, actions, entries, pagination, detail)
- *   matrix.css     - Matrix network graph, view toggle, depends-on badges
  */
 
 @import url("base.css");
@@ -27,9 +30,6 @@
 @import url("day-detail.css");
 @import url("admin.css");
 @import url("dialogs.css");
-@import url("mobile.css");
-@import url("admin-tabs.css");
 @import url("banners.css");
-@import url("settings.css");
-@import url("logs.css");
 @import url("matrix.css");
+@import url("mobile.css");

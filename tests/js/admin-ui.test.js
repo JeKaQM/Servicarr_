@@ -4,7 +4,7 @@
 const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
-  loadSource('core.js', 'admin-ui.js');
+  loadSource('core.js', 'utils.js', 'admin-ui.js');
 });
 
 /* ── escapeHtml ─────────────────────────────────────────── */

@@ -1,4 +1,4 @@
-﻿
+
 function applyAdminUIState() {
   const adminPanel = $('#adminPanel');
   if (isAdminUser) {
@@ -252,7 +252,7 @@ async function testGlancesConnection() {
       }
 
       if (statusEl) {
-        statusEl.textContent = `âœ“ Connected to Glances on ${result.host || glancesUrl}`;
+        statusEl.textContent = `✓ Connected to Glances on ${result.host || glancesUrl}`;
         statusEl.className = 'status-message success';
         statusEl.classList.remove('hidden');
         setTimeout(() => statusEl.classList.add('hidden'), 5000);
@@ -264,7 +264,7 @@ async function testGlancesConnection() {
     'Testing...',
     async (err) => {
       if (statusEl) {
-        statusEl.textContent = `âœ— Connection failed: ${err.message || 'Could not reach Glances'}`;
+        statusEl.textContent = `✗ Connection failed: ${err.message || 'Could not reach Glances'}`;
         statusEl.className = 'status-message error';
         statusEl.classList.remove('hidden');
       }
@@ -326,10 +326,10 @@ async function refreshResources() {
     // CPU detail: cores + breakdown when available
     let cpuDetail = '—';
     if (Array.isArray(snap.cpu_per_core_percent) && snap.cpu_per_core_percent.length) {
-      // Example: C0 12% â€¢ C1 6% â€¢ C2 18% ...
+      // Example: C0 12% • C1 6% • C2 18% ...
       cpuDetail = snap.cpu_per_core_percent
         .map((v, i) => `C${i} ${fmtPct(v)}`)
-        .join(' â€¢ ');
+        .join(' • ');
     } else if (snap.cpu_percent == null) {
       cpuDetail = 'CPU usage unavailable';
     } else {
