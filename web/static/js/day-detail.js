@@ -195,12 +195,6 @@ async function refresh() {
     const metrics = await j(`/api/metrics?days=${DAYS}`);
     $('#window').textContent = `Last ${DAYS} days`;
 
-    try {
-      renderChart(metrics.overall || {});
-    } catch (chartErr) {
-      // Chart rendering failed - silent failure
-    }
-
     renderIncidents(metrics.downs || []);
     renderUptimeBars(metrics, DAYS);
 

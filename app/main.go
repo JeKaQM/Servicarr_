@@ -67,6 +67,7 @@ func main() {
 
 	// Setup HTTP routes
 	gl := resources.NewClient(cfg.GlancesBaseURL)
+	handlers.InitBundles() // Build CSS/JS bundles from disk at startup
 	mux := handlers.SetupRoutes(authMgr, alertMgr, failureTracker, gl)
 
 	// Wrap with security middleware

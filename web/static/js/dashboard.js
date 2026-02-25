@@ -90,35 +90,7 @@ async function toggleMonitoring(card, enabled) {
   }
 }
 
-let chart;
-function renderChart(overall) {
-  if (!window.Chart) return;
-  // Get service keys from the servicesData array (dynamic)
-  const labels = servicesData.map(s => s.key);
-  if (labels.length === 0) return;
 
-  const vals = labels.map(k => +(overall?.[k] ?? 0).toFixed(1));
-  const ctx = document.getElementById('uptimeChart');
-  if (!ctx) return;
-
-  const data = { labels, datasets: [{ label: 'Uptime %', data: vals, borderWidth: 1 }] };
-
-  if (chart) {
-    chart.data = data;
-    chart.update();
-    return;
-  }
-
-  chart = new Chart(ctx.getContext('2d'), {
-    type: 'bar',
-    data,
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, max: 100 } }
-    }
-  });
-}
 
 function renderIncidents(items) {
   const list = $('#incidents');

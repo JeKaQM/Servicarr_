@@ -235,10 +235,16 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux.Handle("/api/status-alerts", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleGetStatusAlerts())))
 	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
 
+	// Bundle routes (serve pre-built concatenated assets from memory)
+	mux.HandleFunc("/static/css/public-bundle.css", HandleBundle())
+	mux.HandleFunc("/static/css/admin-bundle.css", HandleBundle())
+	mux.HandleFunc("/static/js/public-bundle.js", HandleBundle())
+	mux.HandleFunc("/static/js/admin-bundle.js", HandleBundle())
+
 	mux.HandleFunc("/static/", HandleStatic())
 	mux.HandleFunc("/favicon.ico", HandleFavicon())
 	mux.Handle("/", security.CheckIPBlock(http.HandlerFunc(HandleIndex(authMgr))))
 
-	// Wrap everything with setup check middleware
-	return SetupRequiredMiddleware(mux)
+	// Wrap everything with setup check middleware, then gzip compression
+	return GzipMiddleware(SetupRequiredMiddleware(mux))
 }
