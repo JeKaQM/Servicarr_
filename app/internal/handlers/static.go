@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+
 	"status/app/internal/auth"
 	"status/app/internal/database"
-	"strings"
 )
 
 // PageData holds template data for the index page
@@ -18,8 +20,13 @@ type PageData struct {
 
 // HandleIndex serves the main HTML page with conditional admin rendering
 func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
-	// Parse the template once at startup
-	tmpl := template.Must(template.ParseFiles("web/templates/index.html"))
+	// Parse partials first, then the main template
+	partials, err := filepath.Glob("web/templates/partials/*.html")
+	if err != nil {
+		log.Fatalf("Failed to find template partials: %v", err)
+	}
+	files := append([]string{"web/templates/index.html"}, partials...)
+	tmpl := template.Must(template.ParseFiles(files...))
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Set CSRF token cookie on every page load (for login form)

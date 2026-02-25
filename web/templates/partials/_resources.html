@@ -1,0 +1,190 @@
+{{define "resources"}}
+<!-- Full-width Resources Section - start hidden, JS shows based on config -->
+<section class="card resources-section hidden" id="card-resources">
+  <div class="row">
+    <div class="row-left">
+      <div class="res-title">
+        <strong>Resources</strong>
+      </div>
+    </div>
+    <span class="pill warn" id="resources-pill">—</span>
+  </div>
+
+  <div class="resources-grid">
+    <div class="resource-tile hidden" data-kind="cpu">
+      <div class="tile-head">
+        <div class="tile-label">🖥️ CPU</div>
+        <div class="tile-kpi" id="res-cpu">—</div>
+      </div>
+      <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-cpu"></div></div>
+      <div class="tile-sub" id="res-cpu-detail">—</div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="mem">
+      <div class="tile-head">
+        <div class="tile-label">💾 RAM</div>
+        <div class="tile-kpi" id="res-mem">—</div>
+      </div>
+      <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-mem"></div></div>
+      <div class="tile-sub" id="res-mem-detail">—</div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="temp">
+      <div class="tile-head">
+        <div class="tile-label">🌡 System Temp</div>
+        <div class="tile-kpi" id="res-temp">—</div>
+      </div>
+      <div class="temp-minmax" aria-hidden="true">
+        <div class="temp-mm temp-mm-min">
+          <div class="temp-mm-label">LOW</div>
+          <div class="temp-mm-value"><span id="res-temp-min">—</span></div>
+        </div>
+        <div class="temp-mm temp-mm-max">
+          <div class="temp-mm-label">HIGH</div>
+          <div class="temp-mm-value"><span id="res-temp-max">—</span></div>
+        </div>
+      </div>
+      <div class="tile-sub" id="res-temp-detail"></div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="net">
+      <div class="tile-head">
+        <div class="tile-label">📡 Network</div>
+        <div class="tile-kpi" id="res-net">—</div>
+      </div>
+      <div class="net-row">
+        <span class="net-badge rx">⬇ Rx</span>
+        <span class="net-value" id="res-net-rx">—</span>
+        <span class="net-badge tx">⬆ Tx</span>
+        <span class="net-value" id="res-net-tx">—</span>
+      </div>
+      <div class="io-row" aria-hidden="true">
+        <span class="io-badge rd">💾 Read</span>
+        <span class="io-value" id="res-io-rd">—</span>
+        <span class="io-badge wr">✍ Write</span>
+        <span class="io-value" id="res-io-wr">—</span>
+      </div>
+      <div class="tile-sub" id="res-net-detail">Live throughput</div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="storage">
+      <div class="tile-head">
+        <div class="tile-label">🗄 Storage</div>
+        <div class="tile-kpi" id="res-storage">—</div>
+      </div>
+      <div class="storage-kpis">
+        <div class="storage-primary" id="res-storage-detail">—</div>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-storage"></div></div>
+        <div class="storage-split" aria-hidden="true">
+          <div class="storage-chip used">
+            <div class="storage-chip-label">Used</div>
+            <div class="storage-chip-value" id="res-storage-used">—</div>
+          </div>
+          <div class="storage-chip free">
+            <div class="storage-chip-label">Free</div>
+            <div class="storage-chip-value" id="res-storage-free">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="swap">
+      <div class="tile-head">
+        <div class="tile-label">💿 Swap</div>
+        <div class="tile-kpi" id="res-swap">—</div>
+      </div>
+      <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-swap"></div></div>
+      <div class="tile-sub" id="res-swap-detail">—</div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="load">
+      <div class="tile-head">
+        <div class="tile-label">📊 Load Average</div>
+        <div class="tile-kpi" id="res-load">—</div>
+      </div>
+      <div class="load-values">
+        <div class="load-item">
+          <span class="load-label">1m</span>
+          <span class="load-value" id="res-load-1">—</span>
+        </div>
+        <div class="load-item">
+          <span class="load-label">5m</span>
+          <span class="load-value" id="res-load-5">—</span>
+        </div>
+        <div class="load-item">
+          <span class="load-label">15m</span>
+          <span class="load-value" id="res-load-15">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="gpu">
+      <div class="tile-head">
+        <div class="tile-label">🎮 GPU</div>
+        <div class="tile-kpi" id="res-gpu">—</div>
+      </div>
+      <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-gpu"></div></div>
+      <div class="gpu-stats">
+        <div class="gpu-stat">
+          <span class="gpu-stat-label">MEM</span>
+          <span class="gpu-stat-value" id="res-gpu-mem">—</span>
+        </div>
+        <div class="gpu-stat">
+          <span class="gpu-stat-label">TEMP</span>
+          <span class="gpu-stat-value" id="res-gpu-temp">—</span>
+        </div>
+      </div>
+      <div class="gpu-name" id="res-gpu-name">—</div>
+      <div class="tile-sub" id="res-gpu-detail"></div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="containers">
+      <div class="tile-head">
+        <div class="tile-label">🐳 Containers</div>
+        <div class="tile-kpi" id="res-containers">—</div>
+      </div>
+      <div class="container-stats">
+        <div class="container-stat">
+          <span class="container-stat-label">RUNNING</span>
+          <span class="container-stat-value" id="res-containers-running">—</span>
+        </div>
+        <div class="container-stat">
+          <span class="container-stat-label">TOTAL</span>
+          <span class="container-stat-value total" id="res-containers-total">—</span>
+        </div>
+      </div>
+      <div class="tile-sub" id="res-containers-detail"></div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="processes">
+      <div class="tile-head">
+        <div class="tile-label">⚙️ Processes</div>
+        <div class="tile-kpi" id="res-processes">—</div>
+      </div>
+      <div class="proc-stats">
+        <div class="proc-stat">
+          <span class="proc-stat-label">Active</span>
+          <span class="proc-stat-value running" id="res-proc-running">—</span>
+        </div>
+        <div class="proc-stat">
+          <span class="proc-stat-label">Sleeping</span>
+          <span class="proc-stat-value sleeping" id="res-proc-sleeping">—</span>
+        </div>
+        <div class="proc-stat">
+          <span class="proc-stat-label">Threads</span>
+          <span class="proc-stat-value threads" id="res-proc-threads">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="resource-tile hidden" data-kind="uptime">
+      <div class="tile-head">
+        <div class="tile-label">⏱️ System Uptime</div>
+      </div>
+      <div class="uptime-display" id="res-uptime">—</div>
+      <div class="tile-sub">Time since last boot</div>
+    </div>
+
+  </div>
+</section>
+{{end}}
