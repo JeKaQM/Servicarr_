@@ -16,8 +16,10 @@ import (
 
 // PageData holds template data for the index page
 type PageData struct {
-	IsAdmin bool
-	AppName string
+	IsAdmin    bool
+	AppName    string
+	CSSVersion string
+	JSVersion  string
 }
 
 // HandleIndex serves the main HTML page with conditional admin rendering
@@ -44,8 +46,17 @@ func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
 			appName = settings.AppName
 		}
 
+		// Get bundle version hashes for cache-busting
+		var cssVer, jsVer string
+		if b, ok := Bundles["/static/css/public-bundle.css"]; ok {
+			cssVer = strings.Trim(b.ETag, `"`)
+		}
+		if b, ok := Bundles["/static/js/public-bundle.js"]; ok {
+			jsVer = strings.Trim(b.ETag, `"`)
+		}
+
 		// Render template with auth state
-		data := PageData{IsAdmin: isAdmin, AppName: appName}
+		data := PageData{IsAdmin: isAdmin, AppName: appName, CSSVersion: cssVer, JSVersion: jsVer}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.Execute(w, data); err != nil {
 			http.Error(w, "Template error", http.StatusInternalServerError)
@@ -111,7 +122,7 @@ func HandleStatic() http.HandlerFunc {
 			modHash := sha256.Sum256([]byte(fmt.Sprintf("%d-%d", info.ModTime().UnixNano(), info.Size())))
 			etag := fmt.Sprintf(`"%x"`, modHash[:8])
 			w.Header().Set("ETag", etag)
-			w.Header().Set("Cache-Control", "public, max-age=86400") // 24h, revalidate with ETag
+			w.Header().Set("Cache-Control", "public, no-cache") // Always revalidate with ETag
 
 			// Check If-None-Match for conditional requests
 			if match := r.Header.Get("If-None-Match"); match == etag {

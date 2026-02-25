@@ -162,11 +162,10 @@ func HandleExportDatabase() http.HandlerFunc {
 			}
 		}
 
-		// Export recent samples (last 7 days)
+		// Export all samples
 		rows, err := database.DB.Query(`
 			SELECT taken_at, service_key, ok, COALESCE(http_status, 0), latency_ms 
 			FROM samples 
-			WHERE taken_at >= datetime('now', '-7 days')
 			ORDER BY taken_at DESC`)
 		if err == nil {
 			defer rows.Close()
@@ -197,7 +196,7 @@ func HandleImportDatabase() http.HandlerFunc {
 		}
 
 		// Parse multipart form
-		if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max
+		if err := r.ParseMultipartForm(64 << 20); err != nil { // 64MB max
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
@@ -307,7 +306,7 @@ func HandleImportDatabase() http.HandlerFunc {
 
 		// Import samples
 		if len(export.Samples) > 0 {
-			_, _ = database.DB.Exec(`DELETE FROM samples WHERE taken_at >= datetime('now', '-7 days')`)
+			_, _ = database.DB.Exec(`DELETE FROM samples`)
 			for _, s := range export.Samples {
 				ok := 0
 				if s.OK {

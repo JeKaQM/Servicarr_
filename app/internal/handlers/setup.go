@@ -302,7 +302,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		// Parse multipart form
-		if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max
+		if err := r.ParseMultipartForm(64 << 20); err != nil { // 64MB max
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
