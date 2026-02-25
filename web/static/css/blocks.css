@@ -1,50 +1,51 @@
 .blocks-section {
-    margin-top: 24px;
-    grid-column: 1/-1;
+  margin-top: 24px;
+  grid-column: 1/-1;
 }
 .block-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
 }
 .block-item:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 .block-info {
-    display: flex;
-    gap: 16px;
-    align-items: center;
+  display: flex;
+  gap: 16px;
+  align-items: center;
 }
 .blocks-list {
-    margin-top: 16px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
+  margin-top: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 .blocks-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 .blocks-header h2 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
-    flex: 1;
-    min-width: 200px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 200px;
 }
-.empty-state, .error-state {
-    padding: 24px;
-    text-align: center;
-    color: var(--muted);
+.empty-state,
+.error-state {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
 }
 .error-state {
-    color: var(--down);
+  color: var(--down);
 }
 /* Toast styles moved to styles.css */

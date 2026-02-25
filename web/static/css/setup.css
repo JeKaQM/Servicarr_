@@ -14,7 +14,7 @@
   padding: 32px;
   max-width: 480px;
   width: 100%;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
 .setup-header {
@@ -37,10 +37,14 @@
 }
 
 .setup-logo::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    transparent 50%
+  );
 }
 
 .setup-logo svg {
@@ -78,7 +82,7 @@
 
 .service-carousel::before,
 .service-carousel::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -209,7 +213,9 @@
   background: var(--bg);
   color: #e5e7eb;
   font-size: 14px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .form-group input:focus,
@@ -376,7 +382,7 @@
 
 .or-divider::before,
 .or-divider::after {
-  content: '';
+  content: "";
   flex: 1;
   height: 1px;
   background: var(--border);
@@ -566,7 +572,11 @@ dialog.import-confirm-dialog::backdrop {
 }
 
 .restored-banner {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(59, 130, 246, 0.15));
+  background: linear-gradient(
+    135deg,
+    rgba(34, 197, 94, 0.15),
+    rgba(59, 130, 246, 0.15)
+  );
   border: 1px solid var(--ok);
   border-radius: 8px;
   padding: 16px;

@@ -81,12 +81,20 @@
 }
 
 /* Color coding for stat values */
-.stat-value.good { color: #34d399; }
-.stat-value.warning { color: #fbbf24; }
-.stat-value.bad { color: #f87171; }
+.stat-value.good {
+  color: #34d399;
+}
+.stat-value.warning {
+  color: #fbbf24;
+}
+.stat-value.bad {
+  color: #f87171;
+}
 
 /* Default stat value colors per position */
-.stat-item:nth-child(2) .stat-value { color: #60a5fa; }
+.stat-item:nth-child(2) .stat-value {
+  color: #60a5fa;
+}
 
 .stat-item:nth-child(3) .stat-value {
   color: #a78bfa;
