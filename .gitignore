@@ -5,12 +5,13 @@
 *.dylib
 *.test
 *.out
-.gocache
+.gocache/
 /bin/
 /dist/
 
 # Dependencies
 vendor/
+node_modules/
 
 # Environment
 .env
@@ -23,7 +24,6 @@ vendor/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Database
 *.db
@@ -33,9 +33,9 @@ vendor/
 # Logs
 *.log
 
-# Build artifacts
-app.exe
-status.exe
+# Coverage
+coverage/
+*.out
 
 # OS
 Thumbs.db

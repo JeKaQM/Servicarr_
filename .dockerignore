@@ -1,5 +1,30 @@
 **/.git
-**/node_modules
-**/dist
+**/.gitignore
 **/.DS_Store
 **/.env
+**/.env.*
+**/.vscode
+**/.idea
+
+# Dependencies & package manager
+**/node_modules
+**/package.json
+**/package-lock.json
+
+# Tests
+**/tests
+**/*.test.js
+**/test-helpers.js
+**/*_test.go
+
+# Build artifacts
+**/dist
+**/*.exe
+**/*.db
+**/*.sqlite
+**/*.log
+**/.gocache
+
+# Documentation
+**/README.md
+**/LICENSE

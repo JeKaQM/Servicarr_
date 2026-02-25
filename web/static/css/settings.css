@@ -1,0 +1,99 @@
+﻿
+/* Settings Tab Styles */
+.danger-zone {
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.05);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.danger-zone h3 {
+  color: #fca5a5;
+  margin-top: 0;
+}
+
+.danger-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+  margin-top: 12px;
+}
+
+.danger-info {
+  flex: 1;
+}
+
+.danger-info strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.danger-info p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.backup-info {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.backup-info p {
+  margin: 0;
+  font-size: 13px;
+  color: #93c5fd;
+}
+
+.file-upload-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-upload-btn input[type="file"] {
+  display: none;
+}
+
+/* Confirmation Dialog */
+dialog.confirm-dialog {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  color: #e5e7eb;
+}
+
+dialog.confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 12px 0;
+  color: #fca5a5;
+}
+
+.confirm-dialog p {
+  margin: 0 0 16px 0;
+  color: var(--muted);
+}
+
+.confirm-dialog .form-group {
+  margin-bottom: 16px;
+}
+
+.confirm-dialog .actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}

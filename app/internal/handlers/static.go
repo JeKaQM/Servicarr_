@@ -3,6 +3,8 @@ package handlers
 import (
 	"html/template"
 	"net/http"
+	"os"
+	"path/filepath"
 	"status/app/internal/auth"
 	"status/app/internal/database"
 	"strings"
@@ -44,55 +46,68 @@ func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
 
 // HandleStatic serves static files (JS, CSS, images)
 func HandleStatic() http.HandlerFunc {
+	// Allowed extensions and their content types
+	contentTypes := map[string]string{
+		".js":   "application/javascript; charset=utf-8",
+		".css":  "text/css; charset=utf-8",
+		".svg":  "image/svg+xml; charset=utf-8",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".png":  "image/png",
+		".html": "text/html; charset=utf-8",
+	}
+
+	// Map of allowed directory prefixes → filesystem paths
+	allowedDirs := map[string]string{
+		"/static/js/":     "web/static/js/",
+		"/static/css/":    "web/static/css/",
+		"/static/images/": "web/static/images/",
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Set cache control headers to prevent caching
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/app.js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			http.ServeFile(w, r, "web/static/js/app.js")
-		case strings.HasSuffix(r.URL.Path, "/blocks.js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			http.ServeFile(w, r, "web/static/js/blocks.js")
-		case strings.HasSuffix(r.URL.Path, "/utils.js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			http.ServeFile(w, r, "web/static/js/utils.js")
-		case strings.HasSuffix(r.URL.Path, "/setup.js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			http.ServeFile(w, r, "web/static/js/setup.js")
-		case strings.HasSuffix(r.URL.Path, "/blocked.js"):
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			http.ServeFile(w, r, "web/static/js/blocked.js")
-		case strings.HasSuffix(r.URL.Path, "/main.css"):
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			http.ServeFile(w, r, "web/static/css/main.css")
-		case strings.HasSuffix(r.URL.Path, "/blocks.css"):
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			http.ServeFile(w, r, "web/static/css/blocks.css")
-		case strings.HasSuffix(r.URL.Path, "/blocked.html"):
+		urlPath := r.URL.Path
+
+		// Special case: blocked.html is in templates/
+		if strings.HasSuffix(urlPath, "/blocked.html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			http.ServeFile(w, r, "web/templates/blocked.html")
-		case strings.HasSuffix(r.URL.Path, "/plex.svg"):
-			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-			http.ServeFile(w, r, "web/static/images/plex.svg")
-		case strings.HasSuffix(r.URL.Path, "/overseerr.svg"):
-			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-			http.ServeFile(w, r, "web/static/images/overseerr.svg")
-		case strings.HasSuffix(r.URL.Path, "/server.svg"):
-			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-			http.ServeFile(w, r, "web/static/images/server.svg")
-		case strings.HasSuffix(r.URL.Path, "/favicon.svg"):
-			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-			http.ServeFile(w, r, "web/static/images/favicon.svg")
-		case strings.HasSuffix(r.URL.Path, "/servicarr-icon.jpg"):
-			w.Header().Set("Content-Type", "image/jpeg")
-			http.ServeFile(w, r, "web/static/images/servicarr-icon.jpg")
-		default:
-			http.NotFound(w, r)
+			return
 		}
+
+		// Match against allowed directories
+		for prefix, fsDir := range allowedDirs {
+			if !strings.HasPrefix(urlPath, prefix) {
+				continue
+			}
+
+			// Extract filename (no path traversal allowed)
+			filename := filepath.Base(urlPath)
+			ext := strings.ToLower(filepath.Ext(filename))
+
+			ct, allowed := contentTypes[ext]
+			if !allowed {
+				http.NotFound(w, r)
+				return
+			}
+
+			// Verify file exists and is a regular file (prevent directory listing)
+			fsPath := filepath.Join(fsDir, filename)
+			info, err := os.Stat(fsPath)
+			if err != nil || info.IsDir() {
+				http.NotFound(w, r)
+				return
+			}
+
+			w.Header().Set("Content-Type", ct)
+			http.ServeFile(w, r, fsPath)
+			return
+		}
+
+		http.NotFound(w, r)
 	}
 }
 

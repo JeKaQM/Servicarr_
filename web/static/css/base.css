@@ -1,0 +1,126 @@
+﻿:root {
+  --ok: #16a34a;
+  --down: #ef4444;
+  --warn: #eab308;
+  --bg: #0c121c;
+  --card: #111827;
+  --border: #1f2937;
+  --muted: #9ca3af;
+  --text: #e5e7eb;
+  --primary: #22c55e;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59, 130, 246, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 110%, rgba(99, 102, 241, 0.04) 0%, transparent 50%);
+  background-attachment: fixed;
+  color: #e5e7eb;
+  font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* Section entrance animation */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeSlideUp 0.4s ease-out both;
+}
+
+/* Layout */
+header {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Status Summary Bar */
+.status-summary {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 14px;
+  flex-wrap: wrap;
+  animation: fadeSlideUp 0.3s ease-out both;
+}
+
+.status-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.status-summary-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-summary-dot.up       { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.4); }
+.status-summary-dot.down     { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); }
+.status-summary-dot.degraded { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.4); }
+.status-summary-dot.disabled { background: #64748b; }
+
+.status-summary-count {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 15px;
+}
+
+main {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+#services-container {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.resources-section {
+  margin: 0 16px 16px 16px;
+}
+
+.uptime-section {
+  margin: 0 16px 16px 16px;
+}
+
+footer {
+  color: var(--muted);
+  padding: 0 16px 16px;
+  font-size: 12px;
+}
+
+/* Typography */
+h1 {
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+small, .muted {
+  color: var(--muted);
+}
+
+/* Components */
+.card {
+  background: rgba(17, 24, 39, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.05);

@@ -20,20 +20,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "The following checks must pass before merging:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Go CI Checks**" >> $GITHUB_STEP_SUMMARY
-          echo "   - Lint (go fmt, go vet)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Build" >> $GITHUB_STEP_SUMMARY
-          echo "   - Test" >> $GITHUB_STEP_SUMMARY
+          echo "1. **CI Pipeline**" >> $GITHUB_STEP_SUMMARY
+          echo "   - Go Lint & Vet (gofmt, go vet)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Go Tests (with coverage)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Go Build" >> $GITHUB_STEP_SUMMARY
+          echo "   - JS Tests (Jest)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Docker Build & Health Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Docker Build Check**" >> $GITHUB_STEP_SUMMARY
-          echo "   - Docker image builds successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "3. **PR Validation**" >> $GITHUB_STEP_SUMMARY
+          echo "2. **PR Validation**" >> $GITHUB_STEP_SUMMARY
           echo "   - PR title is descriptive" >> $GITHUB_STEP_SUMMARY
           echo "   - No merge conflicts" >> $GITHUB_STEP_SUMMARY
-          echo "   - File changes validated" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "4. **Security Check**" >> $GITHUB_STEP_SUMMARY
-          echo "   - No critical security vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "   - Security scan" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ All checks configured successfully" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,554 @@
+﻿/* Resources (full-width) */
+.res-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resources-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.resource-tile {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: radial-gradient(1200px 400px at 10% 0%, rgba(59,130,246,0.10) 0%, rgba(17,24,39,0) 55%),
+              linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+/* Stagger entrance animation for resource tiles */
+.resource-tile:nth-child(1)  { animation-delay: 0.05s; }
+.resource-tile:nth-child(2)  { animation-delay: 0.10s; }
+.resource-tile:nth-child(3)  { animation-delay: 0.15s; }
+.resource-tile:nth-child(4)  { animation-delay: 0.20s; }
+.resource-tile:nth-child(5)  { animation-delay: 0.25s; }
+.resource-tile:nth-child(6)  { animation-delay: 0.30s; }
+.resource-tile:nth-child(7)  { animation-delay: 0.35s; }
+.resource-tile:nth-child(8)  { animation-delay: 0.40s; }
+.resource-tile:nth-child(9)  { animation-delay: 0.45s; }
+.resource-tile:nth-child(10) { animation-delay: 0.50s; }
+
+.resource-tile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.tile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tile-label {
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+  color: #dbeafe;
+  text-transform: none;
+}
+
+.tile-kpi {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.tile-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.meter {
+  height: 10px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+  position: relative;
+}
+
+.meter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%);
+  transform: translateX(-120%);
+  animation: meterShimmer 2.2s ease-in-out infinite;
+  opacity: 0.55;
+}
+
+@keyframes meterShimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.meter-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.35s ease;
+  background: linear-gradient(90deg, rgba(34,197,94,0.95), rgba(34,197,94,0.55));
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.25);
+}
+
+.meter-fill.warn {
+  background: linear-gradient(90deg, rgba(251,191,36,0.95), rgba(251,191,36,0.55));
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.24);
+}
+
+.meter-fill.bad {
+  background: linear-gradient(90deg, rgba(248,113,113,0.95), rgba(248,113,113,0.55));
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.22);
+}
+
+.net-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.net-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(59,130,246,0.14);
+  color: #93c5fd;
+}
+
+.net-badge.tx {
+  background: rgba(34,197,94,0.12);
+  color: #86efac;
+}
+
+.net-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+.io-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  opacity: 0.95;
+}
+
+.io-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(148,163,184,0.12);
+  color: #cbd5e1;
+}
+
+.io-badge.wr {
+  background: rgba(34,197,94,0.10);
+  color: #86efac;
+}
+
+.io-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+/* Storage tile layout */
+.storage-kpis {
+  margin-top: 10px;
+}
+
+.storage-primary {
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  font-size: 13px;
+  color: #e5e7eb;
+  letter-spacing: 0.2px;
+  margin-bottom: 10px;
+}
+
+.storage-split {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.storage-chip {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035));
+  overflow: hidden;
+}
+
+.storage-chip::before {
+  content: "";
+  position: absolute;
+  inset: -30px;
+  opacity: 0.16;
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.storage-chip.used::before {
+  /* Amber/orange = used */
+  background: radial-gradient(circle at 18% 18%, rgba(245,158,11,0.95), transparent 58%);
+}
+
+.storage-chip.free::before {
+  /* Green = free */
+  background: radial-gradient(circle at 82% 18%, rgba(34,197,94,0.95), transparent 58%);
+}
+
+.storage-chip-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 900;
+  color: rgba(229,231,235,0.70);
+}
+
+.storage-chip-value {
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+  font-size: 16px;
+  line-height: 1.15;
+  color: #e5e7eb;
+}
+
+.storage-chip.used .storage-chip-value {
+  color: #fde68a;
+  text-shadow: 0 10px 30px rgba(245,158,11,0.18);
+}
+
+.storage-chip.free .storage-chip-value {
+  color: #bbf7d0;
+  text-shadow: 0 10px 30px rgba(34,197,94,0.16);
+}
+
+/* Temperature min/max badges */
+/* Modern Temperature min/max layout */
+.temp-minmax {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.temp-mm {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.035));
+  overflow: hidden;
+}
+
+.temp-mm::before {
+  content: "";
+  position: absolute;
+  inset: -30px;
+  opacity: 0.18;
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.temp-mm-min::before {
+  /* Neon cyan */
+  background: radial-gradient(circle at 18% 18%, rgba(56,189,248,0.95), transparent 58%);
+}
+
+.temp-mm-max::before {
+  /* Hot pink */
+  background: radial-gradient(circle at 82% 18%, rgba(251,113,133,0.95), transparent 58%);
+}
+
+.temp-mm-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  font-weight: 900;
+  color: rgba(229,231,235,0.70);
+}
+
+.temp-mm-value {
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+.temp-mm-min .temp-mm-value {
+  color: #7dd3fc;
+  text-shadow: 0 10px 30px rgba(56,189,248,0.22);
+}
+
+.temp-mm-max .temp-mm-value {
+  color: #fecdd3;
+  text-shadow: 0 10px 30px rgba(251,113,133,0.18);
+}
+
+/* Load Average tile */
+.load-values {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.load-item {
+  position: relative;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025));
+  text-align: center;
+}
+
+.load-label {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  font-weight: 800;
+  color: rgba(229,231,235,0.65);
+}
+
+.load-value {
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  font-size: 15px;
+  color: #93c5fd;
+}
+
+/* GPU tile */
+.gpu-stats {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gpu-stat {
+  flex: 1;
+  min-width: 60px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  text-align: center;
+}
+
+.gpu-stat-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: rgba(229,231,235,0.6);
+}
+
+.gpu-stat-value {
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 13px;
+  color: #a78bfa;
+}
+
+.gpu-name {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* Container tile */
+.container-stats {
+  margin-top: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.container-stat {
+  flex: 1;
+  text-align: center;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+
+.container-stat-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: rgba(229,231,235,0.6);
+}
+
+.container-stat-value {
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  font-size: 18px;
+  color: #22d3ee;
+}
+
+.container-stat-value.total {
+  color: #94a3b8;
+}
+
+/* Processes tile */
+.proc-stats {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.proc-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.025);
+}
+
+.proc-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(229,231,235,0.6);
+}
+
+.proc-stat-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fbbf24;
+}
+
+.proc-stat-value.running {
+  color: #34d399;
+}
+
+.proc-stat-value.sleeping {
+  color: #60a5fa;
+}
+
+.proc-stat-value.threads {
+  color: #f472b6;
+}
+
+/* Uptime resource tile (distinct from uptime bar) */
+.uptime-display {
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 16px;
+  color: #a5b4fc;
+  letter-spacing: 0.02em;
+}
+
+/* Resource tiles respond automatically via auto-fit */
+
+.uptime-bar-container {
+  height: 48px;
+  background: linear-gradient(to bottom, rgba(15, 23, 42, 0.4), rgba(0, 0, 0, 0.3));
+  border-radius: 10px;
+  overflow: visible;
+  border: 1px solid rgba(100, 116, 139, 0.15);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  position: relative;
+}
+
+.uptime-bar {
+  display: flex;
+  height: 100%;
+  gap: 3px;
+  border-radius: 7px;
+  overflow: visible;
+}
+
+.uptime-block {
+  flex: 1;
+  min-width: 4px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
+}
+
+.uptime-block.up {
+  background: rgba(34, 197, 94, 0.45);
+  border: 1px solid rgba(34, 197, 94, 0.8);
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.uptime-block.degraded {
+  background: rgba(251, 191, 36, 0.5);
+  border: 1px solid rgba(251, 191, 36, 0.85);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.uptime-block.down {
+  background: rgba(248, 113, 113, 0.5);
+  border: 1px solid rgba(248, 113, 113, 0.85);
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.uptime-block.unknown {
+  background: rgba(100, 116, 139, 0.3);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.uptime-block:hover {
+  transform: translateY(-3px) scaleY(1.15);
+  filter: brightness(1.35) saturate(1.2);
+  z-index: 10;
+}
+
+.uptime-block.up:hover {
+  background: rgba(34, 197, 94, 0.65);
+  box-shadow: 0 4px 24px rgba(34, 197, 94, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.uptime-block.degraded:hover {
+  background: rgba(251, 191, 36, 0.7);
+  box-shadow: 0 4px 24px rgba(251, 191, 36, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.uptime-block.down:hover {
+  background: rgba(248, 113, 113, 0.7);
+  box-shadow: 0 4px 24px rgba(248, 113, 113, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}

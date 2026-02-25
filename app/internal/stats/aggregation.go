@@ -73,6 +73,18 @@ CREATE INDEX IF NOT EXISTS idx_heartbeats_important ON heartbeats(important);
 	return err
 }
 
+// aggregatedRow holds one aggregation result for batch processing.
+// Collected first so the rows iterator is closed before any writes,
+// avoiding a deadlock with MaxOpenConns(1).
+type aggregatedRow struct {
+	ServiceKey string
+	Ts         int64
+	Up, Down   int
+	AvgPing    sql.NullFloat64
+	MinPing    sql.NullInt64
+	MaxPing    sql.NullInt64
+}
+
 // AggregateHourlyStats aggregates minutely stats into hourly stats
 func AggregateHourlyStats() {
 	now := time.Now().UTC()
@@ -92,26 +104,26 @@ func AggregateHourlyStats() {
 		log.Printf("Error aggregating hourly stats: %v", err)
 		return
 	}
-	defer rows.Close()
 
+	// Collect all rows first, then close — prevents deadlock with MaxOpenConns(1)
+	var batch []aggregatedRow
 	for rows.Next() {
-		var serviceKey string
-		var hourTs int64
-		var up, down int
-		var avgPing sql.NullFloat64
-		var minPing, maxPing sql.NullInt64
-
-		if err := rows.Scan(&serviceKey, &hourTs, &up, &down, &avgPing, &minPing, &maxPing); err != nil {
+		var r aggregatedRow
+		if err := rows.Scan(&r.ServiceKey, &r.Ts, &r.Up, &r.Down, &r.AvgPing, &r.MinPing, &r.MaxPing); err != nil {
 			continue
 		}
+		batch = append(batch, r)
+	}
+	rows.Close()
 
+	for _, r := range batch {
 		_, err := database.DB.Exec(`
 			INSERT INTO stat_hourly (service_key, timestamp, up, down, ping, ping_min, ping_max)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(service_key, timestamp) DO UPDATE SET
 				up = up + excluded.up,
 				down = down + excluded.down`,
-			serviceKey, hourTs, up, down, avgPing, minPing, maxPing)
+			r.ServiceKey, r.Ts, r.Up, r.Down, r.AvgPing, r.MinPing, r.MaxPing)
 
 		if err != nil {
 			log.Printf("Error inserting hourly stat: %v", err)
@@ -142,26 +154,26 @@ func AggregateDailyStats() {
 		log.Printf("Error aggregating daily stats: %v", err)
 		return
 	}
-	defer rows.Close()
 
+	// Collect all rows first, then close — prevents deadlock with MaxOpenConns(1)
+	var batch []aggregatedRow
 	for rows.Next() {
-		var serviceKey string
-		var dayTs int64
-		var up, down int
-		var avgPing sql.NullFloat64
-		var minPing, maxPing sql.NullInt64
-
-		if err := rows.Scan(&serviceKey, &dayTs, &up, &down, &avgPing, &minPing, &maxPing); err != nil {
+		var r aggregatedRow
+		if err := rows.Scan(&r.ServiceKey, &r.Ts, &r.Up, &r.Down, &r.AvgPing, &r.MinPing, &r.MaxPing); err != nil {
 			continue
 		}
+		batch = append(batch, r)
+	}
+	rows.Close()
 
+	for _, r := range batch {
 		_, err := database.DB.Exec(`
 			INSERT INTO stat_daily (service_key, timestamp, up, down, ping, ping_min, ping_max)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(service_key, timestamp) DO UPDATE SET
 				up = up + excluded.up,
 				down = down + excluded.down`,
-			serviceKey, dayTs, up, down, avgPing, minPing, maxPing)
+			r.ServiceKey, r.Ts, r.Up, r.Down, r.AvgPing, r.MinPing, r.MaxPing)
 
 		if err != nil {
 			log.Printf("Error inserting daily stat: %v", err)
