@@ -28,12 +28,12 @@ var gzipPool = sync.Pool{
 
 // compressible content types worth gzipping
 var compressibleTypes = map[string]bool{
-	"text/html":                true,
-	"text/css":                 true,
-	"application/javascript":   true,
-	"application/json":         true,
-	"image/svg+xml":            true,
-	"text/plain":               true,
+	"text/html":              true,
+	"text/css":               true,
+	"application/javascript": true,
+	"application/json":       true,
+	"image/svg+xml":          true,
+	"text/plain":             true,
 }
 
 // isCompressible checks if a content type should be gzip-compressed
