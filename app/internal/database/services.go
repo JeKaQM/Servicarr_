@@ -1,6 +1,8 @@
 package database
 
 import (
+	"log"
+	"status/app/internal/crypto"
 	"status/app/internal/models"
 	"time"
 )
@@ -69,6 +71,7 @@ func GetAllServices() ([]models.ServiceConfig, error) {
 			return nil, err
 		}
 		s.Visible = visible != 0
+		decryptServiceToken(&s)
 		services = append(services, s)
 	}
 	return services, nil
@@ -97,6 +100,7 @@ func GetVisibleServices() ([]models.ServiceConfig, error) {
 			return nil, err
 		}
 		s.Visible = visible != 0
+		decryptServiceToken(&s)
 		services = append(services, s)
 	}
 	return services, nil
@@ -118,6 +122,7 @@ func GetServiceByID(id int) (*models.ServiceConfig, error) {
 		return nil, err
 	}
 	s.Visible = visible != 0
+	decryptServiceToken(&s)
 	return &s, nil
 }
 
@@ -137,7 +142,21 @@ func GetServiceByKey(key string) (*models.ServiceConfig, error) {
 		return nil, err
 	}
 	s.Visible = visible != 0
+	decryptServiceToken(&s)
 	return &s, nil
+}
+
+// decryptServiceToken decrypts api_token in-place on a ServiceConfig.
+func decryptServiceToken(s *models.ServiceConfig) {
+	if s.APIToken != "" {
+		plain, err := crypto.Decrypt(s.APIToken)
+		if err != nil {
+			log.Printf("Warning: failed to decrypt token for service %s: %v", s.Key, err)
+			// Keep the raw value — may be legacy plaintext
+		} else {
+			s.APIToken = plain
+		}
+	}
 }
 
 // CreateService inserts a new service into the database
@@ -154,11 +173,18 @@ func CreateService(s *models.ServiceConfig) (int64, error) {
 		s.DisplayOrder = maxOrder + 1
 	}
 
+	// Encrypt API token before storing
+	encToken, err := crypto.Encrypt(s.APIToken)
+	if err != nil {
+		log.Printf("Warning: failed to encrypt token for service %s: %v", s.Key, err)
+		encToken = s.APIToken // fallback to plaintext if encryption fails
+	}
+
 	result, err := DB.Exec(`
 		INSERT INTO services (key, name, url, service_type, icon, icon_url, api_token, display_order, visible,
 		                      check_type, check_interval, timeout, expected_min, expected_max, depends_on, connected_to, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		s.Key, s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
+		s.Key, s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, encToken, s.DisplayOrder, visible,
 		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn, s.ConnectedTo)
 	if err != nil {
 		return 0, err
@@ -172,12 +198,20 @@ func UpdateService(s *models.ServiceConfig) error {
 	if s.Visible {
 		visible = 1
 	}
-	_, err := DB.Exec(`
+
+	// Encrypt API token before storing
+	encToken, err := crypto.Encrypt(s.APIToken)
+	if err != nil {
+		log.Printf("Warning: failed to encrypt token for service %d: %v", s.ID, err)
+		encToken = s.APIToken
+	}
+
+	_, err = DB.Exec(`
 		UPDATE services SET name=?, url=?, service_type=?, icon=?, icon_url=?, api_token=?, display_order=?,
 		                    visible=?, check_type=?, check_interval=?, timeout=?, expected_min=?,
 		                    expected_max=?, depends_on=?, connected_to=?, updated_at=datetime('now')
 		WHERE id = ?`,
-		s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, s.APIToken, s.DisplayOrder, visible,
+		s.Name, s.URL, s.ServiceType, s.Icon, s.IconURL, encToken, s.DisplayOrder, visible,
 		s.CheckType, s.CheckInterval, s.Timeout, s.ExpectedMin, s.ExpectedMax, s.DependsOn, s.ConnectedTo, s.ID)
 	return err
 }

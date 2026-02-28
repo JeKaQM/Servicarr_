@@ -7,10 +7,42 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"status/app/internal/models"
 	"strings"
 	"time"
 )
+
+// urlPattern matches http(s) URLs that may contain tokens/credentials.
+var urlPattern = regexp.MustCompile(`https?://[^\s"'\)\]>]+`)
+
+// sensitiveParams matches query-string parameters that carry secrets.
+var sensitiveParams = regexp.MustCompile(`(?i)((?:token|apikey|api_key|key|secret|password|auth)[=:][^&\s"']*)`)
+
+// hostPortPattern matches bare host:port or IP:port patterns that leak service addresses.
+var hostPortPattern = regexp.MustCompile(`(?:(?:dial|connect|lookup)\s+(?:tcp|udp)\s+)([^\s:]+:\d+)`)
+
+// SanitizeError strips URLs, tokens, and other sensitive data from
+// error strings so they are safe to store and display publicly.
+func SanitizeError(errStr string) string {
+	if errStr == "" {
+		return ""
+	}
+	// Remove full URLs (may contain tokens in path/query)
+	sanitized := urlPattern.ReplaceAllString(errStr, "[redacted-url]")
+	// Remove host:port from dial/connect errors (e.g. "dial tcp 10.0.0.1:8080")
+	sanitized = hostPortPattern.ReplaceAllStringFunc(sanitized, func(match string) string {
+		// Keep the prefix (e.g. "dial tcp") but redact the address
+		idx := strings.LastIndex(match, " ")
+		if idx >= 0 {
+			return match[:idx+1] + "[redacted-host]"
+		}
+		return "[redacted-host]"
+	})
+	// Remove any remaining token-like parameters
+	sanitized = sensitiveParams.ReplaceAllString(sanitized, "[redacted]")
+	return sanitized
+}
 
 // isCloudMetadataIP returns true if the IP matches a known cloud metadata endpoint.
 // These are blocked to prevent SSRF attacks from leaking cloud credentials.

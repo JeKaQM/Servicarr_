@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"status/app/internal/auth"
+	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/models"
 
@@ -162,6 +163,9 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 		// Reload auth manager with new credentials
 		authMgr.Reload(req.Username, passwordHash, authSecretBytes)
 		log.Printf("Setup complete - auth credentials loaded for user: %s", req.Username)
+
+		// Initialize encryption key for API token encryption at rest
+		crypto.SetKey([]byte(authSecret))
 
 		// Check if we need to create a dummy service
 		serviceCount, _ := database.GetServiceCount()

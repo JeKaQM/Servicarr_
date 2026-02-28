@@ -285,3 +285,64 @@ func TestFindServiceByKey_EmptySlice(t *testing.T) {
 		t.Error("expected nil for empty slice")
 	}
 }
+
+// --- SanitizeError ---
+
+func TestSanitizeError_Empty(t *testing.T) {
+	if got := SanitizeError(""); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestSanitizeError_PlainMessage(t *testing.T) {
+	msg := "connection refused"
+	if got := SanitizeError(msg); got != msg {
+		t.Errorf("plain message should pass through, got %q", got)
+	}
+}
+
+func TestSanitizeError_StripsHTTPURL(t *testing.T) {
+	msg := `Get "http://192.168.1.100:32400/web?X-Plex-Token=abc123": dial tcp 192.168.1.100:32400: connect: connection refused`
+	got := SanitizeError(msg)
+	if contains(got, "192.168.1.100:32400") || contains(got, "abc123") || contains(got, "X-Plex-Token") {
+		t.Errorf("URL/token leaked: %q", got)
+	}
+}
+
+func TestSanitizeError_StripsHTTPSURL(t *testing.T) {
+	msg := `Get "https://overseerr.example.com/api/v1/status": i/o timeout`
+	got := SanitizeError(msg)
+	if contains(got, "overseerr.example.com") {
+		t.Errorf("URL leaked: %q", got)
+	}
+}
+
+func TestSanitizeError_StripsTautulliAPIKey(t *testing.T) {
+	msg := `Get "http://10.0.0.5:8181/api/v2?apikey=secretkey123&cmd=status": EOF`
+	got := SanitizeError(msg)
+	if contains(got, "secretkey123") || contains(got, "10.0.0.5") {
+		t.Errorf("token/URL leaked: %q", got)
+	}
+}
+
+func TestSanitizeError_StripsOrphanedTokenParam(t *testing.T) {
+	msg := `failed with token=abcdef123456 in request`
+	got := SanitizeError(msg)
+	if contains(got, "abcdef123456") {
+		t.Errorf("token value leaked: %q", got)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		(len(s) > 0 && len(sub) > 0 && containsStr(s, sub)))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
