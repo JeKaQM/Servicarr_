@@ -273,7 +273,17 @@ function openServiceModal(service = null) {
   $('#serviceTemplate').value = service?.service_type || '';
   $('#serviceName').value = service?.name || '';
   $('#serviceUrl').value = service?.url || '';
-  $('#serviceToken').value = service?.api_token || '';
+
+  // API token: show placeholder for existing masked tokens, never put mask in the field
+  const tokenInput = $('#serviceToken');
+  if (service?.api_token && service.api_token.includes('\u2022')) {
+    tokenInput.value = '';
+    tokenInput.placeholder = 'Token saved \u2014 leave blank to keep, or enter new token';
+  } else {
+    tokenInput.value = service?.api_token || '';
+    tokenInput.placeholder = 'API token (if required)';
+  }
+
   $('#serviceIconUrl').value = service?.icon_url || '';
   $('#serviceCheckType').value = service?.check_type || 'http';
   $('#serviceTimeout').value = service?.timeout || 5;
@@ -402,19 +412,25 @@ async function testServiceConnection() {
   }
 
   try {
+    const payload = {
+      url,
+      api_token: apiToken,
+      check_type: checkType,
+      timeout,
+      service_type: serviceType
+    };
+    // If editing and no new token entered, tell backend to use the stored token
+    if (editingServiceId && !apiToken) {
+      payload.service_id = editingServiceId;
+    }
+
     const resp = await j('/api/admin/services/test', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': getCsrf()
       },
-      body: JSON.stringify({
-        url,
-        api_token: apiToken,
-        check_type: checkType,
-        timeout,
-        service_type: serviceType
-      })
+      body: JSON.stringify(payload)
     });
 
     if (resultEl) {

@@ -2,6 +2,7 @@ package stats
 
 import (
 	"log"
+	"status/app/internal/checker"
 	"status/app/internal/database"
 	"time"
 )
@@ -10,12 +11,15 @@ import (
 func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errMsg string) {
 	calc := GetCalculator(serviceKey)
 
+	// Sanitize error message before storing — prevents leaking URLs/tokens
+	safeMsg := checker.SanitizeError(errMsg)
+
 	status := 0
 	if ok {
 		status = 1
 	}
 
-	important := calc.AddHeartbeat(status, ping, httpStatus, errMsg)
+	important := calc.AddHeartbeat(status, ping, httpStatus, safeMsg)
 
 	// Store in heartbeats table
 	importantInt := 0
@@ -26,7 +30,7 @@ func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errM
 	_, err := database.DB.Exec(`
 		INSERT INTO heartbeats (service_key, status, time, msg, ping, http_status, important)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		serviceKey, status, time.Now().UTC().Format(time.RFC3339), errMsg, ping, httpStatus, importantInt)
+		serviceKey, status, time.Now().UTC().Format(time.RFC3339), safeMsg, ping, httpStatus, importantInt)
 
 	if err != nil {
 		log.Printf("Error recording heartbeat: %v", err)

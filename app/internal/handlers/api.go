@@ -223,7 +223,8 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 					item["http_status"] = 0
 				}
 				if msg.Valid && msg.String != "" {
-					item["error"] = msg.String
+					// Always sanitize — defense-in-depth for older stored messages
+					item["error"] = checker.SanitizeError(msg.String)
 				}
 				if ping.Valid {
 					item["latency_ms"] = ping.Int64
@@ -431,7 +432,8 @@ func HandleDayDetail() http.HandlerFunc {
 				ev.HTTPStatus = &st.Int64
 			}
 			if msg.Valid && msg.String != "" {
-				ev.Error = msg.String
+				// Sanitize — defense-in-depth for older stored messages
+				ev.Error = checker.SanitizeError(msg.String)
 			}
 			if ping.Valid {
 				ev.LatencyMs = &ping.Int64

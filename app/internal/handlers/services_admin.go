@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"status/app/internal/checker"
+	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/models"
 )
@@ -281,6 +282,11 @@ func HandleGetServices(w http.ResponseWriter, r *http.Request) {
 			services[i].APIToken = ""
 			services[i].URL = ""
 		}
+	} else {
+		// Admin sees masked tokens, never plaintext
+		for i := range services {
+			services[i].APIToken = crypto.MaskToken(services[i].APIToken)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -343,6 +349,8 @@ func HandleCreateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.ID = int(id)
+	// Mask token before sending response — never expose plaintext
+	s.APIToken = crypto.MaskToken(s.APIToken)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(s)
@@ -390,11 +398,18 @@ func HandleUpdateService(w http.ResponseWriter, r *http.Request) {
 	// Preserve display order (reordering handled separately)
 	s.DisplayOrder = existing.DisplayOrder
 
+	// If token is empty or looks like a masked value, keep the existing token
+	if s.APIToken == "" || strings.HasPrefix(s.APIToken, "\u2022") {
+		s.APIToken = existing.APIToken
+	}
+
 	if err := database.UpdateService(&s); err != nil {
 		http.Error(w, "Failed to update service", http.StatusInternalServerError)
 		return
 	}
 
+	// Mask token before sending response — never expose plaintext
+	s.APIToken = crypto.MaskToken(s.APIToken)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
 }
@@ -498,6 +513,7 @@ func HandleTestServiceConnection(w http.ResponseWriter, r *http.Request) {
 		CheckType   string `json:"check_type"`
 		Timeout     int    `json:"timeout"`
 		ServiceType string `json:"service_type"`
+		ServiceID   int    `json:"service_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -512,6 +528,13 @@ func HandleTestServiceConnection(w http.ResponseWriter, r *http.Request) {
 			"error":   "URL is required",
 		})
 		return
+	}
+
+	// If no token provided but a service_id is set, load the stored token
+	if req.APIToken == "" && req.ServiceID > 0 {
+		if svc, err := database.GetServiceByID(req.ServiceID); err == nil && svc != nil {
+			req.APIToken = svc.APIToken // already decrypted by GetServiceByID
+		}
 	}
 
 	timeout := req.Timeout

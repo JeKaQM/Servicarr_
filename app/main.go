@@ -15,6 +15,7 @@ import (
 	"status/app/internal/auth"
 	"status/app/internal/checker"
 	"status/app/internal/config"
+	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/handlers"
 	"status/app/internal/models"
@@ -119,6 +120,9 @@ func createAuthManager(cfg *config.Config) *auth.Auth {
 			log.Printf("Warning: Failed to load app settings: %v", err)
 		} else {
 			log.Println("Loading auth credentials from database")
+			// Initialize encryption key for API token encryption at rest
+			crypto.SetKey([]byte(settings.AuthSecret))
+			migrateTokenEncryption() // encrypt any legacy plaintext tokens
 			return auth.NewAuth(
 				settings.Username,
 				[]byte(settings.PasswordHash),
@@ -131,6 +135,8 @@ func createAuthManager(cfg *config.Config) *auth.Auth {
 		// Setup is complete but couldn't load from DB - fall back to env
 		if cfg.AuthUser != "" && len(cfg.AuthHash) > 0 && len(cfg.HmacSecret) > 0 {
 			log.Println("Falling back to auth credentials from environment")
+			crypto.SetKey(cfg.HmacSecret)
+			migrateTokenEncryption()
 			return auth.NewAuth(
 				cfg.AuthUser,
 				cfg.AuthHash,
@@ -376,5 +382,30 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 			_ = database.PruneLogs(10000)
 			lastPrune = now
 		}
+	}
+}
+
+// migrateTokenEncryption encrypts any legacy plaintext API tokens at startup
+func migrateTokenEncryption() {
+	services, err := database.GetAllServices()
+	if err != nil {
+		log.Printf("Warning: Failed to load services for token migration: %v", err)
+		return
+	}
+	migrated := 0
+	for _, s := range services {
+		if s.APIToken != "" {
+			// GetAllServices already decrypted – re-encrypt via UpdateService
+			// If it was already encrypted, it will re-encrypt (new nonce = good)
+			// If it was plaintext, it will now be encrypted
+			if err := database.UpdateService(&s); err != nil {
+				log.Printf("Warning: Failed to migrate token for service %s: %v", s.Key, err)
+			} else {
+				migrated++
+			}
+		}
+	}
+	if migrated > 0 {
+		log.Printf("Migrated %d service API token(s) to encrypted storage", migrated)
 	}
 }
