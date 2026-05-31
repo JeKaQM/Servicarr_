@@ -16,31 +16,53 @@ import (
 // urlPattern matches http(s) URLs that may contain tokens/credentials.
 var urlPattern = regexp.MustCompile(`https?://[^\s"'\)\]>]+`)
 
-// sensitiveParams matches query-string parameters that carry secrets.
-var sensitiveParams = regexp.MustCompile(`(?i)((?:token|apikey|api_key|key|secret|password|auth)[=:][^&\s"']*)`)
+// requestURLPrefixPattern strips Go HTTP client prefixes such as:
+// Get "http://host/path?apikey=secret": i/o timeout
+var requestURLPrefixPattern = regexp.MustCompile(`(?i)^(?:Get|Head|Post|Put|Patch|Delete|Options)\s+"(?:https?://[^"]+|\[redacted-url\])":\s*`)
 
-// hostPortPattern matches bare host:port or IP:port patterns that leak service addresses.
-var hostPortPattern = regexp.MustCompile(`(?:(?:dial|connect|lookup)\s+(?:tcp|udp)\s+)([^\s:]+:\d+)`)
+// sensitiveParams matches token-like key/value pairs outside URLs.
+var sensitiveParams = regexp.MustCompile(`(?i)\b(?:x-plex-token|token|apikey|api_key|key|secret|password|auth|authorization)(?:=|:)\s*(?:Bearer\s+)?[^&\s"',]+`)
 
-// SanitizeError strips URLs, tokens, and other sensitive data from
-// error strings so they are safe to store and display publicly.
+var bearerTokenPattern = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
+
+// dialTargetPattern removes network targets while preserving the actual error.
+var dialTargetPattern = regexp.MustCompile(`(?i)\b(?:dial|connect)\s+(?:tcp|udp)\s+(?:\[[^\]]+\]:\d+|[^\s:]+:\d+|\[redacted-host\]):\s*`)
+
+var lookupTargetPattern = regexp.MustCompile(`(?i)\blookup\s+[^\s:]+(?:\s+on\s+(?:\[[^\]]+\]:\d+|[^\s:]+:\d+))?:\s*`)
+var protocolOnlyPattern = regexp.MustCompile(`(?i)^\s*(?:dial|connect)\s+(?:tcp|udp):\s*`)
+var legacyRedactionPattern = regexp.MustCompile(`(?i)\[redacted(?:-[a-z]+)?\]`)
+var whitespacePattern = regexp.MustCompile(`\s+`)
+
+// SanitizeError strips URLs, tokens, and other sensitive data from error strings
+// while keeping the useful failure text suitable for display.
 func SanitizeError(errStr string) string {
 	if errStr == "" {
 		return ""
 	}
-	// Remove full URLs (may contain tokens in path/query)
-	sanitized := urlPattern.ReplaceAllString(errStr, "[redacted-url]")
-	// Remove host:port from dial/connect errors (e.g. "dial tcp 10.0.0.1:8080")
-	sanitized = hostPortPattern.ReplaceAllStringFunc(sanitized, func(match string) string {
-		// Keep the prefix (e.g. "dial tcp") but redact the address
-		idx := strings.LastIndex(match, " ")
-		if idx >= 0 {
-			return match[:idx+1] + "[redacted-host]"
-		}
-		return "[redacted-host]"
-	})
-	// Remove any remaining token-like parameters
-	sanitized = sensitiveParams.ReplaceAllString(sanitized, "[redacted]")
+	sanitized := strings.TrimSpace(errStr)
+
+	// Common net/http errors include the full request URL before the useful
+	// network error. Drop that prefix entirely so credentials cannot leak and
+	// users do not see placeholder text.
+	sanitized = requestURLPrefixPattern.ReplaceAllString(sanitized, "")
+
+	// Keep the actual failure while removing private targets.
+	sanitized = dialTargetPattern.ReplaceAllString(sanitized, "")
+	sanitized = lookupTargetPattern.ReplaceAllString(sanitized, "")
+	sanitized = protocolOnlyPattern.ReplaceAllString(sanitized, "")
+
+	// Defense in depth for arbitrary strings and older stored messages.
+	sanitized = sensitiveParams.ReplaceAllString(sanitized, "credential omitted")
+	sanitized = bearerTokenPattern.ReplaceAllString(sanitized, "Bearer credential omitted")
+	sanitized = urlPattern.ReplaceAllString(sanitized, "request target")
+	sanitized = legacyRedactionPattern.ReplaceAllString(sanitized, "credential omitted")
+
+	sanitized = whitespacePattern.ReplaceAllString(sanitized, " ")
+	sanitized = strings.TrimSpace(sanitized)
+	sanitized = strings.Trim(sanitized, ":- ")
+	if sanitized == "" {
+		return "connection failed"
+	}
 	return sanitized
 }
 
@@ -148,8 +170,9 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 		d := int(time.Since(t0).Milliseconds())
 		ms = &d
 		if err != nil {
-			log.Printf("tcp check error addr=%s err=%v", addr, err)
-			return false, 0, nil, err.Error()
+			safeErr := SanitizeError(err.Error())
+			log.Printf("tcp check error err=%s", safeErr)
+			return false, 0, nil, safeErr
 		}
 		_ = conn.Close()
 		return true, 0, ms, ""
@@ -162,8 +185,9 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 		d := int(time.Since(t0).Milliseconds())
 		ms = &d
 		if err != nil {
-			log.Printf("dns check error hostname=%s err=%v", hostname, err)
-			return false, 0, ms, err.Error()
+			safeErr := SanitizeError(err.Error())
+			log.Printf("dns check error err=%s", safeErr)
+			return false, 0, ms, safeErr
 		}
 		if len(addrs) == 0 {
 			log.Printf("dns check error hostname=%s no addresses returned", hostname)
@@ -228,8 +252,9 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 		d := int(time.Since(t0).Milliseconds())
 		ms = &d
 		if err != nil {
-			log.Printf("http check error url=%s err=%v", url, err)
-			return false, 0, nil, err.Error()
+			safeErr := SanitizeError(err.Error())
+			log.Printf("http check error err=%s", safeErr)
+			return false, 0, nil, safeErr
 		}
 		defer resp.Body.Close()
 		ok = resp.StatusCode >= opts.ExpectedMin && resp.StatusCode <= opts.ExpectedMax

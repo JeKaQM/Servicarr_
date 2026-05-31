@@ -197,6 +197,21 @@ func TestCheck_HTTP_PlexToken(t *testing.T) {
 	}
 }
 
+func TestCheck_HTTP_PlexTokenDoesNotLeakOnError(t *testing.T) {
+	ok, _, _, errStr := Check(CheckOptions{
+		URL:         "http://127.0.0.1:1",
+		Timeout:     100 * time.Millisecond,
+		APIToken:    "plex-token-secret",
+		ServiceType: "plex",
+	})
+	if ok {
+		t.Error("expected closed port check to fail")
+	}
+	if contains(errStr, "plex-token-secret") || contains(errStr, "X-Plex-Token") || contains(errStr, "redacted") {
+		t.Errorf("sensitive token or placeholder leaked: %q", errStr)
+	}
+}
+
 func TestCheck_TCP_Success(t *testing.T) {
 	// Start a TCP listener
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -307,6 +322,12 @@ func TestSanitizeError_StripsHTTPURL(t *testing.T) {
 	if contains(got, "192.168.1.100:32400") || contains(got, "abc123") || contains(got, "X-Plex-Token") {
 		t.Errorf("URL/token leaked: %q", got)
 	}
+	if contains(got, "redacted") {
+		t.Errorf("placeholder leaked into display error: %q", got)
+	}
+	if got != "connect: connection refused" {
+		t.Errorf("got %q, want useful error only", got)
+	}
 }
 
 func TestSanitizeError_StripsHTTPSURL(t *testing.T) {
@@ -314,6 +335,9 @@ func TestSanitizeError_StripsHTTPSURL(t *testing.T) {
 	got := SanitizeError(msg)
 	if contains(got, "overseerr.example.com") {
 		t.Errorf("URL leaked: %q", got)
+	}
+	if got != "i/o timeout" {
+		t.Errorf("got %q, want i/o timeout", got)
 	}
 }
 
@@ -323,6 +347,9 @@ func TestSanitizeError_StripsTautulliAPIKey(t *testing.T) {
 	if contains(got, "secretkey123") || contains(got, "10.0.0.5") {
 		t.Errorf("token/URL leaked: %q", got)
 	}
+	if got != "EOF" {
+		t.Errorf("got %q, want EOF", got)
+	}
 }
 
 func TestSanitizeError_StripsOrphanedTokenParam(t *testing.T) {
@@ -330,6 +357,34 @@ func TestSanitizeError_StripsOrphanedTokenParam(t *testing.T) {
 	got := SanitizeError(msg)
 	if contains(got, "abcdef123456") {
 		t.Errorf("token value leaked: %q", got)
+	}
+	if contains(got, "redacted") {
+		t.Errorf("placeholder leaked into display error: %q", got)
+	}
+	if got != "failed with credential omitted in request" {
+		t.Errorf("got %q, want credential omitted wording", got)
+	}
+}
+
+func TestSanitizeError_StripsAuthorizationBearerToken(t *testing.T) {
+	msg := `request failed with Authorization: Bearer abcdef123456`
+	got := SanitizeError(msg)
+	if contains(got, "abcdef123456") || contains(got, "Authorization") {
+		t.Errorf("authorization token leaked: %q", got)
+	}
+	if got != "request failed with credential omitted" {
+		t.Errorf("got %q, want credential omitted wording", got)
+	}
+}
+
+func TestSanitizeError_CleansLegacyRedactedMessages(t *testing.T) {
+	msg := `Get "[redacted-url]": dial tcp [redacted-host]: connect: connection refused`
+	got := SanitizeError(msg)
+	if contains(got, "redacted") {
+		t.Errorf("legacy placeholder leaked: %q", got)
+	}
+	if got != "connect: connection refused" {
+		t.Errorf("got %q, want useful error only", got)
 	}
 }
 

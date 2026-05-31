@@ -606,7 +606,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 	if err != nil {
 		return map[string]any{
 			"success": false,
-			"error":   "Invalid URL: " + err.Error(),
+			"error":   "Invalid URL: " + checker.SanitizeError(err.Error()),
 		}
 	}
 
@@ -649,7 +649,7 @@ func testServiceConnection(url, apiToken, checkType, serviceType string, timeout
 	if err != nil {
 		return map[string]any{
 			"success":    false,
-			"error":      "Connection failed: " + err.Error(),
+			"error":      "Connection failed: " + checker.SanitizeError(err.Error()),
 			"latency_ms": latency,
 		}
 	}
@@ -684,7 +684,7 @@ func testTCPConnection(url string, timeout int) map[string]any {
 	if err != nil {
 		return map[string]any{
 			"success":    false,
-			"error":      "TCP connection failed: " + err.Error(),
+			"error":      "TCP connection failed: " + checker.SanitizeError(err.Error()),
 			"latency_ms": latency,
 		}
 	}
@@ -709,7 +709,7 @@ func testDNSConnection(url string, timeout int) map[string]any {
 	if err != nil {
 		return map[string]any{
 			"success":    false,
-			"error":      "DNS lookup failed: " + err.Error(),
+			"error":      "DNS lookup failed: " + checker.SanitizeError(err.Error()),
 			"latency_ms": latency,
 		}
 	}

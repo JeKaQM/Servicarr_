@@ -79,13 +79,13 @@
 
 /* ============ Day Detail Dialog ============ */
 .day-detail-dialog {
-  max-width: 560px;
-  width: 92vw;
+  max-width: 720px;
+  width: min(94vw, 720px);
   max-height: 85vh;
   overflow-y: auto;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   color: var(--text);
   padding: 0;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
@@ -100,6 +100,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 20px 24px 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -109,6 +110,8 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .day-detail-content {
@@ -117,8 +120,9 @@
 
 /* Summary stats row */
 .dd-summary {
-  display: flex;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   margin-bottom: 20px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
@@ -128,38 +132,65 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 .dd-stat-val {
   font-size: 20px;
   font-weight: 700;
   color: var(--ok);
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .dd-stat-lbl {
   font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   margin-top: 2px;
 }
 
 /* Hourly bar grid */
-.dd-hour-grid {
-  display: flex;
-  gap: 2px;
-  align-items: flex-end;
+.dd-hour-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
   margin-bottom: 20px;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.dd-hour-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.dd-hour-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dd-hour-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.dd-hour-grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(24px, 1fr));
+  gap: 4px;
+  align-items: end;
+  min-width: 660px;
+  margin-bottom: 0;
 }
 
 .dd-hour-col {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 0;
+  min-width: 24px;
 }
 
 .dd-hour-bar {
@@ -198,10 +229,11 @@
 }
 
 .dd-hour-lbl {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--muted);
   margin-top: 4px;
   white-space: nowrap;
+  line-height: 1;
 }
 
 /* Loading state */
@@ -237,7 +269,7 @@
   font-weight: 600;
   color: var(--down);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   margin-bottom: 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(248, 113, 113, 0.15);
@@ -254,14 +286,16 @@
 }
 
 .dd-event-row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 74px 8px minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: rgba(248, 113, 113, 0.06);
   border: 1px solid rgba(248, 113, 113, 0.1);
   border-radius: 8px;
   font-size: 12px;
+  line-height: 1.4;
 }
 
 .dd-event-time {
@@ -270,6 +304,8 @@
   color: var(--text);
   white-space: nowrap;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
 }
 
 .dd-event-dot {
@@ -278,15 +314,70 @@
   border-radius: 50%;
   background: var(--down);
   flex-shrink: 0;
+  margin-top: 5px;
   box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
 }
 
 .dd-event-detail {
   color: var(--muted);
   font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+@media (max-width: 640px) {
+  .day-detail-dialog {
+    width: 96vw;
+    max-height: 90vh;
+  }
+
+  .day-detail-header {
+    align-items: flex-start;
+    padding: 16px;
+  }
+
+  .day-detail-content {
+    padding: 14px 16px 18px;
+  }
+
+  .dd-summary {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 0 0 14px;
+  }
+
+  .dd-stat {
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .dd-stat-lbl {
+    margin-top: 0;
+    text-align: right;
+  }
+
+  .dd-hour-grid {
+    min-width: 620px;
+  }
+
+  .dd-events-list {
+    max-height: 280px;
+  }
+
+  .dd-event-row {
+    grid-template-columns: 72px 8px minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px;
+  }
 }
 
 /* Lists */
@@ -419,7 +510,7 @@ li {
   align-items: center;
   gap: 3px;
   font-size: 10px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;

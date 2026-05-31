@@ -382,6 +382,48 @@ func TestRecordHeartbeat_DownUpdatesMinutely(t *testing.T) {
 	}
 }
 
+func TestRecordHeartbeat_DedupesContinuousDownIncident(t *testing.T) {
+	initTestDB(t)
+
+	first := RecordHeartbeat("svc-dedupe", false, nil, 0, "connection refused")
+	second := RecordHeartbeat("svc-dedupe", false, nil, 0, "connection refused")
+
+	if !first {
+		t.Fatal("first down heartbeat should be important")
+	}
+	if second {
+		t.Fatal("repeated down heartbeat should not be important")
+	}
+
+	var importantDowns int
+	database.DB.QueryRow(`SELECT COUNT(*) FROM heartbeats WHERE service_key = 'svc-dedupe' AND status = 0 AND important = 1`).Scan(&importantDowns)
+	if importantDowns != 1 {
+		t.Errorf("important down count = %d, want 1", importantDowns)
+	}
+}
+
+func TestRecordHeartbeat_AllowsNewIncidentAfterRecovery(t *testing.T) {
+	initTestDB(t)
+
+	RecordHeartbeat("svc-recur", false, nil, 0, "connection refused")
+	RecordHeartbeat("svc-recur", false, nil, 0, "connection refused")
+	recovered := RecordHeartbeat("svc-recur", true, nil, 200, "")
+	nextDown := RecordHeartbeat("svc-recur", false, nil, 0, "connection refused")
+
+	if !recovered {
+		t.Fatal("recovery heartbeat should be important")
+	}
+	if !nextDown {
+		t.Fatal("down heartbeat after recovery should start a new incident")
+	}
+
+	var importantDowns int
+	database.DB.QueryRow(`SELECT COUNT(*) FROM heartbeats WHERE service_key = 'svc-recur' AND status = 0 AND important = 1`).Scan(&importantDowns)
+	if importantDowns != 2 {
+		t.Errorf("important down count = %d, want 2", importantDowns)
+	}
+}
+
 // --------------- AggregateHourlyStats ---------------
 
 func TestAggregateHourlyStats(t *testing.T) {
