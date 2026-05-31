@@ -338,7 +338,7 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 			degraded := ok && msPtr != nil && *msPtr > 200
 
 			// Record stats
-			stats.RecordHeartbeat(sc.Key, ok, msPtr, code, errMsg)
+			importantHeartbeat := stats.RecordHeartbeat(sc.Key, ok, msPtr, code, errMsg)
 			database.InsertSample(now, sc.Key, ok, code, msPtr)
 
 			// Log the check result
@@ -363,7 +363,9 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				logMsg = "Service degraded (slow response)"
 			}
 
-			_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
+			if ok || importantHeartbeat {
+				_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
+			}
 
 			if errMsg != "" {
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)

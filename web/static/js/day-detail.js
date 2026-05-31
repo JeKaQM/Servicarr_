@@ -10,11 +10,11 @@ async function openDayDetail(serviceKey, dateStr) {
   const dateObj = new Date(dateStr);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-  $('#dayDetailTitle').textContent = serviceName + ' — ' + formattedDate;
+  $('#dayDetailTitle').textContent = serviceName + ' - ' + formattedDate;
 
   const hoursContainer = $('#dayDetailHours');
   const eventsContainer = $('#dayDetailEvents');
-  hoursContainer.innerHTML = '<div class="dd-loading">Loading hourly data…</div>';
+  hoursContainer.innerHTML = '<div class="dd-loading">Loading hourly data...</div>';
   eventsContainer.innerHTML = '';
 
   dialog.showModal();
@@ -52,6 +52,9 @@ function renderDayDetailHours(hours, container) {
   container.appendChild(summaryEl);
 
   // Hour bar grid
+  const gridWrap = document.createElement('div');
+  gridWrap.className = 'dd-hour-scroll';
+
   const grid = document.createElement('div');
   grid.className = 'dd-hour-grid';
 
@@ -94,12 +97,13 @@ function renderDayDetailHours(hours, container) {
     grid.appendChild(col);
   });
 
-  container.appendChild(grid);
+  gridWrap.appendChild(grid);
+  container.appendChild(gridWrap);
 }
 
 function renderDayDetailEvents(events, container) {
   if (!events || events.length === 0) {
-    container.innerHTML = '<div class="dd-no-events"><span class="dd-check-icon">✓</span> No downtime events recorded this day</div>';
+    container.innerHTML = '<div class="dd-no-events"><span class="dd-check-icon">&#10003;</span> No downtime events recorded this day</div>';
     return;
   }
 
@@ -120,14 +124,25 @@ function renderDayDetailEvents(events, container) {
 
     let detail = '';
     if (ev.http_status) detail += 'HTTP ' + ev.http_status;
-    if (ev.error) detail += (detail ? ' — ' : '') + ev.error;
-    if (ev.latency_ms != null) detail += (detail ? ' • ' : '') + ev.latency_ms + 'ms';
+    if (ev.error) detail += (detail ? ' - ' : '') + ev.error;
+    if (ev.latency_ms != null) detail += (detail ? ' | ' : '') + ev.latency_ms + 'ms';
     if (!detail) detail = 'Service unreachable';
 
-    row.innerHTML =
-      '<span class="dd-event-time">' + timeStr + '</span>' +
-      '<span class="dd-event-dot"></span>' +
-      '<span class="dd-event-detail">' + escapeHtml(detail) + '</span>';
+    const timeEl = document.createElement('time');
+    timeEl.className = 'dd-event-time';
+    timeEl.dateTime = ev.time || '';
+    timeEl.textContent = timeStr;
+
+    const dotEl = document.createElement('span');
+    dotEl.className = 'dd-event-dot';
+
+    const detailEl = document.createElement('span');
+    detailEl.className = 'dd-event-detail';
+    detailEl.textContent = detail;
+
+    row.appendChild(timeEl);
+    row.appendChild(dotEl);
+    row.appendChild(detailEl);
 
     list.appendChild(row);
   });

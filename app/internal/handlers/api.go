@@ -405,7 +405,7 @@ func HandleDayDetail() http.HandlerFunc {
 		rows2, err := database.DB.Query(`
 			SELECT hb.time, hb.http_status, hb.msg, hb.ping
 			FROM heartbeats hb
-			WHERE hb.service_key = ? AND hb.status = 0 AND hb.time >= ? AND hb.time < ?
+			WHERE hb.service_key = ? AND hb.status = 0 AND hb.important = 1 AND hb.time >= ? AND hb.time < ?
 			ORDER BY hb.time ASC`,
 			serviceKey, startStr, endStr)
 		if err != nil {

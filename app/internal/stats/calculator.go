@@ -48,6 +48,15 @@ func RemoveCalculator(serviceKey string) {
 
 // AddHeartbeat records a new heartbeat and returns whether it represents a status change.
 func (c *UptimeCalculator) AddHeartbeat(status int, ping *int, httpStatus int, msg string) bool {
+	return c.addHeartbeat(status, ping, httpStatus, msg, nil)
+}
+
+// AddHeartbeatMarked records a heartbeat with caller-provided importance.
+func (c *UptimeCalculator) AddHeartbeatMarked(status int, ping *int, httpStatus int, msg string, important bool) bool {
+	return c.addHeartbeat(status, ping, httpStatus, msg, &important)
+}
+
+func (c *UptimeCalculator) addHeartbeat(status int, ping *int, httpStatus int, msg string, importantOverride *bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -59,10 +68,10 @@ func (c *UptimeCalculator) AddHeartbeat(status int, ping *int, httpStatus int, m
 		Msg:        msg,
 	}
 
-	// Check if this is a status change (important event)
-	if len(c.recentHeartbeats) > 0 {
-		lastStatus := c.recentHeartbeats[len(c.recentHeartbeats)-1].Status
-		hb.Important = lastStatus != status
+	if importantOverride != nil {
+		hb.Important = *importantOverride
+	} else if len(c.recentHeartbeats) > 0 {
+		hb.Important = c.recentHeartbeats[len(c.recentHeartbeats)-1].Status != status
 	} else {
 		hb.Important = true // First heartbeat is always important
 	}

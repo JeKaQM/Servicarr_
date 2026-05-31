@@ -1,14 +1,16 @@
 package stats
 
 import (
+	"database/sql"
 	"log"
 	"status/app/internal/checker"
 	"status/app/internal/database"
 	"time"
 )
 
-// RecordHeartbeat stores a heartbeat and updates statistics
-func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errMsg string) {
+// RecordHeartbeat stores a heartbeat and updates statistics.
+// It returns true when this heartbeat starts a new status period.
+func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errMsg string) bool {
 	calc := GetCalculator(serviceKey)
 
 	// Sanitize error message before storing — prevents leaking URLs/tokens
@@ -19,7 +21,8 @@ func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errM
 		status = 1
 	}
 
-	important := calc.AddHeartbeat(status, ping, httpStatus, safeMsg)
+	important := isImportantHeartbeat(serviceKey, status)
+	calc.AddHeartbeatMarked(status, ping, httpStatus, safeMsg, important)
 
 	// Store in heartbeats table
 	importantInt := 0
@@ -38,6 +41,25 @@ func RecordHeartbeat(serviceKey string, ok bool, ping *int, httpStatus int, errM
 
 	// Update minutely stats
 	updateMinutelyStat(serviceKey, ok, ping)
+	return important
+}
+
+func isImportantHeartbeat(serviceKey string, status int) bool {
+	var lastStatus int
+	err := database.DB.QueryRow(`
+		SELECT status
+		FROM heartbeats
+		WHERE service_key = ?
+		ORDER BY time DESC, id DESC
+		LIMIT 1`, serviceKey).Scan(&lastStatus)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		log.Printf("Error checking previous heartbeat: %v", err)
+		return true
+	}
+	return lastStatus != status
 }
 
 // updateMinutelyStat updates the minutely statistics

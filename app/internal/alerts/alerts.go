@@ -77,6 +77,10 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			var depOK int
 			err := database.DB.QueryRow(`SELECT ok FROM service_status_history WHERE service_key = ?`, dk).Scan(&depOK)
 			if err == nil && depOK == 0 {
+				if !m.statusChanged(serviceKey, ok, degraded) {
+					m.updateStatusHistory(serviceKey, ok, degraded)
+					return
+				}
 				_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
 					"Alert suppressed — upstream dependency down", fmt.Sprintf("depends_on=%s", dk))
 				m.updateStatusHistory(serviceKey, ok, degraded)
@@ -132,6 +136,19 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 
 	// Update status history
 	m.updateStatusHistory(serviceKey, ok, degraded)
+}
+
+func (m *Manager) statusChanged(serviceKey string, ok, degraded bool) bool {
+	var prevOK, prevDegraded int
+	err := database.DB.QueryRow(`SELECT ok, degraded FROM service_status_history WHERE service_key = ?`, serviceKey).
+		Scan(&prevOK, &prevDegraded)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		return true
+	}
+	return prevOK != boolToInt(ok) || prevDegraded != boolToInt(degraded)
 }
 
 // updateStatusHistory persists the current status for comparison on next check
