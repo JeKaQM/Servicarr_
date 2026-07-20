@@ -123,6 +123,16 @@ CREATE TABLE IF NOT EXISTS service_status_history (
   updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS service_outage_state (
+  service_key TEXT PRIMARY KEY,
+  is_down INTEGER NOT NULL DEFAULT 0,
+  down_since TEXT,
+  restored_at TEXT,
+  alert_sent INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_service_outage_state_restored ON service_outage_state(restored_at);
+
 CREATE TABLE IF NOT EXISTS status_alerts (
   id TEXT PRIMARY KEY,
   service_key TEXT,

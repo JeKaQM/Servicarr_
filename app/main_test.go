@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"status/app/internal/database"
+	"status/app/internal/models"
+	"testing"
+	"time"
+)
 
 func TestCheckResultIsConfirmed(t *testing.T) {
 	tests := []struct {
@@ -21,4 +26,50 @@ func TestCheckResultIsConfirmed(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRecordConfirmedServiceState(t *testing.T) {
+	if err := database.Init(":memory:"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateService(&models.ServiceConfig{
+		Key: "svc", Name: "Server", URL: "http://example.test", ServiceType: "custom", CheckType: "http",
+		CheckInterval: 60, Timeout: 2, ExpectedMin: 200, ExpectedMax: 299, Visible: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &testServiceAlertNotifier{queued: true}
+	now := time.Date(2026, time.July, 21, 10, 0, 0, 0, time.UTC)
+
+	if err := recordConfirmedServiceState(notifier, "svc", "Server", false, 1, false, now); err != nil {
+		t.Fatal(err)
+	}
+	states, err := database.GetVisibleServiceOutageStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 0 || notifier.calls != 0 {
+		t.Fatalf("first failure created state=%+v calls=%d", states, notifier.calls)
+	}
+
+	if err := recordConfirmedServiceState(notifier, "svc", "Server", false, 2, false, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	states, err = database.GetVisibleServiceOutageStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 1 || !states[0].IsDown || !states[0].AlertSent || notifier.calls != 1 {
+		t.Fatalf("confirmed failure state=%+v calls=%d", states, notifier.calls)
+	}
+}
+
+type testServiceAlertNotifier struct {
+	queued bool
+	calls  int
+}
+
+func (n *testServiceAlertNotifier) CheckAndSendAlerts(_ string, _ string, _ bool, _ bool) bool {
+	n.calls++
+	return n.queued
 }

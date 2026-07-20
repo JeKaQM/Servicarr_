@@ -382,6 +382,9 @@ func TestDeleteService(t *testing.T) {
 	initTestDB(t)
 	svc := sampleService("svc-delete")
 	id, _ := CreateService(svc)
+	_ = RecordServiceOutageState(svc.Key, true, true, time.Now())
+	_, _ = DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, 0, 0, datetime('now'))`, svc.Key)
+	_ = SetServiceDisabledState(svc.Key, true)
 
 	if err := DeleteService(int(id)); err != nil {
 		t.Fatalf("error: %v", err)
@@ -389,6 +392,15 @@ func TestDeleteService(t *testing.T) {
 	_, err := GetServiceByID(int(id))
 	if err == nil {
 		t.Error("should not find service after delete")
+	}
+	for _, table := range []string{"service_outage_state", "service_status_history", "service_state"} {
+		var count int
+		if err := DB.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE service_key = ?`, svc.Key).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s retained %d rows after service deletion", table, count)
+		}
 	}
 }
 

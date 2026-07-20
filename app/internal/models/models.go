@@ -140,6 +140,8 @@ type StatusAlert struct {
 	Level      string `json:"level"`
 	CreatedAt  string `json:"created_at"`
 	Scheduled  bool   `json:"scheduled,omitempty"`
+	Automatic  bool   `json:"automatic,omitempty"`
+	Kind       string `json:"kind,omitempty"`
 	EndsAt     string `json:"ends_at,omitempty"`
 }
 

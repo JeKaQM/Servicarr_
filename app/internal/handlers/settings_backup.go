@@ -254,6 +254,7 @@ func HandleImportDatabase() http.HandlerFunc {
 			_, _ = database.DB.Exec(`DELETE FROM services`)
 			_, _ = database.DB.Exec(`DELETE FROM service_state`)
 			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
+			_, _ = database.DB.Exec(`DELETE FROM service_outage_state`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
@@ -400,6 +401,7 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"resources_ui_config",
 			"status_alerts",
 			"service_status_history",
+			"service_outage_state",
 			"app_settings",
 			"stat_minutely",
 			"stat_hourly",

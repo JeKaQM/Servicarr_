@@ -57,6 +57,17 @@ function formatScheduledBannerTime(endsAt) {
   return `Ends ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+function formatAutomaticBannerTime(banner) {
+  if (banner?.kind === 'critical_outage') return 'Automatic outage alert';
+  if (banner?.kind === 'services_restored' && banner.ends_at) {
+    const end = new Date(banner.ends_at);
+    if (!Number.isNaN(end.getTime())) {
+      return `Monitoring until ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+  }
+  return 'Automatic status update';
+}
+
 function normalizeAlertLevel(level) {
   const allowed = ['info', 'warning', 'error'];
   return allowed.includes(level) ? level : 'info';
@@ -80,8 +91,18 @@ function renderSiteBanners(banners) {
     const div = document.createElement('div');
     div.className = `site-alert ${level}`;
     div.dataset.id = b.id;
-    const timeStr = b.scheduled ? formatScheduledBannerTime(b.ends_at) : formatBannerTime(b.created_at);
+    const timeStr = b.scheduled
+      ? formatScheduledBannerTime(b.ends_at)
+      : b.automatic
+        ? formatAutomaticBannerTime(b)
+        : formatBannerTime(b.created_at);
     if (b.scheduled) div.dataset.scheduled = 'true';
+    if (b.automatic) {
+      div.classList.add('site-alert-automatic');
+      div.dataset.automaticKind = b.kind || 'status_update';
+      div.setAttribute('role', level === 'error' ? 'alert' : 'status');
+      div.setAttribute('aria-live', level === 'error' ? 'assertive' : 'polite');
+    }
     div.innerHTML = `
       ${getAlertIcon(level)}
       <div class="site-alert-content">

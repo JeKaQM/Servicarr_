@@ -351,15 +351,17 @@ func TestReloadConfig(t *testing.T) {
 func TestCheckAndSendAlerts_DisabledConfig(t *testing.T) {
 	initTestDB(t)
 	m := &Manager{config: &models.AlertConfig{Enabled: false}}
-	// Should do nothing, not panic
-	m.CheckAndSendAlerts("svc1", "Svc One", false, false)
+	if m.CheckAndSendAlerts("svc1", "Svc One", false, false) {
+		t.Fatal("disabled notifications should not report a queued alert")
+	}
 }
 
 func TestCheckAndSendAlerts_NilConfig(t *testing.T) {
 	initTestDB(t)
 	m := &Manager{config: nil}
-	// Should do nothing, not panic
-	m.CheckAndSendAlerts("svc1", "Svc One", false, false)
+	if m.CheckAndSendAlerts("svc1", "Svc One", false, false) {
+		t.Fatal("missing notification config should not report a queued alert")
+	}
 }
 
 func TestCheckAndSendAlerts_FirstTimeDown(t *testing.T) {
@@ -381,7 +383,9 @@ func TestCheckAndSendAlerts_FirstTimeDown(t *testing.T) {
 		},
 	}
 
-	m.CheckAndSendAlerts("test-svc", "Test Service", false, false)
+	if !m.CheckAndSendAlerts("test-svc", "Test Service", false, false) {
+		t.Fatal("configured webhook should report a queued alert")
+	}
 	// dispatchAll sends via goroutine, give it time
 	waitForCondition(t, func() bool { return received }, "webhook should have been called for first-time down")
 }

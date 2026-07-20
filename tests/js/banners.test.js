@@ -120,6 +120,23 @@ describe('formatScheduledBannerTime', () => {
   });
 });
 
+describe('formatAutomaticBannerTime', () => {
+  test('labels a critical outage clearly', () => {
+    expect(formatAutomaticBannerTime({ kind: 'critical_outage' })).toBe('Automatic outage alert');
+  });
+
+  test('shows how long restoration monitoring remains active', () => {
+    expect(formatAutomaticBannerTime({
+      kind: 'services_restored',
+      ends_at: '2026-07-22T10:00:00Z'
+    })).toMatch(/^Monitoring until /);
+  });
+
+  test('falls back for unknown automatic updates', () => {
+    expect(formatAutomaticBannerTime({ kind: 'unknown' })).toBe('Automatic status update');
+  });
+});
+
 describe('normalizeAlertLevel', () => {
   test('info → info', () => {
     expect(normalizeAlertLevel('info')).toBe('info');
@@ -193,6 +210,42 @@ describe('renderSiteBanners', () => {
   test('no-op when container missing', () => {
     document.body.innerHTML = '';
     expect(() => renderSiteBanners([{ id: 1, level: 'info', message: 'x' }])).not.toThrow();
+  });
+
+  test('renders a critical automatic outage as an assertive error', () => {
+    renderSiteBanners([{
+      id: 'automatic:critical-outage',
+      level: 'error',
+      message: 'Critical outage: Core Server is unavailable.',
+      automatic: true,
+      kind: 'critical_outage'
+    }]);
+
+    const alert = document.querySelector('[data-automatic-kind="critical_outage"]');
+    expect(alert).not.toBeNull();
+    expect(alert.classList.contains('error')).toBe(true);
+    expect(alert.classList.contains('site-alert-automatic')).toBe(true);
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.getAttribute('aria-live')).toBe('assertive');
+    expect(alert.textContent).toContain('Automatic outage alert');
+  });
+
+  test('renders restored services as a polite monitoring update', () => {
+    renderSiteBanners([{
+      id: 'automatic:services-restored',
+      level: 'info',
+      message: 'Services have been restored.',
+      automatic: true,
+      kind: 'services_restored',
+      ends_at: '2026-07-22T10:00:00Z'
+    }]);
+
+    const alert = document.querySelector('[data-automatic-kind="services_restored"]');
+    expect(alert).not.toBeNull();
+    expect(alert.classList.contains('info')).toBe(true);
+    expect(alert.getAttribute('role')).toBe('status');
+    expect(alert.getAttribute('aria-live')).toBe('polite');
+    expect(alert.textContent).toContain('Monitoring until');
   });
 });
 

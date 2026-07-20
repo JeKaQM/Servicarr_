@@ -81,6 +81,10 @@ func HandleResetRecent() http.HandlerFunc {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
+		if _, err := database.DB.Exec(`DELETE FROM service_outage_state WHERE is_down = 0 AND restored_at >= ?`, cutoff); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"deleted_recent_incidents": true})
 	}

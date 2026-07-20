@@ -112,6 +112,22 @@
   animation: pulseAlertRed 1.5s ease-in-out infinite;
 }
 
+.site-alert[data-automatic-kind='critical_outage'] {
+  border-width: 2px;
+  background: rgba(69, 10, 10, 0.94);
+}
+
+.site-alert[data-automatic-kind='critical_outage'] .site-alert-time,
+.site-alert[data-automatic-kind='services_restored'] .site-alert-time {
+  font-weight: 700;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+.site-alert[data-automatic-kind='services_restored'] {
+  background: rgba(17, 24, 39, 0.94);
+}
+
 @keyframes pulseAlertBlue {
   0%,
   100% {

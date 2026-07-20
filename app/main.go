@@ -426,14 +426,9 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
 
-			// Do not turn a debounced first failure into a synthetic recovery.
-			// Notification state only advances on a real success or confirmed failure.
-			if checkResultIsConfirmed(checkOK, consecutiveFailures) {
-				name := sc.Name
-				if name == "" {
-					name = sc.Key
-				}
-				alertMgr.CheckAndSendAlerts(sc.Key, name, ok, degraded)
+			// Notification and banner state only advance on a real success or confirmed failure.
+			if err := recordConfirmedServiceState(alertMgr, sc.Key, sc.Name, checkOK, consecutiveFailures, degraded, time.Now()); err != nil {
+				log.Printf("Warning: Failed to record outage state for %s: %v", sc.Key, err)
 			}
 		}
 
@@ -447,6 +442,21 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 
 func checkResultIsConfirmed(checkOK bool, consecutiveFailures int) bool {
 	return checkOK || consecutiveFailures >= 2
+}
+
+type serviceAlertNotifier interface {
+	CheckAndSendAlerts(serviceKey, serviceName string, ok, degraded bool) bool
+}
+
+func recordConfirmedServiceState(notifier serviceAlertNotifier, serviceKey, serviceName string, checkOK bool, consecutiveFailures int, degraded bool, observedAt time.Time) error {
+	if !checkResultIsConfirmed(checkOK, consecutiveFailures) {
+		return nil
+	}
+	if serviceName == "" {
+		serviceName = serviceKey
+	}
+	alertSent := notifier != nil && notifier.CheckAndSendAlerts(serviceKey, serviceName, checkOK, degraded)
+	return database.RecordServiceOutageState(serviceKey, !checkOK, alertSent, observedAt)
 }
 
 // migrateTokenEncryption encrypts any legacy plaintext API tokens at startup

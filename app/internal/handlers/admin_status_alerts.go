@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const serviceRecoveryBannerDuration = 24 * time.Hour
+
 // HandleGetStatusAlerts returns all status alerts
 func HandleGetStatusAlerts() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -46,8 +48,12 @@ func getPublicStatusAlerts(now time.Time) ([]models.StatusAlert, error) {
 		return nil, err
 	}
 	windows, _ := maintenance.Current(now)
-	alerts := make([]models.StatusAlert, 0, len(windows)+len(manual))
+	alerts := make([]models.StatusAlert, 0, len(windows)+len(manual)+1)
+	monitoringSuppressed := false
 	for _, window := range windows {
+		if window.Schedule.SuppressMonitoring {
+			monitoringSuppressed = true
+		}
 		alerts = append(alerts, models.StatusAlert{
 			ID:        "scheduled:" + window.Schedule.ID,
 			Message:   window.Schedule.Message,
@@ -57,7 +63,91 @@ func getPublicStatusAlerts(now time.Time) ([]models.StatusAlert, error) {
 			EndsAt:    window.EndsAt.UTC().Format(time.RFC3339),
 		})
 	}
+	if !monitoringSuppressed {
+		automatic, err := getAutomaticServiceStatusAlert(now)
+		if err != nil {
+			return nil, err
+		}
+		if automatic != nil {
+			alerts = append(alerts, *automatic)
+		}
+	}
 	return append(alerts, manual...), nil
+}
+
+func getAutomaticServiceStatusAlert(now time.Time) (*models.StatusAlert, error) {
+	states, err := database.GetVisibleServiceOutageStates()
+	if err != nil {
+		return nil, err
+	}
+	now = now.UTC()
+
+	down := make([]database.ServiceOutageState, 0)
+	alertSent := false
+	var outageStarted time.Time
+	for _, state := range states {
+		if !state.IsDown {
+			continue
+		}
+		down = append(down, state)
+		alertSent = alertSent || state.AlertSent
+		started := state.UpdatedAt
+		if state.DownSince != nil {
+			started = *state.DownSince
+		}
+		if outageStarted.IsZero() || started.Before(outageStarted) {
+			outageStarted = started
+		}
+	}
+
+	if len(down) > 0 {
+		message := ""
+		if len(down) == 1 {
+			message = fmt.Sprintf("Critical outage: %s is currently unavailable.", down[0].ServiceName)
+		} else {
+			message = fmt.Sprintf("Critical outage: %d services are currently unavailable.", len(down))
+		}
+		if alertSent {
+			message += " An alert has been sent and the outage is being investigated."
+		} else {
+			message += " The outage has been detected and is being investigated."
+		}
+		return &models.StatusAlert{
+			ID:        "automatic:critical-outage",
+			Message:   message,
+			Level:     "error",
+			CreatedAt: outageStarted.UTC().Format(time.RFC3339),
+			Automatic: true,
+			Kind:      "critical_outage",
+		}, nil
+	}
+
+	var latestRestored time.Time
+	for _, state := range states {
+		if state.IsDown || state.RestoredAt == nil {
+			continue
+		}
+		restored := state.RestoredAt.UTC()
+		if !now.Before(restored.Add(serviceRecoveryBannerDuration)) {
+			continue
+		}
+		if restored.After(latestRestored) {
+			latestRestored = restored
+		}
+	}
+	if latestRestored.IsZero() {
+		return nil, nil
+	}
+
+	return &models.StatusAlert{
+		ID:        "automatic:services-restored",
+		Message:   "Services have been restored. Performance is being closely monitored for 24 hours.",
+		Level:     "info",
+		CreatedAt: latestRestored.Format(time.RFC3339),
+		Automatic: true,
+		Kind:      "services_restored",
+		EndsAt:    latestRestored.Add(serviceRecoveryBannerDuration).Format(time.RFC3339),
+	}, nil
 }
 
 func getStatusAlerts() ([]models.StatusAlert, error) {

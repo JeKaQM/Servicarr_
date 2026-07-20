@@ -133,11 +133,12 @@ func (m *Manager) NotifyUPSLineLost(info *resources.UPSInfo) bool {
 	return true
 }
 
-// CheckAndSendAlerts checks for service status changes and sends alerts across all configured channels
-func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degraded bool) {
+// CheckAndSendAlerts checks for service status changes and sends alerts across all configured channels.
+// It reports whether at least one notification was queued for this transition.
+func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degraded bool) bool {
 	config := m.GetConfig()
 	if config == nil || !config.Enabled {
-		return
+		return false
 	}
 	serviceName = cleanNotificationName(serviceName, serviceKey)
 	safeServiceName := html.EscapeString(serviceName)
@@ -157,12 +158,12 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			if err == nil && depOK == 0 {
 				if !m.statusChanged(serviceKey, ok, degraded) {
 					m.updateStatusHistory(serviceKey, ok, degraded)
-					return
+					return false
 				}
 				_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey,
 					"Alert suppressed — upstream dependency down", fmt.Sprintf("depends_on=%s", dk))
 				m.updateStatusHistory(serviceKey, ok, degraded)
-				return
+				return false
 			}
 		}
 	}
@@ -172,23 +173,24 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 	err := database.DB.QueryRow(`SELECT ok, degraded FROM service_status_history WHERE service_key = ?`, serviceKey).
 		Scan(&prevOK, &prevDegraded)
 
+	queued := false
 	if err == sql.ErrNoRows {
 		// First time
 		if !ok && config.AlertOnDown {
 			_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert (first status)", serviceName)
 			subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", safeServiceName)
-			m.dispatchAll(subject, "down", serviceName, serviceKey, message)
+			queued = m.dispatchAll(subject, "down", serviceName, serviceKey, message)
 		} else if ok && degraded && config.AlertOnDegraded {
 			_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert (first status)", serviceName)
 			subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 			message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", safeServiceName)
-			m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
+			queued = m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
 		}
 
 		_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))`,
 			serviceKey, boolToInt(ok), boolToInt(degraded))
-		return
+		return queued
 	}
 
 	prevOKBool := prevOK == 1
@@ -199,21 +201,22 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert", serviceName)
 		subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", safeServiceName)
-		m.dispatchAll(subject, "down", serviceName, serviceKey, message)
+		queued = m.dispatchAll(subject, "down", serviceName, serviceKey, message)
 	} else if ok && !prevOKBool && config.AlertOnUp {
 		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey, "Service RECOVERED - sending alert", serviceName)
 		subject := fmt.Sprintf("✅ Service Recovered: %s", serviceName)
 		message := fmt.Sprintf("Great news! The service <strong>%s</strong> has recovered and is now responding normally to health checks.", safeServiceName)
-		m.dispatchAll(subject, "up", serviceName, serviceKey, message)
+		queued = m.dispatchAll(subject, "up", serviceName, serviceKey, message)
 	} else if ok && degraded && !prevDegradedBool && config.AlertOnDegraded {
 		_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert", serviceName)
 		subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
 		message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", safeServiceName)
-		m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
+		queued = m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
 	}
 
 	// Update status history
 	m.updateStatusHistory(serviceKey, ok, degraded)
+	return queued
 }
 
 func (m *Manager) statusChanged(serviceKey string, ok, degraded bool) bool {
@@ -236,15 +239,16 @@ func (m *Manager) updateStatusHistory(serviceKey string, ok, degraded bool) {
 		serviceKey, boolToInt(ok), boolToInt(degraded), boolToInt(ok), boolToInt(degraded))
 }
 
-// dispatchAll sends a notification across all enabled channels
-func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, message string) {
+// dispatchAll sends a notification across all enabled channels.
+func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, message string) bool {
 	configSnapshot := m.GetConfig()
 	if configSnapshot == nil || !configSnapshot.Enabled {
-		return
+		return false
 	}
 	statusPageURL := m.ResolveStatusPageURL("")
 	config := *configSnapshot
 	sender := &Manager{config: &config, statusPageURL: m.statusPageURL}
+	queued := false
 
 	// Email
 	if config.SMTPHost != "" && config.AlertEmail != "" {
@@ -252,6 +256,7 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 		m.emailQueue.enqueue(func() {
 			_ = sender.SendEmail(subject, body)
 		})
+		queued = true
 	}
 
 	// Discord
@@ -259,6 +264,7 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 		m.discordQueue.enqueue(func() {
 			sender.SendDiscord(subject, statusType, serviceName, message, statusPageURL)
 		})
+		queued = true
 	}
 
 	// Telegram
@@ -266,6 +272,7 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 		m.telegramQueue.enqueue(func() {
 			sender.SendTelegram(subject, statusType, serviceName, message)
 		})
+		queued = true
 	}
 
 	// Generic webhook
@@ -273,7 +280,10 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 		m.webhookQueue.enqueue(func() {
 			sender.SendWebhook(subject, statusType, serviceName, serviceKey, message)
 		})
+		queued = true
 	}
+
+	return queued
 }
 
 func normalizeStatusPageURL(raw string) string {

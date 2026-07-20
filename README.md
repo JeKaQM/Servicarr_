@@ -90,6 +90,8 @@ Set during the setup wizard. Defaults if using env-based config:
 
 The initial recurring window is Monday from 02:55 to 03:25 in `Europe/London`. It can be edited, disabled, or deleted under **Admin > Banners**. While a schedule with monitoring suppression is active, Servicarr shows a maintenance banner and skips service checks, failure tracking, incidents, alert dispatch, heartbeats, samples, and uptime updates.
 
+Outside maintenance, a confirmed service failure creates an automatic critical-outage banner. Once all affected services recover, it is replaced by a restoration banner for 24 hours while performance is monitored. The outage banner only states that an alert was sent when at least one configured notification channel was actually queued.
+
 UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifications**. One email is queued per confirmed outage; NUT connection failures and unknown UPS states do not trigger it.
 
 ## Security
