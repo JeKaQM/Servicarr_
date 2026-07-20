@@ -171,6 +171,20 @@
   border-color: rgba(251, 191, 36, 0.3);
   background: rgba(251, 191, 36, 0.05);
 }
+
+.matrix-node-ring.maintenance {
+  border-color: #f59e0b;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.32);
+}
+
+.matrix-node-ring.maintenance::before {
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+.matrix-node-ring.maintenance .matrix-node-icon,
+.matrix-node-ring.maintenance .matrix-node-icon-placeholder {
+  filter: sepia(1) saturate(1.4) hue-rotate(350deg);
+}
 .matrix-node-ring.degraded::before {
   border-color: rgba(251, 191, 36, 0.4);
   border-style: dotted;

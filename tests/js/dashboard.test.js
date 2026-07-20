@@ -16,6 +16,7 @@ function buildCard(key) {
       <div class="kpi">\u2014</div>
       <div class="kpi-status">\u2014</div>
       <input type="checkbox" class="monitorToggle" checked>
+      <button type="button" class="checkNow">Check now</button>
       <div id="last-check-${key}"></div>
     </section>
   `;
@@ -61,6 +62,25 @@ describe('updCard', () => {
     expect(pill.className).toBe('pill warn');
     const section = document.getElementById(id);
     expect(section.classList.contains('status-disabled')).toBe(true);
+  });
+
+  test('shows maintenance without presenting a service as down', () => {
+    const id = buildCard('maintenance');
+    updCard(id, { ok: true, status: 0, maintenance: true });
+    const card = document.getElementById(id);
+    expect(card.querySelector('.pill').textContent).toBe('MAINTENANCE');
+    expect(card.querySelector('.kpi-status').textContent).toBe('Checks paused');
+    expect(card.querySelector('.kpi').textContent).toBe('\u2014');
+    expect(card.querySelector('.checkNow').disabled).toBe(true);
+    expect(card.classList.contains('status-maintenance')).toBe(true);
+    expect(card.classList.contains('status-down')).toBe(false);
+  });
+
+  test('re-enables Check now after maintenance ends', () => {
+    const id = buildCard('maintenance-recovery');
+    updCard(id, { ok: true, maintenance: true });
+    updCard(id, { ok: true, status: 200, ms: 20 });
+    expect(document.querySelector(`#${id} .checkNow`).disabled).toBe(false);
   });
 
   test('unchecks monitorToggle when disabled', () => {

@@ -14,6 +14,7 @@ import (
 	"status/app/internal/auth"
 	"status/app/internal/crypto"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 
 	"golang.org/x/crypto/bcrypt"
@@ -399,6 +400,8 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			resCfg := &models.ResourcesUIConfig{
 				Enabled:    export.Resources.Enabled,
 				GlancesURL: export.Resources.GlancesURL,
+				NUTHost:    export.Resources.NUTHost,
+				UPSName:    export.Resources.UPSName,
 				CPU:        export.Resources.CPU,
 				Memory:     export.Resources.Memory,
 				Network:    export.Resources.Network,
@@ -410,6 +413,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				Containers: export.Resources.Containers,
 				Processes:  export.Resources.Processes,
 				Uptime:     export.Resources.Uptime,
+				UPS:        export.Resources.UPS,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
@@ -424,6 +428,15 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				}
 				_, _ = database.DB.Exec(`INSERT INTO samples (taken_at, service_key, ok, http_status, latency_ms) VALUES (?, ?, ?, ?, ?)`,
 					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
+			}
+		}
+
+		if export.MaintenanceSchedules != nil {
+			_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
+			for i := range export.MaintenanceSchedules {
+				if maintenance.ValidateSchedule(&export.MaintenanceSchedules[i]) == nil {
+					_ = database.SaveMaintenanceSchedule(&export.MaintenanceSchedules[i])
+				}
 			}
 		}
 
@@ -446,7 +459,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 func SetupRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow setup routes through
-		if r.URL.Path == "/setup" || r.URL.Path == "/api/setup" ||
+		if r.URL.Path == "/healthz" || r.URL.Path == "/setup" || r.URL.Path == "/api/setup" ||
 			r.URL.Path == "/api/setup/status" || r.URL.Path == "/api/setup/service" ||
 			r.URL.Path == "/api/setup/import" ||
 			r.URL.Path == "/api/admin/services/test" { // Allow test connection during setup

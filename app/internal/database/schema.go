@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS resources_ui_config (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	enabled INTEGER NOT NULL DEFAULT 0,
 	glances_url TEXT,
+	nut_host TEXT,
+	ups_name TEXT,
 	cpu INTEGER NOT NULL DEFAULT 1,
 	memory INTEGER NOT NULL DEFAULT 1,
 	network INTEGER NOT NULL DEFAULT 1,
@@ -110,6 +112,7 @@ CREATE TABLE IF NOT EXISTS resources_ui_config (
 	containers INTEGER NOT NULL DEFAULT 0,
 	processes INTEGER NOT NULL DEFAULT 0,
 	uptime INTEGER NOT NULL DEFAULT 0,
+	ups INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT
 );
 
@@ -126,6 +129,34 @@ CREATE TABLE IF NOT EXISTS status_alerts (
   message TEXT NOT NULL,
   level TEXT NOT NULL DEFAULT 'info',
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  message TEXT NOT NULL,
+  level TEXT NOT NULL DEFAULT 'warning',
+  weekday INTEGER NOT NULL,
+  start_time TEXT NOT NULL,
+  duration_minutes INTEGER NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'Europe/London',
+  suppress_monitoring INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ups_monitor_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  source TEXT NOT NULL,
+  power_present INTEGER NOT NULL,
+  loss_notified INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -163,16 +194,20 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	// if the column already exists.
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN storage INTEGER NOT NULL DEFAULT 1;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN glances_url TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN nut_host TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN ups_name TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN swap INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN load INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN gpu INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN containers INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN processes INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN uptime INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN ups INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN status_page_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN smtp_skip_verify INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE app_settings ADD COLUMN app_name TEXT DEFAULT 'Service Status';`)
+	_, _ = DB.Exec(`ALTER TABLE ups_monitor_state ADD COLUMN loss_notified INTEGER NOT NULL DEFAULT 0;`)
 
 	// Multi-channel notification columns
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_webhook_url TEXT;`)
@@ -216,5 +251,5 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_service ON incident_events(service_key);`)
 	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_started ON incident_events(started_at);`)
 
-	return nil
+	return EnsureDefaultMaintenanceSchedule()
 }

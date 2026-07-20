@@ -185,6 +185,60 @@
       <div class="tile-sub">Time since last boot</div>
     </div>
 
+    <div class="resource-tile hidden ups-tile" data-kind="ups">
+      <div class="ups-card-head">
+        <div class="ups-identity">
+          <div class="tile-label">UPS</div>
+          <div class="ups-model" id="res-ups-model">—</div>
+        </div>
+      </div>
+
+      <div class="ups-state ups-state-unknown" id="res-ups-state" role="status" aria-live="polite">
+        <span class="ups-state-label" id="res-ups-state-label">UPS state</span>
+        <strong class="ups-status-text" id="res-ups-status">—</strong>
+      </div>
+
+      <div class="ups-output">
+        <div>
+          <span class="ups-section-label" id="res-ups-output-label">CONNECTED OUTPUT</span>
+          <strong class="ups-output-value" id="res-ups-watts">—</strong>
+        </div>
+        <span class="ups-output-sub" id="res-ups-output-sub">—</span>
+      </div>
+
+      <div class="ups-battery">
+        <div class="ups-battery-row">
+          <span class="ups-section-label">BATTERY</span>
+          <strong id="res-ups-charge">—</strong>
+        </div>
+        <div class="meter ups-meter" aria-hidden="true"><div class="meter-fill" id="meter-ups"></div></div>
+        <div class="ups-runtime-row">
+          <span>Runtime estimate</span>
+          <strong id="res-ups-runtime">—</strong>
+        </div>
+      </div>
+
+      <div class="ups-detail-grid" aria-label="UPS electrical details">
+        <div class="ups-detail-item">
+          <span class="ups-detail-label">Line power</span>
+          <strong class="ups-detail-value" id="res-ups-power">—</strong>
+        </div>
+        <div class="ups-detail-item">
+          <span class="ups-detail-label">UPS load</span>
+          <strong class="ups-detail-value" id="res-ups-load">—</strong>
+        </div>
+        <div class="ups-detail-item">
+          <span class="ups-detail-label">Rated output</span>
+          <strong class="ups-detail-value" id="res-ups-rated">—</strong>
+        </div>
+        <div class="ups-detail-item">
+          <span class="ups-detail-label">Input voltage</span>
+          <strong class="ups-detail-value" id="res-ups-input">—</strong>
+        </div>
+      </div>
+
+    </div>
+
   </div>
 </section>
 {{end}}

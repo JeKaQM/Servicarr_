@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"mime"
 	"net"
 	"net/smtp"
@@ -13,23 +14,24 @@ import (
 
 // SendEmail sends an email alert
 func (m *Manager) SendEmail(subject, body string) error {
-	if m.config == nil || !m.config.Enabled {
+	config := m.GetConfig()
+	if config == nil || !config.Enabled {
 		return nil
 	}
 
-	if m.config.SMTPHost == "" || m.config.AlertEmail == "" {
+	if config.SMTPHost == "" || config.AlertEmail == "" {
 		return errors.New("SMTP configuration incomplete")
 	}
 
-	from := m.config.FromEmail
+	from := config.FromEmail
 	if from == "" {
-		from = m.config.SMTPUser
+		from = config.SMTPUser
 	}
 
 	// Create MIME message with HTML
 	headers := make(map[string]string)
 	headers["From"] = from
-	headers["To"] = m.config.AlertEmail
+	headers["To"] = config.AlertEmail
 	headers["Subject"] = mime.QEncoding.Encode("utf-8", subject)
 	headers["MIME-Version"] = "1.0"
 	headers["Content-Type"] = "text/html; charset=UTF-8"
@@ -40,14 +42,14 @@ func (m *Manager) SendEmail(subject, body string) error {
 	}
 	msg += "\r\n" + body
 
-	host := m.config.SMTPHost
-	port := m.config.SMTPPort
+	host := config.SMTPHost
+	port := config.SMTPPort
 	addr := fmt.Sprintf("%s:%d", host, port)
 
-	c, err := dialSMTP(addr, host, port, m.config.SMTPSkipVerify)
+	c, err := dialSMTP(addr, host, port, config.SMTPSkipVerify)
 	if err == nil {
-		auth := smtp.PlainAuth("", m.config.SMTPUser, m.config.SMTPPassword, host)
-		if ok, _ := c.Extension("AUTH"); ok && m.config.SMTPUser != "" {
+		auth := smtp.PlainAuth("", config.SMTPUser, config.SMTPPassword, host)
+		if ok, _ := c.Extension("AUTH"); ok && config.SMTPUser != "" {
 			if authErr := c.Auth(auth); authErr != nil {
 				_ = c.Close()
 				err = authErr
@@ -63,7 +65,7 @@ func (m *Manager) SendEmail(subject, body string) error {
 	}
 
 	if err == nil {
-		if rcptErr := c.Rcpt(m.config.AlertEmail); rcptErr != nil {
+		if rcptErr := c.Rcpt(config.AlertEmail); rcptErr != nil {
 			_ = c.Close()
 			err = rcptErr
 		}
@@ -88,9 +90,9 @@ func (m *Manager) SendEmail(subject, body string) error {
 
 	// Log email send attempt
 	if err != nil {
-		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, "", "Failed to send email", fmt.Sprintf("to=%s, subject=%s, error=%v", m.config.AlertEmail, subject, err))
+		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, "", "Failed to send email", fmt.Sprintf("to=%s, subject=%s, error=%v", config.AlertEmail, subject, err))
 	} else {
-		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, "", "Email sent successfully", fmt.Sprintf("to=%s, subject=%s", m.config.AlertEmail, subject))
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, "", "Email sent successfully", fmt.Sprintf("to=%s, subject=%s", config.AlertEmail, subject))
 	}
 
 	return err
@@ -100,23 +102,34 @@ func (m *Manager) SendEmail(subject, body string) error {
 func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, statusPageURL string) string {
 	// Status colors and text
 	statusColors := map[string]string{
-		"down":     "#ef4444",
-		"degraded": "#eab308",
-		"up":       "#22c55e",
+		"down":       "#ef4444",
+		"degraded":   "#eab308",
+		"up":         "#22c55e",
+		"power_lost": "#f59e0b",
 	}
 	statusTexts := map[string]string{
-		"down":     "SERVICE DOWN",
-		"degraded": "SERVICE DEGRADED",
-		"up":       "SERVICE UP",
+		"down":       "SERVICE DOWN",
+		"degraded":   "SERVICE DEGRADED",
+		"up":         "SERVICE UP",
+		"power_lost": "POWER LOST",
 	}
 
 	color := statusColors[statusType]
 	statusText := statusTexts[statusType]
+	if color == "" {
+		color = "#9ca3af"
+	}
+	if statusText == "" {
+		statusText = "STATUS UPDATE"
+	}
 
 	// Default URL if not set
 	if statusPageURL == "" {
 		statusPageURL = "#"
 	}
+	safeSubject := html.EscapeString(subject)
+	safeServiceName := html.EscapeString(serviceName)
+	safeStatusPageURL := html.EscapeString(statusPageURL)
 
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -142,7 +155,7 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
                     <div style="color:#9ca3af; font-size:12px; margin-top:4px;">Service Status Monitor</div>
                   </td>
                   <td align="right">
-                    <span style="display:inline-block; padding:6px 10px; border-radius:999px; background-color:rgba(34,197,94,0.16); color:#22c55e; font-size:11px; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
+                    <span style="display:inline-block; padding:6px 10px; border-radius:999px; background-color:#1f2937; color:%s; font-size:11px; font-weight:700; letter-spacing:0.6px; text-transform:uppercase;">
                       %s
                     </span>
                   </td>
@@ -188,7 +201,7 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
     </tr>
   </table>
 </body>
-</html>`, subject, message, statusText, subject, message, serviceName, color, statusText, time.Now().Format("Monday, January 2, 2006 at 3:04 PM MST"), statusPageURL)
+</html>`, safeSubject, message, color, statusText, safeSubject, message, safeServiceName, color, statusText, time.Now().Format("Monday, January 2, 2006 at 3:04 PM MST"), safeStatusPageURL)
 
 	return html
 }

@@ -100,6 +100,192 @@ describe('setMeter', () => {
 });
 
 /* ── applyAdminUIState ──────────────────────────────────── */
+describe('batteryClassForPct', () => {
+  test('null returns empty string', () => {
+    expect(batteryClassForPct(null)).toBe('');
+  });
+  test('100 returns empty (healthy)', () => {
+    expect(batteryClassForPct(100)).toBe('');
+  });
+  test('50 returns "warn"', () => {
+    expect(batteryClassForPct(50)).toBe('warn');
+  });
+  test('20 returns "bad"', () => {
+    expect(batteryClassForPct(20)).toBe('bad');
+  });
+});
+
+describe('setBatteryMeter', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="ups-meter" class="" style="width: 0%"></div>';
+  });
+
+  test('sets width to battery percentage', () => {
+    setBatteryMeter('ups-meter', 87);
+    expect(document.getElementById('ups-meter').style.width).toBe('87%');
+  });
+
+  test('adds "bad" class for low battery', () => {
+    setBatteryMeter('ups-meter', 12);
+    expect(document.getElementById('ups-meter').classList.contains('bad')).toBe(true);
+  });
+
+  test('does not mark full battery as bad', () => {
+    setBatteryMeter('ups-meter', 100);
+    const el = document.getElementById('ups-meter');
+    expect(el.classList.contains('bad')).toBe(false);
+    expect(el.classList.contains('warn')).toBe(false);
+  });
+});
+
+describe('fmtDurationSeconds', () => {
+  test('formats seconds', () => {
+    expect(fmtDurationSeconds(45)).toBe('45s');
+  });
+  test('formats minutes', () => {
+    expect(fmtDurationSeconds(1446)).toBe('24m');
+  });
+  test('formats hours and minutes', () => {
+    expect(fmtDurationSeconds(7320)).toBe('2h 2m');
+  });
+});
+
+describe('fmtWatts', () => {
+  test('formats watts', () => {
+    expect(fmtWatts(86.1)).toBe('86 W');
+  });
+  test('formats kilowatts', () => {
+    expect(fmtWatts(1250)).toBe('1.25 kW');
+  });
+  test('handles missing values', () => {
+    expect(fmtWatts(null)).toBe('—');
+  });
+});
+
+describe('setUPSState', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <section id="card-resources">
+        <div class="resource-tile ups-tile" data-kind="ups"></div>
+      </section>
+      <div id="res-ups-state" class="ups-state ups-state-unknown">
+        <span id="res-ups-state-label"></span>
+        <strong id="res-ups-status"></strong>
+      </div>
+    `;
+  });
+
+  test('marks online UPS as line power present', () => {
+    setUPSState({ power_present: true, status_text: 'Online' });
+
+    expect(document.getElementById('res-ups-state-label').textContent).toBe('Line power present');
+    expect(document.getElementById('res-ups-status').textContent).toBe('Online');
+    expect(document.getElementById('res-ups-state').classList.contains('ups-state-ok')).toBe(true);
+    expect(document.querySelector('[data-kind="ups"]').classList.contains('ups-warning')).toBe(false);
+  });
+
+  test('marks on-battery UPS as warning with readable text', () => {
+    setUPSState({ power_present: false, status_text: 'On battery, Discharging' });
+
+    expect(document.getElementById('res-ups-state-label').textContent).toBe('Mains power lost');
+    expect(document.getElementById('res-ups-status').textContent).toBe('Running on UPS battery - Discharging');
+    expect(document.getElementById('res-ups-state').classList.contains('ups-state-warning')).toBe(true);
+    expect(document.querySelector('[data-kind="ups"]').classList.contains('ups-warning')).toBe(true);
+  });
+
+  test('marks low battery as critical even when line power is present', () => {
+    setUPSState({
+      power_present: true,
+      status: 'OL LB',
+      status_text: 'Online, Low battery',
+      battery_charge_percent: 10
+    });
+
+    expect(document.getElementById('res-ups-state-label').textContent).toBe('Battery critically low');
+    expect(document.getElementById('res-ups-state').classList.contains('ups-state-critical')).toBe(true);
+    expect(document.querySelector('[data-kind="ups"]').classList.contains('ups-critical')).toBe(true);
+    expect(document.querySelector('[data-kind="ups"]').classList.contains('ups-warning')).toBe(false);
+  });
+});
+
+describe('getUPSAlertState', () => {
+  test('does not render a discharging UPS as healthy', () => {
+    expect(getUPSAlertState({ power_present: true, status: 'OL DISCHRG' })).toBe('warning');
+  });
+
+  test('treats overload as critical', () => {
+    expect(getUPSAlertState({ power_present: true, status: 'OL OVER' })).toBe('critical');
+  });
+});
+
+describe('applyResourcesVisibility', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <section id="card-resources" class="hidden">
+        <div class="resource-tile hidden" data-kind="cpu"></div>
+        <div class="resource-tile hidden" data-kind="ups"></div>
+      </section>
+    `;
+  });
+
+  test('shows UPS tile without Glances when NUT is configured', () => {
+    applyResourcesVisibility({
+      enabled: true,
+      glances_url: '',
+      nut_host: 'server.local:3493',
+      ups_name: 'apc',
+      cpu: true,
+      ups: true
+    });
+
+    const section = document.getElementById('card-resources');
+    const cpu = document.querySelector('[data-kind="cpu"]');
+    const ups = document.querySelector('[data-kind="ups"]');
+    expect(section.classList.contains('hidden')).toBe(false);
+    expect(cpu.classList.contains('hidden')).toBe(true);
+    expect(ups.classList.contains('hidden')).toBe(false);
+  });
+
+  test('uses redacted public source flags', () => {
+    applyResourcesVisibility({
+      enabled: true,
+      glances_configured: false,
+      ups_configured: true,
+      cpu: true,
+      ups: true
+    });
+
+    expect(document.getElementById('card-resources').classList.contains('hidden')).toBe(false);
+    expect(document.querySelector('[data-kind="cpu"]').classList.contains('hidden')).toBe(true);
+    expect(document.querySelector('[data-kind="ups"]').classList.contains('hidden')).toBe(false);
+  });
+
+  test('hides section when no source is configured', () => {
+    applyResourcesVisibility({
+      enabled: true,
+      glances_url: '',
+      nut_host: '',
+      ups_name: '',
+      cpu: true,
+      ups: true
+    });
+
+    expect(document.getElementById('card-resources').classList.contains('hidden')).toBe(true);
+  });
+
+  test('hides section when configured sources have no visible tiles', () => {
+    applyResourcesVisibility({
+      enabled: true,
+      glances_configured: true,
+      ups_configured: true,
+      cpu: false,
+      ups: false
+    });
+
+    expect(document.getElementById('card-resources').classList.contains('hidden')).toBe(true);
+  });
+});
+
 describe('applyAdminUIState', () => {
   beforeEach(() => {
     document.body.innerHTML = `

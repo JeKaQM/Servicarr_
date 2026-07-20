@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"status/app/internal/resources"
 	"strings"
 	"testing"
 	"time"
@@ -93,8 +95,8 @@ func TestManager_GetConfig_Set(t *testing.T) {
 	cfg := &models.AlertConfig{Enabled: true, SMTPHost: "smtp.test.com"}
 	m := &Manager{config: cfg}
 	got := m.GetConfig()
-	if got != cfg {
-		t.Error("GetConfig should return the same pointer")
+	if got == cfg {
+		t.Error("GetConfig should return a defensive copy")
 	}
 	if !got.Enabled {
 		t.Error("expected enabled=true")
@@ -105,8 +107,12 @@ func TestManager_SetConfig(t *testing.T) {
 	m := &Manager{}
 	cfg := &models.AlertConfig{Enabled: true}
 	m.SetConfig(cfg)
-	if m.config != cfg {
+	got := m.GetConfig()
+	if got == nil || !got.Enabled {
 		t.Error("SetConfig should update internal config")
+	}
+	if got == cfg {
+		t.Error("SetConfig should retain a defensive copy")
 	}
 }
 
@@ -231,6 +237,21 @@ func TestCreateHTMLEmail_StatusUp_Color(t *testing.T) {
 	}
 	if !strings.Contains(html, "SERVICE UP") {
 		t.Error("should contain SERVICE UP text")
+	}
+}
+
+func TestCreateHTMLEmail_PowerLostStatus(t *testing.T) {
+	html := CreateHTMLEmail("UPS Power Lost", "power_lost", "UPS", "ups", "On battery", "")
+	if !strings.Contains(html, "#f59e0b") || !strings.Contains(html, "POWER LOST") {
+		t.Fatal("power-loss email should use urgent amber status styling")
+	}
+}
+
+func TestNotifyUPSLineLostRequiresEmailConfiguration(t *testing.T) {
+	present := false
+	m := &Manager{config: &models.AlertConfig{Enabled: true}}
+	if m.NotifyUPSLineLost(&resources.UPSInfo{PowerPresent: &present}) {
+		t.Fatal("notification should not queue without SMTP configuration")
 	}
 }
 
@@ -389,12 +410,12 @@ func TestCheckAndSendAlerts_FirstTimeDegraded(t *testing.T) {
 
 func TestCheckAndSendAlerts_StatusChangeDownToUp(t *testing.T) {
 	initTestDB(t)
-	var callCount int
-	var lastPayload map[string]interface{}
+	statuses := make(chan string, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
 		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &lastPayload)
+		var payload map[string]interface{}
+		_ = json.Unmarshal(body, &payload)
+		statuses <- fmt.Sprint(payload["status"])
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -411,14 +432,19 @@ func TestCheckAndSendAlerts_StatusChangeDownToUp(t *testing.T) {
 
 	// First: service goes down
 	m.CheckAndSendAlerts("transition-svc", "Transition Svc", false, false)
-	waitForCondition(t, func() bool { return callCount >= 1 }, "down alert should fire")
 
 	// Second: service recovers
 	m.CheckAndSendAlerts("transition-svc", "Transition Svc", true, false)
-	waitForCondition(t, func() bool { return callCount >= 2 }, "recovery alert should fire")
 
-	if lastPayload["status"] != "up" {
-		t.Errorf("last webhook status = %v, want 'up'", lastPayload["status"])
+	for _, want := range []string{"down", "up"} {
+		select {
+		case got := <-statuses:
+			if got != want {
+				t.Fatalf("webhook status = %q, want %q", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for %q webhook", want)
+		}
 	}
 }
 
@@ -746,8 +772,4 @@ func waitForCondition(t *testing.T, cond func() bool, msg string) {
 
 func waitBriefly() {
 	time.Sleep(5 * time.Millisecond)
-}
-
-func sleepBriefly() {
-	time.Sleep(1 * time.Millisecond)
 }

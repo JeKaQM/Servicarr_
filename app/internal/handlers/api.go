@@ -8,12 +8,22 @@ import (
 	"status/app/internal/cache"
 	"status/app/internal/checker"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
 	"status/app/internal/stats"
 	"strconv"
 	"time"
 )
+
+// HandleHealth reports whether the HTTP process is ready to serve requests.
+// It intentionally avoids service checks so container probes do not affect
+// monitoring state or depend on external services.
+func HandleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
 
 // HandleCheck returns current status of all services
 func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
@@ -29,6 +39,11 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			return
 		}
 
+		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
+		if maintenanceActive {
+			tracker.ResetAll()
+		}
+
 		for _, sc := range dbServices {
 			// Check if monitoring is disabled
 			disabled, _ := database.GetServiceDisabledState(sc.Key)
@@ -40,6 +55,19 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 					MS:          nil,
 					Disabled:    true,
 					Degraded:    false,
+					CheckType:   sc.CheckType,
+					DependsOn:   sc.DependsOn,
+					ConnectedTo: sc.ConnectedTo,
+				}
+				continue
+			}
+
+			if maintenanceActive {
+				out.Status[sc.Key] = models.LiveResult{
+					Label:       sc.Name,
+					OK:          true,
+					Status:      0,
+					Maintenance: true,
 					CheckType:   sc.CheckType,
 					DependsOn:   sc.DependsOn,
 					ConnectedTo: sc.ConnectedTo,
@@ -61,6 +89,20 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 				ServiceType: sc.ServiceType,
 				APIToken:    sc.APIToken,
 			})
+			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+			if maintenanceStarted {
+				tracker.ResetAll()
+				maintenanceActive = true
+				out.Status[sc.Key] = models.LiveResult{
+					Label:       sc.Name,
+					OK:          true,
+					Maintenance: true,
+					CheckType:   sc.CheckType,
+					DependsOn:   sc.DependsOn,
+					ConnectedTo: sc.ConnectedTo,
+				}
+				continue
+			}
 
 			failures := tracker.Update(sc.Key, checkOK)
 

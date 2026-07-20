@@ -69,6 +69,23 @@
   flex-shrink: 0;
 }
 
+@media (max-width: 520px) {
+  .site-alert {
+    align-items: flex-start;
+  }
+
+  .site-alert-content {
+    min-width: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .site-alert-message {
+    overflow-wrap: anywhere;
+  }
+}
+
 .site-alert-service {
   font-size: 11px;
   opacity: 0.8;
@@ -295,4 +312,163 @@
   border-radius: 6px;
   color: #e5e7eb;
   font-size: 14px;
+}
+
+.banner-list-heading {
+  margin-top: 20px;
+}
+
+.maintenance-schedules-section > p.muted {
+  margin-bottom: 18px;
+}
+
+.maintenance-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.maintenance-name-field,
+.maintenance-message-field {
+  grid-column: span 2;
+}
+
+.maintenance-form-grid input[type="time"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  color: #fff;
+  color-scheme: dark;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.maintenance-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 10px 0 16px;
+}
+
+.maintenance-options .toggleLabel {
+  font-size: 13px;
+  color: #d1d5db;
+}
+
+.maintenance-form-actions {
+  justify-content: flex-end;
+}
+
+.maintenance-schedules-list {
+  border-top: 1px solid var(--border);
+}
+
+.maintenance-schedule-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.maintenance-schedule-row.is-disabled {
+  opacity: 0.58;
+}
+
+.maintenance-schedule-row > .banner-item-level {
+  align-self: start;
+  justify-self: start;
+}
+
+.maintenance-schedule-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.maintenance-schedule-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.maintenance-schedule-state {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.maintenance-schedule-message {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  color: #d1d5db;
+}
+
+.maintenance-schedule-meta {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.maintenance-schedule-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .maintenance-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .maintenance-name-field,
+  .maintenance-message-field {
+    grid-column: 1 / -1;
+  }
+
+  .maintenance-schedule-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .maintenance-schedule-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 480px) {
+  .maintenance-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-name-field,
+  .maintenance-message-field {
+    grid-column: auto;
+  }
+
+  .maintenance-options {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .maintenance-schedule-row {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-schedule-actions {
+    grid-column: auto;
+    justify-content: stretch;
+  }
+
+  .maintenance-schedule-actions .btn {
+    flex: 1;
+  }
 }

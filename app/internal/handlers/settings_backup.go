@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"status/app/internal/auth"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"time"
 
@@ -15,13 +16,14 @@ import (
 
 // DatabaseExport represents the exported database structure
 type DatabaseExport struct {
-	Version     string                 `json:"version"`
-	ExportedAt  string                 `json:"exported_at"`
-	AppSettings *exportAppSettings     `json:"app_settings"`
-	Services    []exportService        `json:"services"`
-	AlertConfig *exportAlertConfig     `json:"alert_config"`
-	Resources   *exportResourcesConfig `json:"resources_config"`
-	Samples     []exportSample         `json:"samples"`
+	Version              string                       `json:"version"`
+	ExportedAt           string                       `json:"exported_at"`
+	AppSettings          *exportAppSettings           `json:"app_settings"`
+	Services             []exportService              `json:"services"`
+	AlertConfig          *exportAlertConfig           `json:"alert_config"`
+	Resources            *exportResourcesConfig       `json:"resources_config"`
+	Samples              []exportSample               `json:"samples"`
+	MaintenanceSchedules []models.MaintenanceSchedule `json:"maintenance_schedules"`
 }
 
 type exportService struct {
@@ -63,6 +65,8 @@ type exportAlertConfig struct {
 type exportResourcesConfig struct {
 	Enabled    bool   `json:"enabled"`
 	GlancesURL string `json:"glances_url"`
+	NUTHost    string `json:"nut_host"`
+	UPSName    string `json:"ups_name"`
 	CPU        bool   `json:"cpu"`
 	Memory     bool   `json:"memory"`
 	Network    bool   `json:"network"`
@@ -74,6 +78,7 @@ type exportResourcesConfig struct {
 	Containers bool   `json:"containers"`
 	Processes  bool   `json:"processes"`
 	Uptime     bool   `json:"uptime"`
+	UPS        bool   `json:"ups"`
 }
 
 type exportSample struct {
@@ -148,6 +153,8 @@ func HandleExportDatabase() http.HandlerFunc {
 			export.Resources = &exportResourcesConfig{
 				Enabled:    resCfg.Enabled,
 				GlancesURL: resCfg.GlancesURL,
+				NUTHost:    resCfg.NUTHost,
+				UPSName:    resCfg.UPSName,
 				CPU:        resCfg.CPU,
 				Memory:     resCfg.Memory,
 				Network:    resCfg.Network,
@@ -159,6 +166,7 @@ func HandleExportDatabase() http.HandlerFunc {
 				Containers: resCfg.Containers,
 				Processes:  resCfg.Processes,
 				Uptime:     resCfg.Uptime,
+				UPS:        resCfg.UPS,
 			}
 		}
 
@@ -179,6 +187,10 @@ func HandleExportDatabase() http.HandlerFunc {
 					export.Samples = append(export.Samples, sample)
 				}
 			}
+		}
+
+		if schedules, err := database.GetMaintenanceSchedules(); err == nil {
+			export.MaintenanceSchedules = schedules
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -289,6 +301,8 @@ func HandleImportDatabase() http.HandlerFunc {
 			resCfg := &models.ResourcesUIConfig{
 				Enabled:    export.Resources.Enabled,
 				GlancesURL: export.Resources.GlancesURL,
+				NUTHost:    export.Resources.NUTHost,
+				UPSName:    export.Resources.UPSName,
 				CPU:        export.Resources.CPU,
 				Memory:     export.Resources.Memory,
 				Network:    export.Resources.Network,
@@ -300,6 +314,7 @@ func HandleImportDatabase() http.HandlerFunc {
 				Containers: export.Resources.Containers,
 				Processes:  export.Resources.Processes,
 				Uptime:     export.Resources.Uptime,
+				UPS:        export.Resources.UPS,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
@@ -314,6 +329,15 @@ func HandleImportDatabase() http.HandlerFunc {
 				}
 				_, _ = database.DB.Exec(`INSERT INTO samples (taken_at, service_key, ok, http_status, latency_ms) VALUES (?, ?, ?, ?, ?)`,
 					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
+			}
+		}
+
+		if export.MaintenanceSchedules != nil {
+			_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
+			for i := range export.MaintenanceSchedules {
+				if maintenance.ValidateSchedule(&export.MaintenanceSchedules[i]) == nil {
+					_ = database.SaveMaintenanceSchedule(&export.MaintenanceSchedules[i])
+				}
 			}
 		}
 
@@ -382,11 +406,17 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"stat_daily",
 			"heartbeats",
 			"system_logs",
+			"maintenance_schedules",
+			"maintenance_windows",
+			"incident_events",
+			"ups_monitor_state",
+			"app_metadata",
 		}
 
 		for _, table := range tables {
 			_, _ = database.DB.Exec(`DELETE FROM ` + table)
 		}
+		_ = database.EnsureDefaultMaintenanceSchedule()
 
 		// Generate a fresh random temporary secret
 		tempSecret := make([]byte, 32)

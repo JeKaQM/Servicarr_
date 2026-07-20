@@ -26,7 +26,7 @@
   <p class="muted">Show alerts/banners to visitors about service issues or maintenance</p>
   
   <div class="admin-section">
-    <h3>Create Banner</h3>
+    <h3>Manual Banner</h3>
     <div class="form-group">
       <label for="bannerService">Scope</label>
       <select id="bannerService">
@@ -72,8 +72,85 @@
       <button id="createBanner" class="btn">Create Banner</button>
     </div>
     
-    <h3 style="margin-top: 20px;">Active Banners</h3>
+    <h3 class="banner-list-heading">Active Banners</h3>
     <div id="bannersList"></div>
+  </div>
+
+  <div class="admin-section maintenance-schedules-section">
+    <h3>Scheduled Maintenance</h3>
+    <p class="muted">Recurring windows display a site banner. Monitoring, incidents, and uptime recording can be paused for the full window.</p>
+
+    <form id="maintenanceScheduleForm">
+      <div class="maintenance-form-grid">
+        <div class="form-group maintenance-name-field">
+          <label for="maintenanceName">Name</label>
+          <input type="text" id="maintenanceName" maxlength="100" placeholder="Monday maintenance" required>
+        </div>
+        <div class="form-group maintenance-message-field">
+          <label for="maintenanceMessage">Banner Message</label>
+          <input type="text" id="maintenanceMessage" maxlength="500" placeholder="Scheduled maintenance is in progress." required>
+        </div>
+        <div class="form-group">
+          <label for="maintenanceWeekday">Day</label>
+          <select id="maintenanceWeekday">
+            <option value="0">Sunday</option>
+            <option value="1" selected>Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="maintenanceStartTime">Starts</label>
+          <input type="time" id="maintenanceStartTime" value="02:55" required>
+        </div>
+        <div class="form-group">
+          <label for="maintenanceDuration">Duration (minutes)</label>
+          <input type="number" id="maintenanceDuration" min="1" max="10080" step="1" value="30" required>
+        </div>
+        <div class="form-group">
+          <label for="maintenanceTimezone">Timezone</label>
+          <input type="text" id="maintenanceTimezone" value="Europe/London" list="maintenanceTimezones" required>
+          <datalist id="maintenanceTimezones">
+            <option value="Europe/London"></option>
+            <option value="UTC"></option>
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label for="maintenanceLevel">Banner Type</label>
+          <select id="maintenanceLevel">
+            <option value="info">Info (Blue)</option>
+            <option value="warning" selected>Warning (Yellow)</option>
+            <option value="error">Error (Red)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="maintenance-options">
+        <label class="toggle" for="maintenanceEnabled">
+          <input type="checkbox" id="maintenanceEnabled" checked>
+          <span class="slider"></span>
+          <span class="toggleLabel">Schedule enabled</span>
+        </label>
+        <label class="toggle" for="maintenanceSuppressMonitoring">
+          <input type="checkbox" id="maintenanceSuppressMonitoring" checked>
+          <span class="slider"></span>
+          <span class="toggleLabel">Pause monitoring and uptime recording</span>
+        </label>
+      </div>
+
+      <div class="ops maintenance-form-actions">
+        <button type="button" id="cancelMaintenanceSchedule" class="btn ghost hidden">Cancel</button>
+        <button type="submit" id="saveMaintenanceSchedule" class="btn">Create Schedule</button>
+      </div>
+    </form>
+
+    <h3 class="banner-list-heading">Recurring Schedules</h3>
+    <div id="maintenanceSchedulesList" class="maintenance-schedules-list">
+      <div class="muted">Loading schedules...</div>
+    </div>
   </div>
 </div>
 {{end}}

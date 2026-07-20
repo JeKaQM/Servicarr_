@@ -112,60 +112,56 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	var percpu []glancesPerCPU
 	var diskio []glancesDiskIO
 	var fs []glancesFS
-
-	// Best-effort: ignore individual errors but return a combined error if too many fail.
-	errCount := 0
-
-	if err := c.getJSON(ctx, "/system", &sys); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/cpu", &cpu); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/load", &load); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/mem", &mem); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/memswap", &swap); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/processcount", &pc); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/sensors", &sensors); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/network", &nets); err != nil {
-		errCount++
-	}
-	if err := c.getJSON(ctx, "/percpu", &percpu); err != nil {
-		// Optional in some builds
-	}
-	if err := c.getJSON(ctx, "/diskio", &diskio); err != nil {
-		// Optional in some builds
-	}
-	if err := c.getJSON(ctx, "/fs", &fs); err != nil {
-		// Optional in some builds
-	}
-
-	// GPU metrics (optional)
 	var gpus []glancesGPU
-	if err := c.getJSON(ctx, "/gpu", &gpus); err != nil {
-		// Optional - not all systems have GPUs
-	}
-
-	// Container metrics (optional)
 	var containers []glancesContainer
-	if err := c.getJSON(ctx, "/containers", &containers); err != nil {
-		// Optional - Docker/Podman may not be installed
+	var uptimeStr string
+
+	// Fetch independent endpoints concurrently so a slow optional plugin cannot
+	// multiply the request latency across the whole snapshot.
+	type endpointFetch struct {
+		path     string
+		out      any
+		required bool
+		err      error
+	}
+	fetches := []endpointFetch{
+		{path: "/system", out: &sys, required: true},
+		{path: "/cpu", out: &cpu, required: true},
+		{path: "/load", out: &load, required: true},
+		{path: "/mem", out: &mem, required: true},
+		{path: "/memswap", out: &swap, required: true},
+		{path: "/processcount", out: &pc, required: true},
+		{path: "/sensors", out: &sensors, required: true},
+		{path: "/network", out: &nets, required: true},
+		{path: "/percpu", out: &percpu},
+		{path: "/diskio", out: &diskio},
+		{path: "/fs", out: &fs},
+		{path: "/gpu", out: &gpus},
+		{path: "/containers", out: &containers},
+		{path: "/uptime", out: &uptimeStr},
 	}
 
-	// Uptime as string (optional)
-	var uptimeStr string
-	if err := c.getJSON(ctx, "/uptime", &uptimeStr); err != nil {
-		// Optional
+	const maxConcurrentEndpointFetches = 4
+	fetchSlots := make(chan struct{}, maxConcurrentEndpointFetches)
+	var fetchWG sync.WaitGroup
+	for i := range fetches {
+		fetchWG.Add(1)
+		go func(fetch *endpointFetch) {
+			defer fetchWG.Done()
+			fetchSlots <- struct{}{}
+			defer func() { <-fetchSlots }()
+			fetch.err = c.getJSON(ctx, fetch.path, fetch.out)
+		}(&fetches[i])
+	}
+	fetchWG.Wait()
+
+	// Best-effort: optional endpoints may be absent, but the core source is
+	// considered unavailable when nearly all required endpoints fail.
+	errCount := 0
+	for _, fetch := range fetches {
+		if fetch.required && fetch.err != nil {
+			errCount++
+		}
 	}
 
 	// If everything failed, surface an error.
@@ -389,11 +385,11 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 			if sz == nil || *sz == 0 {
 				continue
 			}
-			if fr == nil && u != nil {
+			if fr == nil && u != nil && *u <= *sz {
 				cfr := *sz - *u
 				fr = &cfr
 			}
-			if u == nil && fr != nil {
+			if u == nil && fr != nil && *fr <= *sz {
 				cu := *sz - *fr
 				u = &cu
 			}

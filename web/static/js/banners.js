@@ -1,11 +1,17 @@
 ﻿/* Banner Functions */
+let bannersLoading = false;
+
 async function loadBanners() {
+  if (bannersLoading) return;
+  bannersLoading = true;
   try {
     const banners = await j('/api/status-alerts');
     renderSiteBanners(banners);
     renderServiceBanners(banners);
   } catch (e) {
     console.error('Failed to load banners', e);
+  } finally {
+    bannersLoading = false;
   }
 }
 
@@ -44,6 +50,13 @@ function formatBannerTime(isoString) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatScheduledBannerTime(endsAt) {
+  if (!endsAt) return 'Scheduled maintenance';
+  const end = new Date(endsAt);
+  if (Number.isNaN(end.getTime())) return 'Scheduled maintenance';
+  return `Ends ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function normalizeAlertLevel(level) {
   const allowed = ['info', 'warning', 'error'];
   return allowed.includes(level) ? level : 'info';
@@ -52,7 +65,11 @@ function normalizeAlertLevel(level) {
 function renderSiteBanners(banners) {
   const container = $('#siteAlerts');
   if (!container) return;
-  container.innerHTML = '';
+
+  // Manual banners refresh independently from automatic system alerts.
+  Array.from(container.children).forEach(child => {
+    if (!child.hasAttribute('data-auto-alert')) child.remove();
+  });
 
   // Only show global banners (no service_key) at the top
   const globalBanners = banners.filter(b => !b.service_key);
@@ -63,7 +80,8 @@ function renderSiteBanners(banners) {
     const div = document.createElement('div');
     div.className = `site-alert ${level}`;
     div.dataset.id = b.id;
-    const timeStr = formatBannerTime(b.created_at);
+    const timeStr = b.scheduled ? formatScheduledBannerTime(b.ends_at) : formatBannerTime(b.created_at);
+    if (b.scheduled) div.dataset.scheduled = 'true';
     div.innerHTML = `
       ${getAlertIcon(level)}
       <div class="site-alert-content">
@@ -73,6 +91,45 @@ function renderSiteBanners(banners) {
     `;
     container.appendChild(div);
   });
+}
+
+function updateUPSLineAlert(ups) {
+  const container = $('#siteAlerts');
+  if (!container) return;
+
+  const existing = container.querySelector('[data-auto-alert="ups-line"]');
+  if (!ups || typeof ups.power_present !== 'boolean') {
+    // An unavailable reading is not proof that mains power recovered.
+    return;
+  }
+
+  if (ups.power_present) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  if (existing) return;
+
+  const div = document.createElement('div');
+  div.className = 'site-alert warning site-alert-automatic';
+  div.dataset.autoAlert = 'ups-line';
+  div.setAttribute('role', 'alert');
+  div.setAttribute('aria-live', 'assertive');
+  div.innerHTML = `
+    ${getAlertIcon('warning')}
+    <div class="site-alert-content">
+      <span class="site-alert-message">Mains power lost. The monitored system is running on UPS battery.</span>
+      <span class="site-alert-time">Automatic UPS warning</span>
+    </div>
+  `;
+  container.prepend(div);
+}
+
+function clearUPSLineAlert() {
+  const container = $('#siteAlerts');
+  if (!container) return;
+  const existing = container.querySelector('[data-auto-alert="ups-line"]');
+  if (existing) existing.remove();
 }
 
 function renderServiceBanners(banners) {
@@ -147,6 +204,147 @@ async function loadAdminBanners() {
     });
   } catch (e) {
     console.error('Failed to load admin banners', e);
+  }
+}
+
+const maintenanceWeekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+let editingMaintenanceScheduleID = '';
+
+async function loadMaintenanceSchedules() {
+  const list = $('#maintenanceSchedulesList');
+  if (!list) return;
+
+  try {
+    const schedules = await j('/api/admin/maintenance-schedules', {
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    renderMaintenanceSchedules(schedules);
+  } catch (e) {
+    console.error('Failed to load maintenance schedules', e);
+    list.innerHTML = '<div class="muted">Unable to load schedules</div>';
+  }
+}
+
+function renderMaintenanceSchedules(schedules) {
+  const list = $('#maintenanceSchedulesList');
+  if (!list) return;
+  if (!Array.isArray(schedules) || schedules.length === 0) {
+    list.innerHTML = '<div class="muted">No recurring schedules</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  schedules.forEach(schedule => {
+    const row = document.createElement('div');
+    row.className = `maintenance-schedule-row${schedule.enabled ? '' : ' is-disabled'}`;
+    const day = maintenanceWeekdays[Number(schedule.weekday)] || 'Unknown day';
+    const name = escapeHtml(schedule.name || 'Scheduled maintenance');
+    const message = escapeHtml(schedule.message || '');
+    const timezone = escapeHtml(schedule.timezone || 'UTC');
+    const level = normalizeAlertLevel(schedule.level);
+    const monitorText = schedule.suppress_monitoring ? 'Monitoring paused' : 'Banner only';
+    const enabledText = schedule.enabled ? 'Enabled' : 'Disabled';
+
+    row.innerHTML = `
+      <span class="banner-item-level ${level}">${level.toUpperCase()}</span>
+      <div class="maintenance-schedule-content">
+        <div class="maintenance-schedule-title">
+          <span>${name}</span>
+          <span class="maintenance-schedule-state">${enabledText}</span>
+        </div>
+        <span class="maintenance-schedule-message">${message}</span>
+        <span class="maintenance-schedule-meta">${day} at ${escapeHtml(schedule.start_time || '')} for ${Number(schedule.duration_minutes) || 0} min | ${timezone} | ${monitorText}</span>
+      </div>
+      <div class="maintenance-schedule-actions">
+        <button type="button" class="btn mini ghost maintenance-edit">Edit</button>
+        <button type="button" class="btn mini danger maintenance-delete">Delete</button>
+      </div>
+    `;
+    row.querySelector('.maintenance-edit').addEventListener('click', () => editMaintenanceSchedule(schedule));
+    row.querySelector('.maintenance-delete').addEventListener('click', () => deleteMaintenanceSchedule(schedule.id));
+    list.appendChild(row);
+  });
+}
+
+function editMaintenanceSchedule(schedule) {
+  editingMaintenanceScheduleID = schedule.id || '';
+  $('#maintenanceName').value = schedule.name || '';
+  $('#maintenanceMessage').value = schedule.message || '';
+  $('#maintenanceWeekday').value = String(schedule.weekday ?? 1);
+  $('#maintenanceStartTime').value = schedule.start_time || '02:55';
+  $('#maintenanceDuration').value = String(schedule.duration_minutes || 30);
+  $('#maintenanceTimezone').value = schedule.timezone || 'Europe/London';
+  $('#maintenanceLevel').value = normalizeAlertLevel(schedule.level);
+  $('#maintenanceEnabled').checked = Boolean(schedule.enabled);
+  $('#maintenanceSuppressMonitoring').checked = Boolean(schedule.suppress_monitoring);
+  $('#saveMaintenanceSchedule').textContent = 'Update Schedule';
+  $('#cancelMaintenanceSchedule').classList.remove('hidden');
+  $('#maintenanceName').focus();
+}
+
+function resetMaintenanceScheduleForm() {
+  editingMaintenanceScheduleID = '';
+  const form = $('#maintenanceScheduleForm');
+  if (form) form.reset();
+  $('#maintenanceWeekday').value = '1';
+  $('#maintenanceStartTime').value = '02:55';
+  $('#maintenanceDuration').value = '30';
+  $('#maintenanceTimezone').value = 'Europe/London';
+  $('#maintenanceLevel').value = 'warning';
+  $('#maintenanceEnabled').checked = true;
+  $('#maintenanceSuppressMonitoring').checked = true;
+  $('#saveMaintenanceSchedule').textContent = 'Create Schedule';
+  $('#cancelMaintenanceSchedule').classList.add('hidden');
+}
+
+async function saveMaintenanceSchedule(event) {
+  if (event) event.preventDefault();
+  const payload = {
+    id: editingMaintenanceScheduleID,
+    name: $('#maintenanceName').value.trim(),
+    message: $('#maintenanceMessage').value.trim(),
+    weekday: Number($('#maintenanceWeekday').value),
+    start_time: $('#maintenanceStartTime').value,
+    duration_minutes: Number($('#maintenanceDuration').value),
+    timezone: $('#maintenanceTimezone').value.trim(),
+    level: $('#maintenanceLevel').value,
+    enabled: $('#maintenanceEnabled').checked,
+    suppress_monitoring: $('#maintenanceSuppressMonitoring').checked
+  };
+
+  if (!payload.name || !payload.message || !payload.start_time || !payload.timezone || payload.duration_minutes < 1) {
+    showToast('Complete all schedule fields', 'error');
+    return;
+  }
+
+  try {
+    await j('/api/admin/maintenance-schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify(payload)
+    });
+    showToast(editingMaintenanceScheduleID ? 'Schedule updated' : 'Schedule created');
+    resetMaintenanceScheduleForm();
+    await Promise.all([loadMaintenanceSchedules(), loadBanners()]);
+  } catch (e) {
+    console.error('Failed to save maintenance schedule', e);
+    showToast('Failed to save schedule', 'error');
+  }
+}
+
+async function deleteMaintenanceSchedule(id) {
+  if (!confirm('Delete this recurring schedule?')) return;
+  try {
+    await j(`/api/admin/maintenance-schedules?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
+    if (editingMaintenanceScheduleID === id) resetMaintenanceScheduleForm();
+    showToast('Schedule deleted');
+    await Promise.all([loadMaintenanceSchedules(), loadBanners()]);
+  } catch (e) {
+    console.error('Failed to delete maintenance schedule', e);
+    showToast('Failed to delete schedule', 'error');
   }
 }
 

@@ -12,6 +12,10 @@ import (
 
 // SendDiscord sends a rich embed message via Discord webhook
 func (m *Manager) SendDiscord(subject, statusType, serviceName, message, statusPageURL string) {
+	config := m.GetConfig()
+	if config == nil || config.DiscordWebhookURL == "" {
+		return
+	}
 	colorMap := map[string]int{"down": 0xef4444, "degraded": 0xeab308, "up": 0x22c55e}
 	color := colorMap[statusType]
 
@@ -34,7 +38,7 @@ func (m *Manager) SendDiscord(subject, statusType, serviceName, message, statusP
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(m.config.DiscordWebhookURL, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(config.DiscordWebhookURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Discord notification failed", err.Error())
 		return

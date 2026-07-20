@@ -35,3 +35,36 @@ describe('getCsrf', () => {
     expect(getCsrf()).toBe('mytoken');
   });
 });
+
+describe('handleButtonAction', () => {
+  let consoleSpy;
+
+  beforeEach(() => {
+    document.body.innerHTML = '<button id="btn"></button>';
+    consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  test('passes parsed response message to custom error handler', async () => {
+    const btn = document.getElementById('btn');
+    const err = new Error('HTTP 502');
+    err.body = { error: 'ups_unavailable', message: 'NUT does not know UPS "ups"' };
+    const onError = jest.fn();
+
+    await handleButtonAction(
+      btn,
+      async () => {
+        throw err;
+      },
+      'ok',
+      onError
+    );
+
+    expect(onError).toHaveBeenCalledWith(err, 'NUT does not know UPS "ups"');
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('loading')).toBe(false);
+  });
+});

@@ -18,6 +18,7 @@ import (
 	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/handlers"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
 	"status/app/internal/resources"
@@ -26,6 +27,9 @@ import (
 )
 
 func main() {
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
+
 	// Load configuration from environment (for basic settings)
 	cfg, err := config.LoadBasic()
 	if err != nil {
@@ -50,6 +54,7 @@ func main() {
 
 	// Create alert manager (loads config from database)
 	alertMgr := alerts.NewManager(cfg.StatusPageURL)
+	go runUPSMonitor(appCtx, alertMgr, 10*time.Second)
 
 	// Migrate services from environment config if needed
 	migrateServicesFromEnv(cfg)
@@ -91,6 +96,7 @@ func main() {
 	go func() {
 		<-quit
 		log.Println("Shutting down server...")
+		cancelApp()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
@@ -103,6 +109,40 @@ func main() {
 		log.Fatalf("Server failed: %v", err)
 	}
 	log.Println("Server stopped gracefully")
+}
+
+func runUPSMonitor(ctx context.Context, alertMgr *alerts.Manager, interval time.Duration) {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastError string
+	var lastErrorLog time.Time
+	poll := func() {
+		err := monitor.PollUPSPower(ctx, alertMgr)
+		if err == nil {
+			lastError = ""
+			return
+		}
+		errText := err.Error()
+		if errText != lastError || time.Since(lastErrorLog) >= 15*time.Minute {
+			log.Printf("UPS monitor unavailable: %v", err)
+			lastError = errText
+			lastErrorLog = time.Now()
+		}
+	}
+
+	poll()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			poll()
+		}
+	}
 }
 
 // createAuthManager creates the auth manager from database settings or falls back to env config
@@ -293,6 +333,14 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 		tracker.Prune(validKeys)
 
 		now := time.Now()
+		maintenanceActive, _, maintenanceErr := maintenance.MonitoringSuppressed(now)
+		if maintenanceErr != nil {
+			log.Printf("Warning: Failed to evaluate maintenance schedules: %v", maintenanceErr)
+		}
+		if maintenanceActive {
+			tracker.ResetAll()
+			continue
+		}
 
 		for _, sc := range dbServices {
 			t := timers[sc.Key]
@@ -327,6 +375,13 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				ServiceType: sc.ServiceType,
 				APIToken:    sc.APIToken,
 			})
+
+			// A check can straddle the start of a maintenance window. Discard it.
+			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+			if maintenanceStarted {
+				tracker.ResetAll()
+				break
+			}
 
 			// Track consecutive failures
 			consecutiveFailures := tracker.Update(sc.Key, checkOK)
@@ -371,12 +426,15 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
 
-			// Send alerts (dependency-aware, multi-channel)
-			name := sc.Name
-			if name == "" {
-				name = sc.Key
+			// Do not turn a debounced first failure into a synthetic recovery.
+			// Notification state only advances on a real success or confirmed failure.
+			if checkResultIsConfirmed(checkOK, consecutiveFailures) {
+				name := sc.Name
+				if name == "" {
+					name = sc.Key
+				}
+				alertMgr.CheckAndSendAlerts(sc.Key, name, ok, degraded)
 			}
-			alertMgr.CheckAndSendAlerts(sc.Key, name, ok, degraded)
 		}
 
 		// Prune old logs every 5 minutes
@@ -385,6 +443,10 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 			lastPrune = now
 		}
 	}
+}
+
+func checkResultIsConfirmed(checkOK bool, consecutiveFailures int) bool {
+	return checkOK || consecutiveFailures >= 2
 }
 
 // migrateTokenEncryption encrypts any legacy plaintext API tokens at startup

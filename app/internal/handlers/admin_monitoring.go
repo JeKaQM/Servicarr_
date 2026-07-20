@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"status/app/internal/checker"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
 	"status/app/internal/stats"
@@ -15,6 +16,13 @@ import (
 func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
+		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
+		if maintenanceActive {
+			tracker.ResetAll()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"saved": false, "maintenance": true, "t": now})
+			return
+		}
 		dbServices, err := database.GetAllServices()
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
@@ -42,6 +50,13 @@ func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 				ServiceType: sc.ServiceType,
 				APIToken:    sc.APIToken,
 			})
+			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+			if maintenanceStarted {
+				tracker.ResetAll()
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"saved": false, "maintenance": true, "t": time.Now().UTC()})
+				return
+			}
 
 			failures := tracker.Update(sc.Key, checkOK)
 			ok := checkOK || failures < 2
@@ -99,6 +114,16 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			return
 		}
 
+		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(time.Now())
+		if maintenanceActive {
+			tracker.ResetAll()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(models.LiveResult{
+				Label: sc.Name, OK: true, Status: 0, Maintenance: true, CheckType: sc.CheckType,
+			})
+			return
+		}
+
 		now := time.Now().UTC()
 		timeout := time.Duration(sc.Timeout) * time.Second
 		if timeout == 0 {
@@ -114,6 +139,15 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			ServiceType: sc.ServiceType,
 			APIToken:    sc.APIToken,
 		})
+		maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+		if maintenanceStarted {
+			tracker.ResetAll()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(models.LiveResult{
+				Label: sc.Name, OK: true, Status: 0, Maintenance: true, CheckType: sc.CheckType,
+			})
+			return
+		}
 
 		failures := tracker.Update(sc.Key, checkOK)
 		ok := checkOK || failures < 2

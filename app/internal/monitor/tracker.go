@@ -38,6 +38,13 @@ func (t *FailureTracker) Reset(key string) {
 	delete(t.counts, key)
 }
 
+// ResetAll clears all pending failure counts, such as when monitoring is paused.
+func (t *FailureTracker) ResetAll() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.counts = make(map[string]int)
+}
+
 // Prune removes entries for services that no longer exist.
 func (t *FailureTracker) Prune(validKeys map[string]struct{}) {
 	t.mu.Lock()

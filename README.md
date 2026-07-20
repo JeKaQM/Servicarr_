@@ -16,9 +16,9 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **20+ Service Templates** — Pre-built templates for Plex, Sonarr, Radarr, Jellyfin, Nextcloud, Home Assistant, Pi-hole and more
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
-- **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances)
+- **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances), plus UPS status, automatic mains-loss warnings and transition-based email alerts via Network UPS Tools
 - **Multi-Channel Alerts** — SMTP, webhook, Discord, Telegram, Gotify, Pushover, ntfy and Apprise notifications
-- **Status Alerts** — Public maintenance/incident banners
+- **Status Alerts** — Manual banners and editable recurring maintenance windows with automatic monitoring and uptime suppression
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
 - **Security** — CSRF protection, CSP headers (no unsafe-inline for scripts), HSTS, IP-based rate limiting, auto-blocking after failed logins, IP whitelist/blacklist, SSRF protection, request body size limits
 - **Responsive** — Mobile-optimised layout with touch-friendly uptime tooltips
@@ -86,6 +86,12 @@ Set during the setup wizard. Defaults if using env-based config:
 - **Username**: `admin`
 - **Password**: Set via `ADMIN_PASSWORD` env var
 
+## Scheduled Maintenance
+
+The initial recurring window is Monday from 02:55 to 03:25 in `Europe/London`. It can be edited, disabled, or deleted under **Admin > Banners**. While a schedule with monitoring suppression is active, Servicarr shows a maintenance banner and skips service checks, failure tracking, incidents, alert dispatch, heartbeats, samples, and uptime updates.
+
+UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifications**. One email is queued per confirmed outage; NUT connection failures and unknown UPS states do not trigger it.
+
 ## Security
 
 - **Rate limiting**: Login 10/min, public API 120/min, health-check 30/min, setup/unblock 5/min per IP
@@ -117,6 +123,7 @@ Servicarr_/
 │       ├── config/             # Env-based configuration
 │       ├── database/           # SQLite schema + CRUD
 │       ├── handlers/           # HTTP handlers + routes
+│       ├── maintenance/        # Recurring schedule evaluation
 │       ├── models/             # Data structures
 │       ├── monitor/            # Consecutive-failure tracker
 │       ├── ratelimit/          # Token-bucket rate limiter
@@ -145,7 +152,7 @@ Servicarr_/
 | `GET` | `/api/metrics/day-detail` | Hour-by-hour breakdown for a specific day |
 | `GET` | `/api/uptime?service=KEY` | Pre-computed uptime stats |
 | `GET` | `/api/heartbeats?service=KEY` | Recent heartbeats |
-| `GET` | `/api/resources` | System resource snapshot (Glances) |
+| `GET` | `/api/resources` | System resource snapshot (Glances and optional NUT UPS) |
 | `GET` | `/api/resources/config` | Resources UI tile visibility |
 | `GET` | `/api/services` | Visible service list |
 | `GET` | `/api/services/templates` | Available service templates |
@@ -192,7 +199,9 @@ Servicarr_/
 | `GET/POST` | `/api/admin/alerts/config` | Get/save alert channel settings |
 | `POST` | `/api/admin/alerts/test` | Send test email notification |
 | `POST` | `/api/admin/alerts/test-channel` | Test any notification channel |
+| `POST` | `/api/admin/resources/test` | Test Glances or NUT without saving settings |
 | `GET/POST/DELETE` | `/api/admin/status-alerts` | Manage maintenance/incident banners |
+| `GET/POST/DELETE` | `/api/admin/maintenance-schedules` | Manage recurring maintenance windows |
 
 ### Admin — Settings (require auth)
 
@@ -230,9 +239,10 @@ docker build -f deploy/Dockerfile -t servicarr:latest .
 
 ```bash
 go test ./...
+npm test -- --runInBand
 ```
 
-Test suites cover 6 packages (76 tests): `auth`, `cache`, `checker`, `monitor`, `ratelimit`, `security`.
+The Go and JavaScript suites cover the backend packages, API handlers, resource clients, security middleware, and browser-side dashboard logic.
 
 ## Troubleshooting
 
@@ -250,6 +260,8 @@ Test suites cover 6 packages (76 tests): `auth`, `cache`, `checker`, `monitor`, 
 - Ensure [Glances](https://github.com/nicolargo/glances) is running and accessible from the container
 - Configure the Glances host:port in **Admin → Resources**
 - Check that Glances API v4 is enabled (default port 61208)
+- For UPS details, ensure NUT `upsd` is reachable from the container (default port 3493)
+- Configure the NUT host:port and UPS name in **Admin → Resources**. For `upsc apc`, the UPS name is `apc`; `upsc -l` lists names exposed by `upsd`
 
 **Login not working?**
 - Clear browser cookies and retry

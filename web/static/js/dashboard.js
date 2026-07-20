@@ -9,6 +9,7 @@ function updCard(id, data) {
   const k = $('.kpi', el);
   const h = $('.kpi-status', el); // More specific selector for status label
   const toggle = $('.monitorToggle', el);
+  const checkNow = $('.checkNow', el);
 
   if (!pill || !k || !h) {
     console.error('Required elements not found in card:', id);
@@ -19,14 +20,28 @@ function updCard(id, data) {
   if (toggle) {
     toggle.checked = !data.disabled;
   }
+  if (checkNow) {
+    checkNow.disabled = Boolean(data.disabled || data.maintenance);
+    checkNow.title = data.maintenance ? 'Checks paused during scheduled maintenance' : '';
+  }
 
   if (data.disabled) {
     pill.textContent = 'DISABLED';
     pill.className = 'pill warn';
-    el.classList.remove('status-up', 'status-down', 'status-degraded');
+    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-maintenance');
     el.classList.add('status-disabled');
     k.textContent = '—';
     h.textContent = 'Monitoring disabled';
+    return;
+  }
+
+  if (data.maintenance) {
+    pill.textContent = 'MAINTENANCE';
+    pill.className = 'pill warn';
+    el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
+    el.classList.add('status-maintenance');
+    k.textContent = '\u2014';
+    h.textContent = 'Checks paused';
     return;
   }
 
@@ -38,7 +53,7 @@ function updCard(id, data) {
   pill.className = cls(data.ok, data.status, data.degraded);
 
   // Update the left accent bar
-  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled');
+  el.classList.remove('status-up', 'status-down', 'status-degraded', 'status-disabled', 'status-maintenance');
   if (data.degraded)  el.classList.add('status-degraded');
   else if (data.ok)   el.classList.add('status-up');
   else                el.classList.add('status-down');

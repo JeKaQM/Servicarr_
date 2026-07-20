@@ -82,6 +82,20 @@ func TestReset_NonexistentKey(t *testing.T) {
 	ft.Reset("nonexistent") // should not panic
 }
 
+func TestResetAll(t *testing.T) {
+	ft := NewFailureTracker()
+	ft.Update("svc1", false)
+	ft.Update("svc2", false)
+	ft.ResetAll()
+
+	if count := ft.Update("svc1", false); count != 1 {
+		t.Fatalf("svc1 count after ResetAll = %d, want 1", count)
+	}
+	if count := ft.Update("svc2", false); count != 1 {
+		t.Fatalf("svc2 count after ResetAll = %d, want 1", count)
+	}
+}
+
 func TestPrune(t *testing.T) {
 	ft := NewFailureTracker()
 
