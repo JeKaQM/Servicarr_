@@ -1,85 +1,50 @@
-# GitHub Actions Workflows
+# GitHub Actions workflows
 
-This directory contains GitHub Actions workflows that ensure code quality and security before merging to main.
+The repository validates every pull request before changes reach `main`, then publishes a release only after the same commit passes CI on `main`.
 
 ## Workflows
 
-### 1. Go CI (`go-ci.yml`)
-Validates Go code quality and functionality:
-- **Lint**: Checks code formatting with `go fmt` and runs `go vet`
-- **Build**: Ensures the application compiles successfully
-- **Test**: Runs all unit tests
+### CI (`ci.yml`)
 
-**Triggers**: Pull requests and pushes to main that affect Go files
+Runs Go formatting and vet checks, verifies version sources, executes Go and JavaScript tests, builds the application, and verifies a Docker container can start. It runs for pull requests and configured branch pushes, including every push to `main`.
 
-### 2. Docker Build Check (`docker-build-check.yml`)
-Validates that the Docker image builds successfully:
-- Builds the Docker image without pushing
-- Uses build cache for efficiency
+### Pull request checks (`pr-checks.yml`)
 
-**Triggers**: Pull requests and pushes to main that affect status-app files
+Validates the PR title and merge state, lists the changed files, and runs the Go security scan.
 
-### 3. Pull Request Checks (`pr-checks.yml`)
-Validates pull request quality:
-- **PR Title Validation**: Ensures descriptive titles (minimum 10 characters)
-- **Merge Conflict Detection**: Checks for conflicts with base branch
-- **File Change Validation**: Verifies that files were actually changed
-- **Security Check**: Runs gosec security scanner on Go code
+### Status check (`status-check.yml`)
 
-**Triggers**: Pull request events (opened, synchronized, reopened)
+Publishes a concise summary of the checks expected before merge.
 
-### 4. Status Check (`status-check.yml`)
-Provides a summary of all required checks:
-- Documents all required status checks
-- Generates a summary report
+### Release (`release.yml`)
 
-**Triggers**: Pull requests to main
+Runs after `CI` succeeds for a push to `main`. Each run:
 
-## Required Checks for Merging
+1. Verifies the tested commit is still in `main`.
+2. Calculates a deterministic semantic version from the release-line version and first-parent commit distance.
+3. Builds and publishes immutable version and commit tags to GHCR.
+4. Verifies the published container reports the calculated version.
+5. Updates floating container tags only when releasing the current `main` commit.
+6. Creates a GitHub Release with generated notes.
 
-To merge a pull request to main, the following checks must pass:
+Release jobs use commit-specific concurrency and immutable tags, so qualifying commits are not discarded when merges happen close together. Failed or cancelled CI runs do not create releases.
 
-1. ✅ **Go Lint** - Code must be properly formatted and pass vet
-2. ✅ **Go Build** - Application must compile successfully
-3. ✅ **Go Test** - All tests must pass
-4. ✅ **Docker Build** - Docker image must build without errors
-5. ✅ **PR Validation** - PR must have descriptive title and no conflicts
-6. ✅ **Security Check** - No critical security vulnerabilities
+### Docker snapshot (`docker-build.yml`)
 
-## Setting Up Branch Protection
+Provides a manual workflow for publishing explicitly marked snapshot images. Snapshots never replace stable `latest` or semantic-version tags.
 
-To enforce these checks, configure branch protection rules in GitHub:
+## Version policy
 
-1. Go to repository **Settings** → **Branches**
-2. Add rule for `main` branch
-3. Enable "Require status checks to pass before merging"
-4. Select the following status checks:
-   - `Lint`
-   - `Build`
-   - `Test`
-   - `Build Docker Image`
-   - `Validate PR`
-   - `Security Check`
-5. Enable "Require branches to be up to date before merging"
-6. Save the protection rule
+`app/internal/buildinfo/VERSION` defines the current release-line base. `package.json` and `package-lock.json` must match it. The release calculator advances the patch once per first-parent commit after that version was established.
 
-## Local Development
+To start a new major or minor line, update all three version sources in one pull request. The merge of that pull request releases the exact requested version; later merges advance its patch number automatically.
 
-Before pushing code, you can run these checks locally:
+## Local validation
 
 ```bash
-# Format check
-cd status-app && gofmt -l .
-
-# Vet check
-cd status-app && go vet ./...
-
-# Build check
-cd status-app && go build ./...
-
-# Run tests
-cd status-app && go test ./...
-
-# Docker build check
-cd status-app && docker build -f deploy/Dockerfile -t servicarr:test .
+go test ./...
+npm test -- --runInBand
+go vet ./...
+docker build --build-arg APP_VERSION=1.0.1 --build-arg VCS_REF=local -f deploy/Dockerfile -t servicarr:test .
+docker run --rm --entrypoint status servicarr:test --version
 ```

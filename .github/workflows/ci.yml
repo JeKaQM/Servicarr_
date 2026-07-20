@@ -38,8 +38,9 @@ jobs:
         run: |
           APP_VERSION=$(tr -d '\r\n' < app/internal/buildinfo/VERSION)
           PACKAGE_VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -1)
-          test "$APP_VERSION" = "$PACKAGE_VERSION" || {
-            echo "::error::Embedded version $APP_VERSION does not match package.json $PACKAGE_VERSION"
+          LOCK_VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package-lock.json | head -1)
+          test "$APP_VERSION" = "$PACKAGE_VERSION" && test "$APP_VERSION" = "$LOCK_VERSION" || {
+            echo "::error::Version mismatch: app=$APP_VERSION package=$PACKAGE_VERSION lock=$LOCK_VERSION"
             exit 1
           }
 
