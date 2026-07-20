@@ -6,8 +6,11 @@ import (
 	"io"
 	"net/http"
 	"status/app/internal/auth"
+	"status/app/internal/buildinfo"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -15,13 +18,17 @@ import (
 
 // DatabaseExport represents the exported database structure
 type DatabaseExport struct {
-	Version     string                 `json:"version"`
-	ExportedAt  string                 `json:"exported_at"`
-	AppSettings *exportAppSettings     `json:"app_settings"`
-	Services    []exportService        `json:"services"`
-	AlertConfig *exportAlertConfig     `json:"alert_config"`
-	Resources   *exportResourcesConfig `json:"resources_config"`
-	Samples     []exportSample         `json:"samples"`
+	Version              string                       `json:"version"`
+	ApplicationVersion   string                       `json:"application_version,omitempty"`
+	ApplicationCommit    string                       `json:"application_commit,omitempty"`
+	DatabaseSchema       int                          `json:"database_schema,omitempty"`
+	ExportedAt           string                       `json:"exported_at"`
+	AppSettings          *exportAppSettings           `json:"app_settings"`
+	Services             []exportService              `json:"services"`
+	AlertConfig          *exportAlertConfig           `json:"alert_config"`
+	Resources            *exportResourcesConfig       `json:"resources_config"`
+	Samples              []exportSample               `json:"samples"`
+	MaintenanceSchedules []models.MaintenanceSchedule `json:"maintenance_schedules"`
 }
 
 type exportService struct {
@@ -63,6 +70,8 @@ type exportAlertConfig struct {
 type exportResourcesConfig struct {
 	Enabled    bool   `json:"enabled"`
 	GlancesURL string `json:"glances_url"`
+	NUTHost    string `json:"nut_host"`
+	UPSName    string `json:"ups_name"`
 	CPU        bool   `json:"cpu"`
 	Memory     bool   `json:"memory"`
 	Network    bool   `json:"network"`
@@ -74,6 +83,7 @@ type exportResourcesConfig struct {
 	Containers bool   `json:"containers"`
 	Processes  bool   `json:"processes"`
 	Uptime     bool   `json:"uptime"`
+	UPS        bool   `json:"ups"`
 }
 
 type exportSample struct {
@@ -92,9 +102,13 @@ func HandleExportDatabase() http.HandlerFunc {
 			return
 		}
 
+		build := buildinfo.Current()
 		export := DatabaseExport{
-			Version:    "1.0",
-			ExportedAt: time.Now().UTC().Format(time.RFC3339),
+			Version:            "1.0",
+			ApplicationVersion: build.Version,
+			ApplicationCommit:  build.Commit,
+			DatabaseSchema:     database.SchemaVersion,
+			ExportedAt:         time.Now().UTC().Format(time.RFC3339),
 		}
 
 		// Export app settings (without sensitive data)
@@ -148,6 +162,8 @@ func HandleExportDatabase() http.HandlerFunc {
 			export.Resources = &exportResourcesConfig{
 				Enabled:    resCfg.Enabled,
 				GlancesURL: resCfg.GlancesURL,
+				NUTHost:    resCfg.NUTHost,
+				UPSName:    resCfg.UPSName,
 				CPU:        resCfg.CPU,
 				Memory:     resCfg.Memory,
 				Network:    resCfg.Network,
@@ -159,6 +175,7 @@ func HandleExportDatabase() http.HandlerFunc {
 				Containers: resCfg.Containers,
 				Processes:  resCfg.Processes,
 				Uptime:     resCfg.Uptime,
+				UPS:        resCfg.UPS,
 			}
 		}
 
@@ -179,6 +196,10 @@ func HandleExportDatabase() http.HandlerFunc {
 					export.Samples = append(export.Samples, sample)
 				}
 			}
+		}
+
+		if schedules, err := database.GetMaintenanceSchedules(); err == nil {
+			export.MaintenanceSchedules = schedules
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -236,12 +257,19 @@ func HandleImportDatabase() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
 			return
 		}
+		if export.DatabaseSchema > database.SchemaVersion {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Backup requires a newer Servicarr database schema"})
+			return
+		}
 
 		// Import services (clear existing first)
 		if len(export.Services) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM services`)
 			_, _ = database.DB.Exec(`DELETE FROM service_state`)
 			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
+			_, _ = database.DB.Exec(`DELETE FROM service_outage_state`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
@@ -289,6 +317,8 @@ func HandleImportDatabase() http.HandlerFunc {
 			resCfg := &models.ResourcesUIConfig{
 				Enabled:    export.Resources.Enabled,
 				GlancesURL: export.Resources.GlancesURL,
+				NUTHost:    export.Resources.NUTHost,
+				UPSName:    export.Resources.UPSName,
 				CPU:        export.Resources.CPU,
 				Memory:     export.Resources.Memory,
 				Network:    export.Resources.Network,
@@ -300,6 +330,7 @@ func HandleImportDatabase() http.HandlerFunc {
 				Containers: export.Resources.Containers,
 				Processes:  export.Resources.Processes,
 				Uptime:     export.Resources.Uptime,
+				UPS:        export.Resources.UPS,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
@@ -316,6 +347,16 @@ func HandleImportDatabase() http.HandlerFunc {
 					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
 			}
 		}
+
+		if export.MaintenanceSchedules != nil {
+			_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
+			for i := range export.MaintenanceSchedules {
+				if maintenance.ValidateSchedule(&export.MaintenanceSchedules[i]) == nil {
+					_ = database.SaveMaintenanceSchedule(&export.MaintenanceSchedules[i])
+				}
+			}
+		}
+		logBackupImport(export)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "services_imported": len(export.Services)})
@@ -376,17 +417,26 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"resources_ui_config",
 			"status_alerts",
 			"service_status_history",
+			"service_outage_state",
 			"app_settings",
 			"stat_minutely",
 			"stat_hourly",
 			"stat_daily",
 			"heartbeats",
 			"system_logs",
+			"maintenance_schedules",
+			"maintenance_windows",
+			"incident_events",
+			"ups_monitor_state",
+			"app_metadata",
+			"software_deployments",
 		}
 
 		for _, table := range tables {
 			_, _ = database.DB.Exec(`DELETE FROM ` + table)
 		}
+		_ = database.EnsureSchema()
+		_ = database.RecordSoftwareDeployment(buildinfo.Current())
 
 		// Generate a fresh random temporary secret
 		tempSecret := make([]byte, 32)
@@ -400,4 +450,19 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Database reset complete"})
 	}
+}
+
+func logBackupImport(export DatabaseExport) {
+	sourceVersion := export.ApplicationVersion
+	if sourceVersion == "" {
+		sourceVersion = "unknown"
+	}
+	details := "backup_format=" + export.Version + ", source_version=" + sourceVersion
+	if export.DatabaseSchema > 0 {
+		details += ", source_database_schema=" + strconv.Itoa(export.DatabaseSchema)
+	}
+	if export.ApplicationCommit != "" && export.ApplicationCommit != "unknown" {
+		details += ", source_commit=" + export.ApplicationCommit
+	}
+	_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Database backup imported", details)
 }

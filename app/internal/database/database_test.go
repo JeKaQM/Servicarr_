@@ -32,6 +32,103 @@ func TestEnsureSchema_Idempotent(t *testing.T) {
 	}
 }
 
+func TestDefaultMaintenanceScheduleSeededOnce(t *testing.T) {
+	initTestDB(t)
+	schedules, err := GetMaintenanceSchedules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schedules) != 1 {
+		t.Fatalf("got %d schedules, want 1", len(schedules))
+	}
+	got := schedules[0]
+	if got.Weekday != int(time.Monday) || got.StartTime != "02:55" || got.DurationMinutes != 30 || got.Timezone != "Europe/London" {
+		t.Fatalf("unexpected default schedule: %+v", got)
+	}
+	if !got.Enabled || !got.SuppressMonitoring {
+		t.Fatalf("default schedule should be enabled and suppress monitoring: %+v", got)
+	}
+
+	if err := EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	schedules, _ = GetMaintenanceSchedules()
+	if len(schedules) != 1 {
+		t.Fatalf("schema rerun duplicated default schedule: got %d", len(schedules))
+	}
+}
+
+func TestDeletedDefaultMaintenanceScheduleStaysDeleted(t *testing.T) {
+	initTestDB(t)
+	if err := DeleteMaintenanceSchedule("weekly-monday-maintenance"); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	schedules, err := GetMaintenanceSchedules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schedules) != 0 {
+		t.Fatalf("deleted default schedule was recreated: %+v", schedules)
+	}
+}
+
+func TestMaintenanceScheduleCRUD(t *testing.T) {
+	initTestDB(t)
+	schedule := &models.MaintenanceSchedule{
+		ID: "custom", Name: "Custom", Message: "Maintenance", Level: "info",
+		Weekday: 3, StartTime: "04:00", DurationMinutes: 45, Timezone: "UTC",
+		SuppressMonitoring: true, Enabled: true,
+	}
+	if err := SaveMaintenanceSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	schedule.Name = "Updated"
+	schedule.Enabled = false
+	if err := SaveMaintenanceSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	schedules, err := GetMaintenanceSchedules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *models.MaintenanceSchedule
+	for i := range schedules {
+		if schedules[i].ID == "custom" {
+			found = &schedules[i]
+		}
+	}
+	if found == nil || found.Name != "Updated" || found.Enabled {
+		t.Fatalf("updated schedule not found: %+v", found)
+	}
+	if err := DeleteMaintenanceSchedule("custom"); err != nil {
+		t.Fatal(err)
+	}
+	schedules, _ = GetMaintenanceSchedules()
+	for _, item := range schedules {
+		if item.ID == "custom" {
+			t.Fatal("deleted schedule still returned")
+		}
+	}
+}
+
+func TestUPSPowerStateRoundTrip(t *testing.T) {
+	initTestDB(t)
+	if _, _, _, found, err := LoadUPSPowerState(); err != nil || found {
+		t.Fatalf("initial state found=%v err=%v", found, err)
+	}
+	if err := SaveUPSPowerState("host:3493/apc", false, true); err != nil {
+		t.Fatal(err)
+	}
+	source, present, notified, found, err := LoadUPSPowerState()
+	if err != nil || !found || source != "host:3493/apc" || present || !notified {
+		t.Fatalf("unexpected UPS state: source=%q present=%v notified=%v found=%v err=%v", source, present, notified, found, err)
+	}
+}
+
 // --------------- InsertSample / Samples ---------------
 
 func TestInsertSample(t *testing.T) {
@@ -285,6 +382,9 @@ func TestDeleteService(t *testing.T) {
 	initTestDB(t)
 	svc := sampleService("svc-delete")
 	id, _ := CreateService(svc)
+	_ = RecordServiceOutageState(svc.Key, true, true, time.Now())
+	_, _ = DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, 0, 0, datetime('now'))`, svc.Key)
+	_ = SetServiceDisabledState(svc.Key, true)
 
 	if err := DeleteService(int(id)); err != nil {
 		t.Fatalf("error: %v", err)
@@ -292,6 +392,15 @@ func TestDeleteService(t *testing.T) {
 	_, err := GetServiceByID(int(id))
 	if err == nil {
 		t.Error("should not find service after delete")
+	}
+	for _, table := range []string{"service_outage_state", "service_status_history", "service_state"} {
+		var count int
+		if err := DB.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE service_key = ?`, svc.Key).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s retained %d rows after service deletion", table, count)
+		}
 	}
 }
 
@@ -562,6 +671,8 @@ func TestSaveAndLoadResourcesUIConfig(t *testing.T) {
 	cfg := &models.ResourcesUIConfig{
 		Enabled:    true,
 		GlancesURL: "http://10.0.0.1:61208",
+		NUTHost:    "10.0.0.1:3493",
+		UPSName:    "apc",
 		CPU:        true,
 		Memory:     true,
 		Network:    true,
@@ -573,6 +684,7 @@ func TestSaveAndLoadResourcesUIConfig(t *testing.T) {
 		Containers: true,
 		Processes:  false,
 		Uptime:     true,
+		UPS:        true,
 	}
 	SaveResourcesUIConfig(cfg)
 
@@ -589,6 +701,12 @@ func TestSaveAndLoadResourcesUIConfig(t *testing.T) {
 	if loaded.GlancesURL != "http://10.0.0.1:61208" {
 		t.Errorf("glances_url = %q", loaded.GlancesURL)
 	}
+	if loaded.NUTHost != "10.0.0.1:3493" {
+		t.Errorf("nut_host = %q", loaded.NUTHost)
+	}
+	if loaded.UPSName != "apc" {
+		t.Errorf("ups_name = %q", loaded.UPSName)
+	}
 	if !loaded.GPU {
 		t.Error("gpu should be true")
 	}
@@ -597,6 +715,9 @@ func TestSaveAndLoadResourcesUIConfig(t *testing.T) {
 	}
 	if !loaded.Uptime {
 		t.Error("uptime should be true")
+	}
+	if !loaded.UPS {
+		t.Error("ups should be true")
 	}
 }
 

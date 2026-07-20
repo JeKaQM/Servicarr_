@@ -60,6 +60,7 @@ type LiveResult struct {
 	MS          *int   `json:"ms,omitempty"`
 	Disabled    bool   `json:"disabled"`
 	Degraded    bool   `json:"degraded"`
+	Maintenance bool   `json:"maintenance,omitempty"`
 	CheckType   string `json:"check_type,omitempty"`
 	DependsOn   string `json:"depends_on,omitempty"`   // Comma-separated upstream dependency keys
 	ConnectedTo string `json:"connected_to,omitempty"` // Comma-separated connected/integrated service keys
@@ -101,6 +102,8 @@ type AlertConfig struct {
 type ResourcesUIConfig struct {
 	Enabled    bool   `json:"enabled"`
 	GlancesURL string `json:"glances_url"` // Host:port for Glances (e.g., 10.0.0.2:61208)
+	NUTHost    string `json:"nut_host"`    // Host:port for NUT upsd (e.g., 10.0.0.2:3493)
+	UPSName    string `json:"ups_name"`    // UPS name in NUT (e.g., apc)
 	CPU        bool   `json:"cpu"`
 	Memory     bool   `json:"memory"`
 	Network    bool   `json:"network"`
@@ -112,6 +115,7 @@ type ResourcesUIConfig struct {
 	Containers bool   `json:"containers"`
 	Processes  bool   `json:"processes"`
 	Uptime     bool   `json:"uptime"`
+	UPS        bool   `json:"ups"`
 }
 
 // ServiceStatus tracks service state for change detection
@@ -135,6 +139,26 @@ type StatusAlert struct {
 	Message    string `json:"message"`
 	Level      string `json:"level"`
 	CreatedAt  string `json:"created_at"`
+	Scheduled  bool   `json:"scheduled,omitempty"`
+	Automatic  bool   `json:"automatic,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	EndsAt     string `json:"ends_at,omitempty"`
+}
+
+// MaintenanceSchedule describes a recurring weekly maintenance banner.
+type MaintenanceSchedule struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Message            string `json:"message"`
+	Level              string `json:"level"`
+	Weekday            int    `json:"weekday"`
+	StartTime          string `json:"start_time"`
+	DurationMinutes    int    `json:"duration_minutes"`
+	Timezone           string `json:"timezone"`
+	SuppressMonitoring bool   `json:"suppress_monitoring"`
+	Enabled            bool   `json:"enabled"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // AppSettings stores application configuration including auth credentials

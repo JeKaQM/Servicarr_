@@ -22,7 +22,8 @@ function updateHealthDot(statusMap) {
   let hasDown = false, hasDegraded = false, hasUp = false;
   Object.values(statusMap).forEach(s => {
     if (s.disabled) return;
-    if (!s.ok) hasDown = true;
+    if (s.maintenance) hasDegraded = true;
+    else if (!s.ok) hasDown = true;
     else if (s.degraded) hasDegraded = true;
     else hasUp = true;
   });
@@ -37,9 +38,10 @@ function updateStatusSummary(statusMap) {
   const bar = $('#statusSummary');
   if (!bar) return;
 
-  let up = 0, down = 0, degraded = 0, disabled = 0;
+  let up = 0, down = 0, degraded = 0, disabled = 0, maintenance = 0;
   Object.values(statusMap).forEach(s => {
     if (s.disabled)      disabled++;
+    else if (s.maintenance) maintenance++;
     else if (!s.ok)      down++;
     else if (s.degraded) degraded++;
     else                 up++;
@@ -50,6 +52,7 @@ function updateStatusSummary(statusMap) {
   if (down > 0)     parts.push('<span class="status-summary-item"><span class="status-summary-dot down"></span><span class="status-summary-count">' + down + '</span> Down</span>');
   if (degraded > 0) parts.push('<span class="status-summary-item"><span class="status-summary-dot degraded"></span><span class="status-summary-count">' + degraded + '</span> Degraded</span>');
   if (disabled > 0) parts.push('<span class="status-summary-item"><span class="status-summary-dot disabled"></span><span class="status-summary-count">' + disabled + '</span> Disabled</span>');
+  if (maintenance > 0) parts.push('<span class="status-summary-item"><span class="status-summary-dot maintenance"></span><span class="status-summary-count">' + maintenance + '</span> Maintenance</span>');
 
   bar.innerHTML = parts.join('');
 }
@@ -85,6 +88,7 @@ function matrixStatusOf(svc) {
   if (latestLiveStatus && latestLiveStatus[svc.key]) {
     const s = latestLiveStatus[svc.key];
     if (s.disabled)       { statusClass = 'disabled'; statusLabel = 'Disabled'; }
+    else if (s.maintenance) { statusClass = 'maintenance'; statusLabel = 'Maintenance'; }
     else if (!s.ok)       { statusClass = 'down';     statusLabel = 'Down';     }
     else if (s.degraded)  { statusClass = 'degraded'; statusLabel = 'Degraded'; }
     else                  { statusClass = 'up';       statusLabel = 'Operational'; }
@@ -97,6 +101,7 @@ const MATRIX_COLORS = {
   up:       { r: 34,  g: 197, b: 94  },
   down:     { r: 248, g: 113, b: 113 },
   degraded: { r: 251, g: 191, b: 36  },
+  maintenance: { r: 245, g: 158, b: 11 },
   disabled: { r: 100, g: 116, b: 139 },
   unknown:  { r: 100, g: 116, b: 139 },
   hub:      { r: 99,  g: 102, b: 241 }
@@ -130,7 +135,7 @@ function animateMatrixLines(canvas, nodePositions) {
       const col = MATRIX_COLORS[n.status] || MATRIX_COLORS.unknown;
       const isDisabled = n.status === 'disabled';
       const isDown     = n.status === 'down';
-      const isDegraded = n.status === 'degraded';
+      const isDegraded = n.status === 'degraded' || n.status === 'maintenance';
 
       const grad = ctx.createLinearGradient(n.x, n.y, cx, cy);
 
@@ -262,8 +267,9 @@ function animateMatrixLines(canvas, nodePositions) {
         linkDashed = true;
         showParticles = false;
         linkOpacity = 0.3;
-      } else if (n.status === 'degraded' || target.status === 'degraded') {
-        linkColorStr = `${MATRIX_COLORS.degraded.r},${MATRIX_COLORS.degraded.g},${MATRIX_COLORS.degraded.b}`;
+      } else if (n.status === 'degraded' || target.status === 'degraded' || n.status === 'maintenance' || target.status === 'maintenance') {
+        const warningColor = n.status === 'maintenance' || target.status === 'maintenance' ? MATRIX_COLORS.maintenance : MATRIX_COLORS.degraded;
+        linkColorStr = `${warningColor.r},${warningColor.g},${warningColor.b}`;
         linkDashed = true;
         showParticles = false;
         linkOpacity = 0.3;

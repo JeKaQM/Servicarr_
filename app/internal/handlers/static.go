@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"status/app/internal/auth"
+	"status/app/internal/buildinfo"
 	"status/app/internal/database"
 )
 
@@ -18,6 +19,7 @@ import (
 type PageData struct {
 	IsAdmin    bool
 	AppName    string
+	AppVersion string
 	CSSVersion string
 	JSVersion  string
 }
@@ -56,7 +58,7 @@ func HandleIndex(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		// Render template with auth state
-		data := PageData{IsAdmin: isAdmin, AppName: appName, CSSVersion: cssVer, JSVersion: jsVer}
+		data := PageData{IsAdmin: isAdmin, AppName: appName, AppVersion: buildinfo.Current().Version, CSSVersion: cssVer, JSVersion: jsVer}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.Execute(w, data); err != nil {
 			http.Error(w, "Template error", http.StatusInternalServerError)

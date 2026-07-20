@@ -1,6 +1,95 @@
 ﻿// ============ Settings Tab Handlers ============
 
 // Save App Name
+function formatSoftwareDate(value, fallback = 'Not recorded') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString();
+}
+
+function compactSoftwareCommit(value) {
+  const commit = String(value || '').trim();
+  if (!commit || commit === 'unknown') return 'Not embedded';
+  return commit.length > 12 ? commit.slice(0, 12) : commit;
+}
+
+function setSoftwareInfoText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function renderDeploymentHistory(deployments) {
+  const container = document.getElementById('deploymentHistory');
+  if (!container) return;
+  container.replaceChildren();
+
+  if (!Array.isArray(deployments) || deployments.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'deployment-history-empty';
+    empty.textContent = 'No deployment history recorded.';
+    container.appendChild(empty);
+    return;
+  }
+
+  deployments.forEach((deployment) => {
+    const row = document.createElement('div');
+    row.className = 'deployment-history-row';
+
+    const version = document.createElement('span');
+    version.className = 'deployment-version';
+    version.textContent = `v${deployment.version || 'dev'}`;
+
+    const commit = document.createElement('span');
+    commit.className = 'deployment-commit';
+    commit.textContent = compactSoftwareCommit(deployment.commit);
+    commit.title = deployment.commit || 'Commit not embedded';
+
+    const started = document.createElement('span');
+    started.className = 'deployment-started';
+    started.textContent = `Last started ${formatSoftwareDate(deployment.last_started_at)}`;
+
+    const count = document.createElement('span');
+    count.className = 'deployment-count';
+    const starts = Number(deployment.startup_count) || 0;
+    count.textContent = `${starts} ${starts === 1 ? 'start' : 'starts'}`;
+
+    row.append(version, commit, started, count);
+    container.appendChild(row);
+  });
+}
+
+function renderSystemInfo(info) {
+  if (!info) return;
+  const version = info.version || 'dev';
+  setSoftwareInfoText('softwareVersionBadge', `v${version}`);
+  setSoftwareInfoText('softwareVersion', `v${version}`);
+  setSoftwareInfoText('softwareCommit', compactSoftwareCommit(info.commit));
+  setSoftwareInfoText('softwareBuildTime', formatSoftwareDate(info.build_time));
+  setSoftwareInfoText('softwareStartedAt', formatSoftwareDate(info.started_at));
+  setSoftwareInfoText('softwareRuntime', info.go_version || 'Unknown');
+
+  const database = info.database || {};
+  const engine = database.engine || 'SQLite';
+  const engineVersion = database.engine_version ? ` ${database.engine_version}` : '';
+  const schema = database.schema_version ? ` / schema ${database.schema_version}` : '';
+  setSoftwareInfoText('softwareDatabase', `${engine}${engineVersion}${schema}`);
+
+  const deployments = Array.isArray(info.deployments) ? info.deployments : [];
+  setSoftwareInfoText('softwareInfoStatus', `${deployments.length} recorded`);
+  renderDeploymentHistory(deployments);
+}
+
+async function loadSystemInfo() {
+  try {
+    const info = await j('/api/admin/settings/system-info');
+    renderSystemInfo(info);
+  } catch (err) {
+    console.error('[Settings] Failed to load system info:', err);
+    setSoftwareInfoText('softwareInfoStatus', 'Unavailable');
+    renderDeploymentHistory([]);
+  }
+}
+
 async function saveAppName() {
   const appNameInput = $('#appNameInput');
   const statusEl = $('#appNameStatus');
@@ -51,8 +140,8 @@ async function changePassword() {
     return;
   }
 
-  if (newPassword.length < 6) {
-    showStatus(statusEl, 'Password must be at least 6 characters', 'error');
+  if (newPassword.length < 8) {
+    showStatus(statusEl, 'Password must be at least 8 characters', 'error');
     return;
   }
 
@@ -253,6 +342,8 @@ function showStatus(el, message, type) {
 
 // Initialize Settings Tab
 function initSettingsTab() {
+  loadSystemInfo();
+
   // Save app name
   const saveAppNameBtn = $('#saveAppNameBtn');
   if (saveAppNameBtn) {

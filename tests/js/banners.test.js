@@ -109,6 +109,34 @@ describe('formatBannerTime', () => {
 });
 
 /* ── normalizeAlertLevel ────────────────────────────────── */
+describe('formatScheduledBannerTime', () => {
+  test('shows an end time for a valid active window', () => {
+    expect(formatScheduledBannerTime('2026-07-20T02:25:00Z')).toMatch(/^Ends /);
+  });
+
+  test('falls back safely for a missing or invalid end time', () => {
+    expect(formatScheduledBannerTime('')).toBe('Scheduled maintenance');
+    expect(formatScheduledBannerTime('not-a-date')).toBe('Scheduled maintenance');
+  });
+});
+
+describe('formatAutomaticBannerTime', () => {
+  test('labels a critical outage clearly', () => {
+    expect(formatAutomaticBannerTime({ kind: 'critical_outage' })).toBe('Automatic outage alert');
+  });
+
+  test('shows how long restoration monitoring remains active', () => {
+    expect(formatAutomaticBannerTime({
+      kind: 'services_restored',
+      ends_at: '2026-07-22T10:00:00Z'
+    })).toMatch(/^Monitoring until /);
+  });
+
+  test('falls back for unknown automatic updates', () => {
+    expect(formatAutomaticBannerTime({ kind: 'unknown' })).toBe('Automatic status update');
+  });
+});
+
 describe('normalizeAlertLevel', () => {
   test('info → info', () => {
     expect(normalizeAlertLevel('info')).toBe('info');
@@ -182,6 +210,115 @@ describe('renderSiteBanners', () => {
   test('no-op when container missing', () => {
     document.body.innerHTML = '';
     expect(() => renderSiteBanners([{ id: 1, level: 'info', message: 'x' }])).not.toThrow();
+  });
+
+  test('renders a critical automatic outage as an assertive error', () => {
+    renderSiteBanners([{
+      id: 'automatic:critical-outage',
+      level: 'error',
+      message: 'Critical outage: Core Server is unavailable.',
+      automatic: true,
+      kind: 'critical_outage'
+    }]);
+
+    const alert = document.querySelector('[data-automatic-kind="critical_outage"]');
+    expect(alert).not.toBeNull();
+    expect(alert.classList.contains('error')).toBe(true);
+    expect(alert.classList.contains('site-alert-automatic')).toBe(true);
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.getAttribute('aria-live')).toBe('assertive');
+    expect(alert.textContent).toContain('Automatic outage alert');
+  });
+
+  test('renders restored services as a polite monitoring update', () => {
+    renderSiteBanners([{
+      id: 'automatic:services-restored',
+      level: 'info',
+      message: 'Services have been restored.',
+      automatic: true,
+      kind: 'services_restored',
+      ends_at: '2026-07-22T10:00:00Z'
+    }]);
+
+    const alert = document.querySelector('[data-automatic-kind="services_restored"]');
+    expect(alert).not.toBeNull();
+    expect(alert.classList.contains('info')).toBe(true);
+    expect(alert.getAttribute('role')).toBe('status');
+    expect(alert.getAttribute('aria-live')).toBe('polite');
+    expect(alert.textContent).toContain('Monitoring until');
+  });
+});
+
+/* ── automatic UPS line alert ───────────────────────────── */
+describe('scheduled maintenance banner', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="siteAlerts"></div>';
+  });
+
+  test('marks scheduled maintenance and shows its end time', () => {
+    renderSiteBanners([{
+      id: 'scheduled:weekly',
+      level: 'warning',
+      message: 'Maintenance in progress',
+      scheduled: true,
+      ends_at: '2026-07-20T02:25:00Z'
+    }]);
+    const alert = document.querySelector('[data-scheduled="true"]');
+    expect(alert).not.toBeNull();
+    expect(alert.textContent).toContain('Maintenance in progress');
+    expect(alert.textContent).toContain('Ends');
+  });
+});
+
+describe('automatic UPS line alert', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="siteAlerts"></div>';
+  });
+
+  test('shows a persistent warning when line power is lost', () => {
+    updateUPSLineAlert({ power_present: false });
+
+    const alert = document.querySelector('[data-auto-alert="ups-line"]');
+    expect(alert).not.toBeNull();
+    expect(alert.classList.contains('warning')).toBe(true);
+    expect(alert.textContent).toContain('Mains power lost');
+    expect(alert.getAttribute('role')).toBe('alert');
+  });
+
+  test('does not duplicate the warning on subsequent UPS polls', () => {
+    updateUPSLineAlert({ power_present: false });
+    updateUPSLineAlert({ power_present: false });
+
+    expect(document.querySelectorAll('[data-auto-alert="ups-line"]')).toHaveLength(1);
+  });
+
+  test('keeps the warning when UPS state is temporarily unavailable', () => {
+    updateUPSLineAlert({ power_present: false });
+    updateUPSLineAlert(null);
+
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).not.toBeNull();
+  });
+
+  test('removes the warning after confirmed line-power recovery', () => {
+    updateUPSLineAlert({ power_present: false });
+    updateUPSLineAlert({ power_present: true });
+
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
+  });
+
+  test('manual banner refresh preserves the automatic warning', () => {
+    updateUPSLineAlert({ power_present: false });
+    renderSiteBanners([{ id: 1, level: 'info', message: 'Maintenance' }]);
+
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).not.toBeNull();
+    expect(document.getElementById('siteAlerts').textContent).toContain('Maintenance');
+  });
+
+  test('clears the warning when UPS monitoring is disabled', () => {
+    updateUPSLineAlert({ power_present: false });
+    clearUPSLineAlert();
+
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
   });
 });
 
@@ -275,5 +412,41 @@ describe('populateBannerScopeDropdown', () => {
     const first = document.getElementById('bannerService').querySelector('option');
     expect(first.value).toBe('');
     expect(first.textContent).toContain('Global');
+  });
+});
+
+describe('renderMaintenanceSchedules', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="maintenanceSchedulesList"></div>';
+  });
+
+  test('renders schedule timing and suppression state', () => {
+    renderMaintenanceSchedules([{
+      id: 'weekly',
+      name: 'Monday maintenance',
+      message: 'Maintenance in progress',
+      level: 'warning',
+      weekday: 1,
+      start_time: '02:55',
+      duration_minutes: 30,
+      timezone: 'Europe/London',
+      suppress_monitoring: true,
+      enabled: true
+    }]);
+    const text = document.getElementById('maintenanceSchedulesList').textContent;
+    expect(text).toContain('Monday at 02:55 for 30 min');
+    expect(text).toContain('Monitoring paused');
+    expect(text).toContain('Enabled');
+  });
+
+  test('escapes schedule content', () => {
+    renderMaintenanceSchedules([{
+      id: 'weekly', name: '<script>x</script>', message: '<b>bad</b>', level: 'info',
+      weekday: 1, start_time: '03:00', duration_minutes: 10, timezone: 'UTC', enabled: false
+    }]);
+    const list = document.getElementById('maintenanceSchedulesList');
+    expect(list.innerHTML).not.toContain('<script>');
+    expect(list.innerHTML).not.toContain('<b>bad</b>');
+    expect(list.textContent).toContain('<script>x</script>');
   });
 });

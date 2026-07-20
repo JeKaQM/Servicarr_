@@ -48,14 +48,13 @@ async function whoami() {
   }
 }
 
-async function handleButtonAction(btn, action, successMsg) {
+async function handleButtonAction(btn, action, successMsg, onError) {
   btn.disabled = true;
   btn.classList.add('loading');
   try {
     await action();
     showToast(successMsg);
   } catch (err) {
-    console.error(err);
     let msg = err?.message || 'Action failed';
     if (err?.body) {
       if (typeof err.body === 'string') {
@@ -64,7 +63,12 @@ async function handleButtonAction(btn, action, successMsg) {
         msg = err.body.message || err.body.error || msg;
       }
     }
-    showToast(msg, 'error');
+    console.error('Action failed:', msg, err?.body || err);
+    if (typeof onError === 'function') {
+      await onError(err, msg);
+    } else {
+      showToast(msg, 'error');
+    }
   } finally {
     btn.disabled = false;
     btn.classList.remove('loading');

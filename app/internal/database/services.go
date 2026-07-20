@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"log"
 	"status/app/internal/crypto"
 	"status/app/internal/models"
@@ -218,8 +219,30 @@ func UpdateService(s *models.ServiceConfig) error {
 
 // DeleteService removes a service from the database
 func DeleteService(id int) error {
-	_, err := DB.Exec(`DELETE FROM services WHERE id = ?`, id)
-	return err
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var key string
+	err = tx.QueryRow(`SELECT key FROM services WHERE id = ?`, id).Scan(&key)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	for _, table := range []string{"service_outage_state", "service_status_history", "service_state"} {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE service_key = ?`, key); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM services WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateServiceVisibility toggles service visibility

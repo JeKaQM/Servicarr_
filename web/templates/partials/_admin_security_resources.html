@@ -57,7 +57,7 @@
 <!-- Resources Tab -->
 <div id="tab-resources" class="tab-content">
   <h2>Resources Monitoring</h2>
-  <p class="muted">Monitor system resources using Glances. Requires <a href="https://nicolargo.github.io/glances/" target="_blank">Glances</a> running with web server enabled.</p>
+  <p class="muted">Monitor system resources using Glances and UPS details using Network UPS Tools.</p>
 
   <div class="admin-section">
     <h3>Glances Connection</h3>
@@ -67,12 +67,25 @@
         <input type="text" id="glancesUrl" placeholder="e.g., 192.168.1.100:61208 or server.local:61208">
         <small class="help-text">Enter the host and port where Glances web server is running. API path /api/4 is added automatically.</small>
       </div>
+
+      <h3>NUT UPS Connection</h3>
+      <div class="form-group">
+        <label for="nutHost">NUT Host:Port</label>
+        <input type="text" id="nutHost" placeholder="e.g., 192.168.1.100:3493 or host.docker.internal:3493">
+        <small class="help-text">Enter the host and port where upsd is listening. Port 3493 is used when no port is provided.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="upsName">UPS Name</label>
+        <input type="text" id="upsName" placeholder="e.g., apc">
+        <small class="help-text">This is the UPS name from NUT. For upsc apc, use apc. You can list names with upsc -l.</small>
+      </div>
       
       <div class="form-group">
         <label for="resourcesEnabled">
           <input type="checkbox" id="resourcesEnabled"> Enable Resources section
         </label>
-        <small class="help-text">Resources will only show when Glances is configured and reachable.</small>
+        <small class="help-text">Resources will show when at least one enabled source is configured.</small>
       </div>
 
       <h3>Visible Tiles</h3>
@@ -110,10 +123,14 @@
         <label>
           <input type="checkbox" id="resourcesUptime"> ⏱️ Uptime
         </label>
+        <label>
+          <input type="checkbox" id="resourcesUPS"> UPS
+        </label>
       </div>
 
       <div class="ops">
-        <button type="button" id="testGlances" class="btn ghost">Test Connection</button>
+        <button type="button" id="testGlances" class="btn ghost">Test Glances</button>
+        <button type="button" id="testUPS" class="btn ghost">Test UPS</button>
         <button type="button" id="saveResources" class="btn">Save Settings</button>
       </div>
 

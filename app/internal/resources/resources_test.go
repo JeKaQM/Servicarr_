@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -111,6 +112,14 @@ func TestAsFloatPtr_Bool(t *testing.T) {
 	}
 }
 
+func TestAsFloatPtr_NonFinite(t *testing.T) {
+	for _, value := range []interface{}{math.NaN(), math.Inf(1), json.Number("NaN")} {
+		if got := asFloatPtr(value); got != nil {
+			t.Fatalf("expected nil for non-finite value %v, got %v", value, *got)
+		}
+	}
+}
+
 // --------------- asUint64Ptr tests ---------------
 
 func TestAsUint64Ptr_Nil(t *testing.T) {
@@ -200,6 +209,14 @@ func TestAsUint64Ptr_UnknownType(t *testing.T) {
 	got := asUint64Ptr("some string")
 	if got != nil {
 		t.Fatalf("expected nil for string type, got %v", *got)
+	}
+}
+
+func TestAsUint64Ptr_NonFiniteOrOverflow(t *testing.T) {
+	for _, value := range []interface{}{math.NaN(), math.Inf(1), math.Exp2(64), json.Number("NaN")} {
+		if got := asUint64Ptr(value); got != nil {
+			t.Fatalf("expected nil for invalid value %v, got %v", value, *got)
+		}
 	}
 }
 
@@ -559,9 +576,9 @@ func TestFetchSnapshot_FullHappyPath(t *testing.T) {
 }
 
 func TestFetchSnapshot_CacheHit(t *testing.T) {
-	callCount := 0
+	var callCount atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/system":
@@ -606,7 +623,7 @@ func TestFetchSnapshot_CacheHit(t *testing.T) {
 		t.Fatalf("first fetch: %v", err)
 	}
 
-	beforeSecondCall := callCount
+	beforeSecondCall := callCount.Load()
 
 	s2, err := c.FetchSnapshot(context.Background())
 	if err != nil {
@@ -614,8 +631,8 @@ func TestFetchSnapshot_CacheHit(t *testing.T) {
 	}
 
 	// The second call should not have made additional HTTP requests
-	if callCount != beforeSecondCall {
-		t.Errorf("cache miss: made %d additional HTTP calls", callCount-beforeSecondCall)
+	if afterSecondCall := callCount.Load(); afterSecondCall != beforeSecondCall {
+		t.Errorf("cache miss: made %d additional HTTP calls", afterSecondCall-beforeSecondCall)
 	}
 
 	if s1.Host != s2.Host {
@@ -992,6 +1009,25 @@ func TestFetchSnapshot_FSComputesMissingUsed(t *testing.T) {
 	snap, _ := c.FetchSnapshot(context.Background())
 	if snap.FSUsedBytes == nil || *snap.FSUsedBytes != 600 {
 		t.Errorf("fs used = %v, want 600 (computed from size-free)", snap.FSUsedBytes)
+	}
+}
+
+func TestFetchSnapshot_FSSkipsInconsistentUsage(t *testing.T) {
+	srv := glancesMockServer(t, map[string]interface{}{
+		"/fs": []map[string]interface{}{
+			{"mnt_point": "/", "size": 100, "used": 120},
+		},
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetCacheTTL(0)
+	snap, err := c.FetchSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.FSTotalBytes != nil || snap.FSUsedBytes != nil || snap.FSFreeBytes != nil {
+		t.Fatalf("inconsistent filesystem entry should be skipped: %#v", snap)
 	}
 }
 

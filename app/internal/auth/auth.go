@@ -122,7 +122,7 @@ func (a *Auth) ParseSession(r *http.Request) (*Session, error) {
 		return nil, errors.New("decode")
 	}
 	want := parts[1]
-	if a.sign(raw) != want {
+	if !hmac.Equal([]byte(a.sign(raw)), []byte(want)) {
 		return nil, errors.New("bad sig")
 	}
 	var s Session

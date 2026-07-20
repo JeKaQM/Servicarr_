@@ -50,6 +50,13 @@ describe('matrixStatusOf', () => {
     expect(result.statusLabel).toBe('Disabled');
   });
 
+  test('returns maintenance for a paused service', () => {
+    globalThis.latestLiveStatus = { plex: { ok: true, maintenance: true } };
+    const result = matrixStatusOf({ key: 'plex' });
+    expect(result.statusClass).toBe('maintenance');
+    expect(result.statusLabel).toBe('Maintenance');
+  });
+
   test('returns unknown for missing key in status map', () => {
     globalThis.latestLiveStatus = { sonarr: { ok: true } };
     const result = matrixStatusOf({ key: 'plex' });
@@ -60,7 +67,7 @@ describe('matrixStatusOf', () => {
 /* ── MATRIX_COLORS ──────────────────────────────────────── */
 describe('MATRIX_COLORS', () => {
   test('has rgb values for all statuses', () => {
-    ['up', 'down', 'degraded', 'disabled'].forEach(status => {
+    ['up', 'down', 'degraded', 'maintenance', 'disabled'].forEach(status => {
       expect(MATRIX_COLORS).toHaveProperty(status);
       const c = MATRIX_COLORS[status];
       expect(c).toHaveProperty('r');
@@ -116,6 +123,13 @@ describe('updateHealthDot', () => {
     expect(dot.classList.contains('all-up')).toBe(true);
   });
 
+  test('maintenance is a warning state rather than down', () => {
+    updateHealthDot({ a: { ok: true, maintenance: true } });
+    const dot = document.getElementById('healthDot');
+    expect(dot.classList.contains('some-degraded')).toBe(true);
+    expect(dot.classList.contains('some-down')).toBe(false);
+  });
+
   test('previous classes are cleared', () => {
     const dot = document.getElementById('healthDot');
     dot.classList.add('some-down');
@@ -160,6 +174,13 @@ describe('updateStatusSummary', () => {
     updateStatusSummary({ a: { disabled: true } });
     const bar = document.getElementById('statusSummary');
     expect(bar.textContent).toContain('Disabled');
+  });
+
+  test('shows maintenance count', () => {
+    updateStatusSummary({ a: { ok: true, maintenance: true } });
+    const bar = document.getElementById('statusSummary');
+    expect(bar.textContent).toContain('1');
+    expect(bar.textContent).toContain('Maintenance');
   });
 
   test('shows mixed status counts', () => {

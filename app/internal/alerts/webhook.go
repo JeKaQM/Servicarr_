@@ -15,6 +15,10 @@ import (
 
 // SendWebhook sends a JSON payload to a generic webhook URL with optional HMAC signing
 func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, message string) {
+	config := m.GetConfig()
+	if config == nil || config.WebhookURL == "" {
+		return
+	}
 	payload := map[string]interface{}{
 		"event":        "status_change",
 		"service_key":  serviceKey,
@@ -27,7 +31,7 @@ func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, mess
 
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest("POST", m.config.WebhookURL, bytes.NewReader(body))
+	req, err := http.NewRequest("POST", config.WebhookURL, bytes.NewReader(body))
 	if err != nil {
 		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Webhook request failed", err.Error())
 		return
@@ -36,8 +40,8 @@ func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, mess
 	req.Header.Set("User-Agent", "Servicarr/1.0")
 
 	// HMAC-SHA256 signature
-	if m.config.WebhookSecret != "" {
-		mac := hmac.New(sha256.New, []byte(m.config.WebhookSecret))
+	if config.WebhookSecret != "" {
+		mac := hmac.New(sha256.New, []byte(config.WebhookSecret))
 		mac.Write(body)
 		sig := hex.EncodeToString(mac.Sum(nil))
 		req.Header.Set("X-Servicarr-Signature", "sha256="+sig)
@@ -50,5 +54,5 @@ func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, mess
 		return
 	}
 	defer resp.Body.Close()
-	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Webhook notification sent", fmt.Sprintf("url=%s, status=%d", m.config.WebhookURL, resp.StatusCode))
+	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Webhook notification sent", fmt.Sprintf("url=%s, status=%d", config.WebhookURL, resp.StatusCode))
 }

@@ -33,7 +33,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	api.HandleFunc("/api/uptime", HandleUptimeStats())          // New efficient uptime stats
 	api.HandleFunc("/api/heartbeats", HandleRecentHeartbeats()) // New recent heartbeats
 	api.HandleFunc("/api/resources", HandleResources(gl))
-	api.HandleFunc("/api/resources/config", HandleGetResourcesUIConfig())
+	api.HandleFunc("/api/resources/config", HandleGetPublicResourcesUIConfig())
 	api.HandleFunc("/api/services", HandleGetServices) // Public services list
 	api.HandleFunc("/api/services/templates", HandleGetServiceTemplates)
 
@@ -91,6 +91,13 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+	authAPI.HandleFunc("/api/admin/resources/test", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		HandleTestResourcesConnection()(w, r)
+	}))
 	authAPI.HandleFunc("/api/admin/alerts/test", authMgr.RequireAuth(HandleTestEmail(alertMgr)))
 	authAPI.HandleFunc("/api/admin/alerts/test-channel", authMgr.RequireAuth(HandleTestNotification(alertMgr)))
 	authAPI.HandleFunc("/api/admin/status-alerts", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +112,10 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+	authAPI.HandleFunc("/api/admin/maintenance-schedules", authMgr.RequireAuth(HandleMaintenanceSchedules()))
 
 	// Settings routes (admin only)
+	authAPI.HandleFunc("/api/admin/settings/system-info", authMgr.RequireAuth(HandleGetSystemInfo()))
 	authAPI.HandleFunc("/api/admin/settings/app-name", authMgr.RequireAuth(HandleUpdateAppName()))
 	authAPI.HandleFunc("/api/admin/settings/password", authMgr.RequireAuth(HandleChangePassword(authMgr)))
 	authAPI.HandleFunc("/api/admin/settings/export", authMgr.RequireAuth(HandleExportDatabase()))
@@ -210,6 +219,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux := http.NewServeMux()
 
 	// Setup routes (must be accessible before setup is complete)
+	mux.HandleFunc("/healthz", HandleHealth)
 	mux.HandleFunc("/setup", HandleSetupPage)
 	mux.Handle("/api/setup", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleCompleteSetup(authMgr))))
 	mux.Handle("/api/setup/status", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleSetupStatus)))
@@ -232,7 +242,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(tracker))))
 
 	// Other public API endpoints: standard rate limit
-	mux.Handle("/api/status-alerts", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleGetStatusAlerts())))
+	mux.Handle("/api/status-alerts", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleGetPublicStatusAlerts())))
 	mux.Handle("/api/", RateLimitMiddleware(ratelimit.APILimiter, api))
 
 	// Bundle routes (serve pre-built concatenated assets from memory)

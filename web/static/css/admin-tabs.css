@@ -3,7 +3,7 @@
   margin: 0 16px 16px 16px;
   background: rgba(17, 24, 39, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border-radius: 8px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow:
@@ -16,9 +16,10 @@
 
 .admin-tabs {
   display: flex;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: 4px;
+  padding: 8px;
   background: rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -31,17 +32,18 @@
   background: transparent;
   border: none;
   color: var(--muted);
-  padding: 6px 14px;
+  min-height: 42px;
+  padding: 10px 16px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   transition:
     color 0.2s ease,
     background 0.2s ease;
   white-space: nowrap;
   position: relative;
-  letter-spacing: 0.2px;
-  border-radius: 5px;
+  letter-spacing: 0;
+  border-radius: 6px;
 }
 
 .tab-btn:hover {
@@ -51,13 +53,14 @@
 
 .tab-btn.active {
   color: #fff;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(34, 197, 94, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.28);
   font-weight: 600;
 }
 
 .tab-content {
   display: none;
-  padding: 12px;
+  padding: 20px;
 }
 
 .tab-content.active {
@@ -67,21 +70,21 @@
 
 .tab-content h2 {
   margin: 0 0 4px 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
   color: #fff;
 }
 
 .tab-content > p.muted {
-  margin: 0 0 12px 0;
+  margin: 0 0 18px 0;
   font-size: 13px;
   line-height: 1.5;
 }
 
 .admin-section {
-  margin-bottom: 10px;
-  padding: 12px;
+  margin-bottom: 14px;
+  padding: 18px;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.04);
@@ -97,7 +100,7 @@
 
 .admin-section h3 {
   margin-top: 0;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   font-size: 15px;
   font-weight: 600;
   color: #fff;
@@ -126,7 +129,7 @@
   color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 .admin-section > p.muted {
@@ -162,7 +165,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  min-height: 44px;
+  padding: 11px 16px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -200,7 +204,7 @@
   border-radius: 4px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 .notification-panel {
@@ -375,8 +379,13 @@
 }
 
 .btn.small {
-  padding: 8px 16px;
+  min-height: 38px;
+  padding: 8px 14px;
   font-size: 13px;
+}
+
+.admin-section .ops {
+  margin-top: 16px;
 }
 
 @media (max-width: 900px) {
@@ -426,7 +435,7 @@
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 .form-group input[type="text"],
@@ -434,12 +443,13 @@
 .form-group input[type="password"],
 .form-group input[type="number"] {
   width: 100%;
-  padding: 8px 12px;
+  min-height: 42px;
+  padding: 10px 12px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 5px;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   box-sizing: border-box;
   transition:
     border-color 0.2s ease,
@@ -490,4 +500,82 @@
   background: #3a0a0a;
   border: 1px solid #5b1111;
   color: #ef4444;
+}
+
+.admin-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.admin-page-heading h2,
+.admin-page-heading p {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.admin-page-heading p.muted {
+  margin-top: 5px;
+  margin-bottom: 0;
+}
+
+.runtime-version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #b7c1ce;
+  background: rgba(0, 0, 0, 0.18);
+  font: 600 12px/1 var(--font-mono, monospace);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .admin-panel {
+    margin: 8px;
+  }
+
+  .admin-tabs {
+    gap: 6px;
+    padding: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    min-height: 44px;
+    padding: 11px 16px;
+    flex-shrink: 0;
+  }
+
+  .tab-content {
+    padding: 16px;
+  }
+
+  .admin-section {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .tab-content {
+    padding: 12px;
+  }
+
+  #adminPanel .ops {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  #adminPanel .ops .btn,
+  #adminPanel .ops .ghost {
+    width: 100%;
+  }
+
+  .admin-page-heading {
+    align-items: center;
+  }
 }

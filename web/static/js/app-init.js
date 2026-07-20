@@ -89,6 +89,7 @@ window.addEventListener('load', async () => {
 
   // Load public banners
   loadBanners();
+  setInterval(loadBanners, 30000);
 });
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -3,6 +3,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        VCS_REF: ${SERVICARR_COMMIT:-local}
     image: servicarr:local
     container_name: servicarr
     env_file:

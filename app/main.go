@@ -13,11 +13,13 @@ import (
 
 	"status/app/internal/alerts"
 	"status/app/internal/auth"
+	"status/app/internal/buildinfo"
 	"status/app/internal/checker"
 	"status/app/internal/config"
 	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/handlers"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
 	"status/app/internal/resources"
@@ -26,6 +28,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "version") {
+		fmt.Printf("Servicarr %s\n", buildinfo.Current().Summary())
+		return
+	}
+
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
+
 	// Load configuration from environment (for basic settings)
 	cfg, err := config.LoadBasic()
 	if err != nil {
@@ -36,6 +46,11 @@ func main() {
 	if err := database.Init(cfg.DBPath); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
+	build := buildinfo.Current()
+	if err := recordSoftwareStartup(build); err != nil {
+		log.Printf("Warning: Failed to record software startup metadata: %v", err)
+	}
+	log.Printf("Servicarr %s starting (database schema %d, Go %s)", build.Summary(), database.SchemaVersion, build.GoVersion)
 
 	// Initialize statistics schema
 	if err := stats.EnsureStatsSchema(); err != nil {
@@ -50,6 +65,7 @@ func main() {
 
 	// Create alert manager (loads config from database)
 	alertMgr := alerts.NewManager(cfg.StatusPageURL)
+	go runUPSMonitor(appCtx, alertMgr, 10*time.Second)
 
 	// Migrate services from environment config if needed
 	migrateServicesFromEnv(cfg)
@@ -91,6 +107,7 @@ func main() {
 	go func() {
 		<-quit
 		log.Println("Shutting down server...")
+		cancelApp()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
@@ -103,6 +120,53 @@ func main() {
 		log.Fatalf("Server failed: %v", err)
 	}
 	log.Println("Server stopped gracefully")
+}
+
+func recordSoftwareStartup(build buildinfo.Info) error {
+	if err := database.RecordSoftwareDeployment(build); err != nil {
+		return err
+	}
+	buildTime := build.BuildTime
+	if buildTime == "" {
+		buildTime = "unknown"
+	}
+	details := fmt.Sprintf("version=%s, commit=%s, build_time=%s, database_schema=%d, go=%s",
+		build.Version, build.Commit, buildTime, database.SchemaVersion, build.GoVersion)
+	return database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Application started", details)
+}
+
+func runUPSMonitor(ctx context.Context, alertMgr *alerts.Manager, interval time.Duration) {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastError string
+	var lastErrorLog time.Time
+	poll := func() {
+		err := monitor.PollUPSPower(ctx, alertMgr)
+		if err == nil {
+			lastError = ""
+			return
+		}
+		errText := err.Error()
+		if errText != lastError || time.Since(lastErrorLog) >= 15*time.Minute {
+			log.Printf("UPS monitor unavailable: %v", err)
+			lastError = errText
+			lastErrorLog = time.Now()
+		}
+	}
+
+	poll()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			poll()
+		}
+	}
 }
 
 // createAuthManager creates the auth manager from database settings or falls back to env config
@@ -293,6 +357,14 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 		tracker.Prune(validKeys)
 
 		now := time.Now()
+		maintenanceActive, _, maintenanceErr := maintenance.MonitoringSuppressed(now)
+		if maintenanceErr != nil {
+			log.Printf("Warning: Failed to evaluate maintenance schedules: %v", maintenanceErr)
+		}
+		if maintenanceActive {
+			tracker.ResetAll()
+			continue
+		}
 
 		for _, sc := range dbServices {
 			t := timers[sc.Key]
@@ -327,6 +399,13 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				ServiceType: sc.ServiceType,
 				APIToken:    sc.APIToken,
 			})
+
+			// A check can straddle the start of a maintenance window. Discard it.
+			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+			if maintenanceStarted {
+				tracker.ResetAll()
+				break
+			}
 
 			// Track consecutive failures
 			consecutiveFailures := tracker.Update(sc.Key, checkOK)
@@ -371,12 +450,10 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
 			}
 
-			// Send alerts (dependency-aware, multi-channel)
-			name := sc.Name
-			if name == "" {
-				name = sc.Key
+			// Notification and banner state only advance on a real success or confirmed failure.
+			if err := recordConfirmedServiceState(alertMgr, sc.Key, sc.Name, checkOK, consecutiveFailures, degraded, time.Now()); err != nil {
+				log.Printf("Warning: Failed to record outage state for %s: %v", sc.Key, err)
 			}
-			alertMgr.CheckAndSendAlerts(sc.Key, name, ok, degraded)
 		}
 
 		// Prune old logs every 5 minutes
@@ -385,6 +462,25 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 			lastPrune = now
 		}
 	}
+}
+
+func checkResultIsConfirmed(checkOK bool, consecutiveFailures int) bool {
+	return checkOK || consecutiveFailures >= 2
+}
+
+type serviceAlertNotifier interface {
+	CheckAndSendAlerts(serviceKey, serviceName string, ok, degraded bool) bool
+}
+
+func recordConfirmedServiceState(notifier serviceAlertNotifier, serviceKey, serviceName string, checkOK bool, consecutiveFailures int, degraded bool, observedAt time.Time) error {
+	if !checkResultIsConfirmed(checkOK, consecutiveFailures) {
+		return nil
+	}
+	if serviceName == "" {
+		serviceName = serviceKey
+	}
+	alertSent := notifier != nil && notifier.CheckAndSendAlerts(serviceKey, serviceName, checkOK, degraded)
+	return database.RecordServiceOutageState(serviceKey, !checkOK, alertSent, observedAt)
 }
 
 // migrateTokenEncryption encrypts any legacy plaintext API tokens at startup

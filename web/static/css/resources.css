@@ -8,11 +8,12 @@
 .resources-grid {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 12px;
 }
 
 .resource-tile {
+  min-width: 0;
   padding: 14px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -67,6 +68,9 @@
 }
 .resource-tile:nth-child(10) {
   animation-delay: 0.5s;
+}
+.resource-tile:nth-child(11) {
+  animation-delay: 0.55s;
 }
 
 .resource-tile:hover {
@@ -560,6 +564,286 @@
   font-size: 16px;
   color: #a5b4fc;
   letter-spacing: 0.02em;
+}
+
+/* UPS tile */
+.ups-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.ups-tile.ups-warning {
+  border-color: rgba(245, 158, 11, 0.42);
+  background:
+    radial-gradient(
+      760px 260px at 8% 0%,
+      rgba(245, 158, 11, 0.14) 0%,
+      rgba(17, 24, 39, 0) 58%
+    ),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.045) 0%,
+      rgba(255, 255, 255, 0.016) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+
+.ups-tile.ups-critical {
+  border-color: rgba(248, 113, 113, 0.58);
+  background: rgba(127, 29, 29, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgba(239, 68, 68, 0.14);
+}
+
+.ups-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ups-identity {
+  min-width: 0;
+}
+
+.ups-model {
+  margin-top: 4px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.25;
+  color: rgba(229, 231, 235, 0.72);
+}
+
+.ups-state {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.ups-state-label {
+  font-size: 9px;
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(229, 231, 235, 0.62);
+}
+
+.ups-status-text {
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 900;
+  color: #e5e7eb;
+  overflow-wrap: anywhere;
+}
+
+.ups-state-ok {
+  border-color: rgba(134, 239, 172, 0.24);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.ups-state-ok .ups-state-label,
+.ups-state-ok .ups-status-text {
+  color: #bbf7d0;
+}
+
+.ups-state-warning {
+  border-color: rgba(251, 191, 36, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.22),
+    rgba(127, 29, 29, 0.16)
+  );
+}
+
+.ups-state-warning .ups-state-label {
+  color: #fbbf24;
+}
+
+.ups-state-warning .ups-status-text {
+  color: #fde68a;
+}
+
+.ups-state-critical {
+  border-color: rgba(248, 113, 113, 0.68);
+  background: rgba(127, 29, 29, 0.34);
+}
+
+.ups-state-critical .ups-state-label {
+  color: #fca5a5;
+}
+
+.ups-state-critical .ups-status-text {
+  color: #fee2e2;
+}
+
+.ups-state-unknown {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.07);
+}
+
+.ups-output {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ups-section-label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 900;
+  color: rgba(229, 231, 235, 0.62);
+}
+
+.ups-output-value {
+  display: block;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 950;
+  color: #86efac;
+  text-shadow: 0 10px 30px rgba(34, 197, 94, 0.18);
+}
+
+.ups-tile.ups-warning .ups-output-value,
+.ups-tile.ups-warning .ups-battery-row strong,
+.ups-tile.ups-warning .ups-runtime-row strong {
+  color: #fbbf24;
+  text-shadow: 0 10px 30px rgba(245, 158, 11, 0.22);
+}
+
+.ups-tile.ups-critical .ups-output-value,
+.ups-tile.ups-critical .ups-battery-row strong,
+.ups-tile.ups-critical .ups-runtime-row strong {
+  color: #fca5a5;
+  text-shadow: 0 10px 30px rgba(239, 68, 68, 0.28);
+}
+
+.ups-tile.ups-warning .ups-meter .meter-fill {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.32);
+}
+
+.ups-tile.ups-warning .ups-meter .meter-fill.bad {
+  background: linear-gradient(90deg, #dc2626, #f97316);
+  box-shadow: 0 0 18px rgba(220, 38, 38, 0.38);
+}
+
+.ups-tile.ups-critical .ups-meter .meter-fill {
+  background: linear-gradient(90deg, #dc2626, #f97316);
+  box-shadow: 0 0 18px rgba(220, 38, 38, 0.38);
+}
+
+.ups-output-sub {
+  max-width: 48%;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: rgba(229, 231, 235, 0.7);
+}
+
+.ups-battery {
+  display: grid;
+  gap: 8px;
+}
+
+.ups-battery-row,
+.ups-runtime-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ups-battery-row strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+  color: #bbf7d0;
+}
+
+.ups-meter {
+  margin-top: 0;
+}
+
+.ups-runtime-row {
+  font-size: 12px;
+  color: rgba(229, 231, 235, 0.68);
+}
+
+.ups-runtime-row strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 900;
+  color: #a5b4fc;
+}
+
+.ups-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+}
+
+.ups-detail-item {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ups-detail-label {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: rgba(229, 231, 235, 0.6);
+}
+
+.ups-detail-value {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.15;
+  font-weight: 900;
+  text-align: right;
+  color: #e5e7eb;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .ups-card-head,
+  .ups-output {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ups-output-sub {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .ups-detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Resource tiles respond automatically via auto-fit */

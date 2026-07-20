@@ -225,6 +225,7 @@ window.addEventListener('load', async () => {
         loadSecurityData();
       } else if (tabName === 'banners') {
         loadAdminBanners();
+        loadMaintenanceSchedules();
         populateBannerScopeDropdown();
       }
     });
@@ -272,6 +273,11 @@ window.addEventListener('load', async () => {
     testGlancesBtn.addEventListener('click', testGlancesConnection);
   }
 
+  const testUPSBtn = $('#testUPS');
+  if (testUPSBtn) {
+    testUPSBtn.addEventListener('click', testUPSConnection);
+  }
+
   // Security tab handlers
   const resetBlocksBtn = $('#resetBlocks');
   if (resetBlocksBtn) {
@@ -300,6 +306,16 @@ window.addEventListener('load', async () => {
   const createBannerBtn = $('#createBanner');
   if (createBannerBtn) {
     createBannerBtn.addEventListener('click', createBanner);
+  }
+
+  const maintenanceForm = $('#maintenanceScheduleForm');
+  if (maintenanceForm) {
+    maintenanceForm.addEventListener('submit', saveMaintenanceSchedule);
+  }
+
+  const cancelMaintenanceBtn = $('#cancelMaintenanceSchedule');
+  if (cancelMaintenanceBtn) {
+    cancelMaintenanceBtn.addEventListener('click', resetMaintenanceScheduleForm);
   }
 
   // Banner template selection

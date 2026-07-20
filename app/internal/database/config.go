@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"status/app/internal/models"
+	"strings"
 )
 
 // LoadAlertConfig loads email alert configuration from database
@@ -63,11 +64,14 @@ func SaveAlertConfig(config *models.AlertConfig) error {
 func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 	var config models.ResourcesUIConfig
 	var glancesURL sql.NullString
-	err := DB.QueryRow(`SELECT enabled, COALESCE(glances_url, ''), cpu, memory, network, temp, storage,
-		COALESCE(swap, 0), COALESCE(load, 0), COALESCE(gpu, 0), COALESCE(containers, 0), COALESCE(processes, 0), COALESCE(uptime, 0)
+	var nutHost sql.NullString
+	var upsName sql.NullString
+	err := DB.QueryRow(`SELECT enabled, COALESCE(glances_url, ''), COALESCE(nut_host, ''), COALESCE(ups_name, ''),
+		cpu, memory, network, temp, storage,
+		COALESCE(swap, 0), COALESCE(load, 0), COALESCE(gpu, 0), COALESCE(containers, 0), COALESCE(processes, 0), COALESCE(uptime, 0), COALESCE(ups, 0)
 		FROM resources_ui_config WHERE id = 1`).Scan(
-		&config.Enabled, &glancesURL, &config.CPU, &config.Memory, &config.Network, &config.Temp, &config.Storage,
-		&config.Swap, &config.Load, &config.GPU, &config.Containers, &config.Processes, &config.Uptime,
+		&config.Enabled, &glancesURL, &nutHost, &upsName, &config.CPU, &config.Memory, &config.Network, &config.Temp, &config.Storage,
+		&config.Swap, &config.Load, &config.GPU, &config.Containers, &config.Processes, &config.Uptime, &config.UPS,
 	)
 
 	if err == sql.ErrNoRows {
@@ -77,19 +81,25 @@ func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 		return nil, err
 	}
 	config.GlancesURL = glancesURL.String
+	config.NUTHost = nutHost.String
+	config.UPSName = upsName.String
 	return &config, nil
 }
 
 // SaveResourcesUIConfig saves resources UI configuration to database
 func SaveResourcesUIConfig(config *models.ResourcesUIConfig) error {
-	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, cpu, memory, network, temp, storage, swap, load, gpu, containers, processes, uptime, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+	config.GlancesURL = strings.TrimSpace(config.GlancesURL)
+	config.NUTHost = strings.TrimSpace(config.NUTHost)
+	config.UPSName = strings.TrimSpace(config.UPSName)
+
+	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, nut_host, ups_name, cpu, memory, network, temp, storage, swap, load, gpu, containers, processes, uptime, ups, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
-			enabled=?, glances_url=?, cpu=?, memory=?, network=?, temp=?, storage=?, swap=?, load=?, gpu=?, containers=?, processes=?, uptime=?, updated_at=datetime('now')`,
-		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
-		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime,
-		config.Enabled, config.GlancesURL, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
-		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime,
+			enabled=?, glances_url=?, nut_host=?, ups_name=?, cpu=?, memory=?, network=?, temp=?, storage=?, swap=?, load=?, gpu=?, containers=?, processes=?, uptime=?, ups=?, updated_at=datetime('now')`,
+		config.Enabled, config.GlancesURL, config.NUTHost, config.UPSName, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime, config.UPS,
+		config.Enabled, config.GlancesURL, config.NUTHost, config.UPSName, config.CPU, config.Memory, config.Network, config.Temp, config.Storage,
+		config.Swap, config.Load, config.GPU, config.Containers, config.Processes, config.Uptime, config.UPS,
 	)
 	return err
 }

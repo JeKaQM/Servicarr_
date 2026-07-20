@@ -34,6 +34,15 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: Verify application version sources
+        run: |
+          APP_VERSION=$(tr -d '\r\n' < app/internal/buildinfo/VERSION)
+          PACKAGE_VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -1)
+          test "$APP_VERSION" = "$PACKAGE_VERSION" || {
+            echo "::error::Embedded version $APP_VERSION does not match package.json $PACKAGE_VERSION"
+            exit 1
+          }
+
   go-test:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -111,7 +120,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -f deploy/Dockerfile -t servicarr:ci .
+        run: docker build --build-arg VCS_REF=${GITHUB_SHA} -f deploy/Dockerfile -t servicarr:ci .
 
       - name: Verify container starts
         run: |

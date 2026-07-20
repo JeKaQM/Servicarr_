@@ -68,6 +68,9 @@ type Snapshot struct {
 	ContainerCount   *uint64         `json:"container_count,omitempty"`
 	ContainerRunning *uint64         `json:"container_running,omitempty"`
 	Containers       []ContainerInfo `json:"containers,omitempty"`
+
+	// UPS metrics from Network UPS Tools (NUT)
+	UPS *UPSInfo `json:"ups,omitempty"`
 }
 
 // ContainerInfo holds basic container stats
@@ -76,4 +79,33 @@ type ContainerInfo struct {
 	Status     string   `json:"status"`
 	CPUPercent *float64 `json:"cpu_percent,omitempty"`
 	MemPercent *float64 `json:"mem_percent,omitempty"`
+}
+
+// UPSInfo is a normalized, UI-friendly view of a NUT UPS.
+type UPSInfo struct {
+	Name string `json:"name"`
+
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Serial       string `json:"serial,omitempty"`
+
+	Status       string `json:"status,omitempty"`
+	StatusText   string `json:"status_text,omitempty"`
+	PowerPresent *bool  `json:"power_present,omitempty"`
+
+	BatteryChargePercent     *float64 `json:"battery_charge_percent,omitempty"`
+	BatteryRuntimeSeconds    *float64 `json:"battery_runtime_seconds,omitempty"`
+	BatteryRuntimeLowSeconds *float64 `json:"battery_runtime_low_seconds,omitempty"`
+	BatteryVoltage           *float64 `json:"battery_voltage,omitempty"`
+	BatteryVoltageNominal    *float64 `json:"battery_voltage_nominal,omitempty"`
+	BatteryType              string   `json:"battery_type,omitempty"`
+
+	LoadPercent          *float64 `json:"load_percent,omitempty"`
+	OutputPowerWatt      *float64 `json:"output_power_watt,omitempty"`
+	OutputPowerEstimated bool     `json:"output_power_estimated,omitempty"`
+	InputVoltage         *float64 `json:"input_voltage,omitempty"`
+	InputVoltageNominal  *float64 `json:"input_voltage_nominal,omitempty"`
+	RealPowerNominalWatt *float64 `json:"realpower_nominal_watt,omitempty"`
+
+	TestResult string `json:"test_result,omitempty"`
 }

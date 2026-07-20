@@ -14,6 +14,7 @@ import (
 	"status/app/internal/auth"
 	"status/app/internal/crypto"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 
 	"golang.org/x/crypto/bcrypt"
@@ -346,12 +347,19 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
 			return
 		}
+		if export.DatabaseSchema > database.SchemaVersion {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Backup requires a newer Servicarr database schema"})
+			return
+		}
 
 		// Import services
 		if len(export.Services) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM services`)
 			_, _ = database.DB.Exec(`DELETE FROM service_state`)
 			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
+			_, _ = database.DB.Exec(`DELETE FROM service_outage_state`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
 			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
@@ -399,6 +407,8 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			resCfg := &models.ResourcesUIConfig{
 				Enabled:    export.Resources.Enabled,
 				GlancesURL: export.Resources.GlancesURL,
+				NUTHost:    export.Resources.NUTHost,
+				UPSName:    export.Resources.UPSName,
 				CPU:        export.Resources.CPU,
 				Memory:     export.Resources.Memory,
 				Network:    export.Resources.Network,
@@ -410,6 +420,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				Containers: export.Resources.Containers,
 				Processes:  export.Resources.Processes,
 				Uptime:     export.Resources.Uptime,
+				UPS:        export.Resources.UPS,
 			}
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
@@ -426,6 +437,16 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
 			}
 		}
+
+		if export.MaintenanceSchedules != nil {
+			_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
+			for i := range export.MaintenanceSchedules {
+				if maintenance.ValidateSchedule(&export.MaintenanceSchedules[i]) == nil {
+					_ = database.SaveMaintenanceSchedule(&export.MaintenanceSchedules[i])
+				}
+			}
+		}
+		logBackupImport(export)
 
 		// Now we need credentials - prompt user to create them
 		// But for import, we'll require them in a separate step or use the backup username
@@ -446,7 +467,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 func SetupRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow setup routes through
-		if r.URL.Path == "/setup" || r.URL.Path == "/api/setup" ||
+		if r.URL.Path == "/healthz" || r.URL.Path == "/setup" || r.URL.Path == "/api/setup" ||
 			r.URL.Path == "/api/setup/status" || r.URL.Path == "/api/setup/service" ||
 			r.URL.Path == "/api/setup/import" ||
 			r.URL.Path == "/api/admin/services/test" { // Allow test connection during setup

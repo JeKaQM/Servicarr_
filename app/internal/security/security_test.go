@@ -553,7 +553,7 @@ func TestListWhitelist_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if list != nil && len(list) != 0 {
+	if len(list) != 0 {
 		t.Errorf("expected empty list, got %d", len(list))
 	}
 }
@@ -578,7 +578,7 @@ func TestListBlacklist_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if list != nil && len(list) != 0 {
+	if len(list) != 0 {
 		t.Errorf("expected empty list, got %d", len(list))
 	}
 }
