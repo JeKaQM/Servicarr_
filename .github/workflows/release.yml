@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: servicarr-main-release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/jekaqm/servicarr
+
+jobs:
+  release:
+    name: Publish release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout verified main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify release commit
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git fetch --force origin main --tags
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA" || {
+            echo "::error::Checked out commit does not match the successful CI run"
+            exit 1
+          }
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+            echo "::error::The successful CI commit is no longer part of main"
+            exit 1
+          }
+
+      - name: Calculate release version
+        id: version
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node .github/scripts/release-version.cjs "$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Protect existing release tags
+        env:
+          RELEASE_SHA: ${{ steps.version.outputs.commit }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          EXISTING_SHA="$(git rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}" || true)"
+          if [ -n "$EXISTING_SHA" ] && [ "$EXISTING_SHA" != "$RELEASE_SHA" ]; then
+            echo "::error::${RELEASE_TAG} already points to ${EXISTING_SHA}"
+            exit 1
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=sha-${{ steps.version.outputs.commit }}
+          labels: |
+            org.opencontainers.image.title=Servicarr
+            org.opencontainers.image.description=Self-hosted service status dashboard
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.version.outputs.commit }}
+
+      - name: Build and publish immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ steps.version.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify published application version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ACTUAL_VERSION="$(docker run --rm --entrypoint status "${IMAGE_NAME}:${RELEASE_VERSION}" --version)"
+          test "$ACTUAL_VERSION" = "Servicarr v${RELEASE_VERSION}" || {
+            echo "::error::Published image reported '${ACTUAL_VERSION}'"
+            exit 1
+          }
+
+      - name: Update current release image tags
+        env:
+          RELEASE_SHA: ${{ steps.version.outputs.commit }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_MAJOR: ${{ steps.version.outputs.major }}
+          RELEASE_MAJOR_MINOR: ${{ steps.version.outputs.major_minor }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$RELEASE_SHA" ]; then
+            echo "A newer main commit exists; immutable tags are published and floating tags are unchanged."
+            exit 0
+          fi
+
+          docker buildx imagetools create \
+            --tag "${IMAGE_NAME}:latest" \
+            --tag "${IMAGE_NAME}:${RELEASE_MAJOR}" \
+            --tag "${IMAGE_NAME}:${RELEASE_MAJOR_MINOR}" \
+            "${IMAGE_NAME}:${RELEASE_VERSION}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ steps.version.outputs.commit }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "${RELEASE_TAG} already has a GitHub release; leaving it unchanged."
+            exit 0
+          fi
+
+          VERIFY_TAG=()
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null; then
+            VERIFY_TAG=(--verify-tag)
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            "${VERIFY_TAG[@]}" \
+            --target "$RELEASE_SHA" \
+            --title "Servicarr v${RELEASE_VERSION}" \
+            --generate-notes \
+            --latest
+
+      - name: Release summary
+        env:
+          RELEASE_SHA: ${{ steps.version.outputs.commit }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "### Servicarr ${RELEASE_TAG}"
+            echo
+            echo "- Commit: \`${RELEASE_SHA}\`"
+            echo "- GitHub Release: \`${RELEASE_TAG}\`"
+            echo "- Container: \`${IMAGE_NAME}:${RELEASE_VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

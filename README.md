@@ -64,14 +64,16 @@ A lightweight, self-hosted status page that monitors your services and displays 
 
 ## Versioning
 
-Servicarr uses semantic versions. The canonical application version is stored in `app/internal/buildinfo/VERSION` and embedded into every Go binary. Keep `package.json` aligned; CI rejects mismatched values.
+Servicarr uses semantic versions. The release-line version is stored in `app/internal/buildinfo/VERSION` and embedded into local Go builds. Keep `package.json` and `package-lock.json` aligned; CI rejects a mismatch between the application and package versions.
 
 ```bash
 go run ./app --version
 docker exec servicarr status --version
 ```
 
-Docker builds also embed the UTC build time and accept `VCS_REF` as a build argument for the source commit. The Compose deployment uses `SERVICARR_COMMIT` when provided. The running version, commit, build time, Go runtime, SQLite version, database schema, and recent deployment history are available under **Admin > Settings**. Each startup is also written to the system log and persisted in the database.
+Every successful CI run for a push to `main` creates a GitHub Release and an immutable `ghcr.io/jekaqm/servicarr:<version>` image. Patch versions advance once per first-parent `main` commit. To start a new major or minor release line, update `app/internal/buildinfo/VERSION`, `package.json`, and `package-lock.json` together; that merge uses the requested version and subsequent merges continue its patch sequence.
+
+Release images also update the `latest`, major, and major/minor container tags when the released commit is still the current `main`. Docker builds embed the UTC build time and accept `APP_VERSION` and `VCS_REF` build arguments. Compose uses the source version and accepts `SERVICARR_COMMIT` for the commit value. The running version, commit, build time, Go runtime, SQLite version, database schema, and recent deployment history are available under **Admin > Settings**. Each startup is also written to the system log and persisted in the database.
 
 ## Configuration
 
