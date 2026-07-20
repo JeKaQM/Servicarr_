@@ -2,54 +2,111 @@
 <!-- Settings Tab -->
 <div id="tab-settings" class="tab-content">
   <h2>Application Settings</h2>
-  
-  <div class="admin-section">
-    <h3>🏷️ App Name</h3>
-    <p class="muted">Customize the name displayed in the header and browser tab</p>
-    <div class="form-group">
-      <label for="appNameInput">Display Name</label>
-      <input type="text" id="appNameInput" placeholder="Service Status" value="{{.AppName}}" maxlength="50">
+
+  <div class="admin-section software-version-section">
+    <div class="software-version-header">
+      <div>
+        <h3>Software &amp; Database</h3>
+        <p class="muted">Installed build and deployment history</p>
+      </div>
+      <span id="softwareVersionBadge" class="software-version-badge">v{{.AppVersion}}</span>
     </div>
-    <div class="ops">
-      <button type="button" id="saveAppNameBtn" class="btn">Save Name</button>
+
+    <dl class="software-version-grid" aria-live="polite">
+      <div class="software-version-item">
+        <dt>Version</dt>
+        <dd id="softwareVersion">v{{.AppVersion}}</dd>
+      </div>
+      <div class="software-version-item">
+        <dt>Commit</dt>
+        <dd id="softwareCommit">Loading...</dd>
+      </div>
+      <div class="software-version-item">
+        <dt>Built</dt>
+        <dd id="softwareBuildTime">Loading...</dd>
+      </div>
+      <div class="software-version-item">
+        <dt>Process started</dt>
+        <dd id="softwareStartedAt">Loading...</dd>
+      </div>
+      <div class="software-version-item">
+        <dt>Database</dt>
+        <dd id="softwareDatabase">Loading...</dd>
+      </div>
+      <div class="software-version-item">
+        <dt>Runtime</dt>
+        <dd id="softwareRuntime">Loading...</dd>
+      </div>
+    </dl>
+
+    <div class="deployment-history-heading">
+      <h4>Recent deployments</h4>
+      <span id="softwareInfoStatus" class="muted"></span>
     </div>
-    <div id="appNameStatus" class="status-message hidden"></div>
+    <div id="deploymentHistory" class="deployment-history">
+      <div class="deployment-history-empty">Loading deployment history...</div>
+    </div>
   </div>
 
-  <div class="admin-section">
-    <h3>🔐 Change Password</h3>
-    <p class="muted">Update your admin account password</p>
-    <form id="changePasswordForm">
-      <input type="text" name="username" autocomplete="username" value="admin" class="hidden" aria-hidden="true" tabindex="-1">
+  <div class="settings-grid">
+    <div class="admin-section">
+      <h3>App Name</h3>
+      <p class="muted">Customize the name displayed in the header and browser tab</p>
       <div class="form-group">
-        <label for="currentPassword">Current Password</label>
-        <input type="password" id="currentPassword" placeholder="Enter current password" required autocomplete="current-password">
-      </div>
-      <div class="form-group">
-        <label for="newPassword">New Password</label>
-        <input type="password" id="newPassword" placeholder="Enter new password" required minlength="6" autocomplete="new-password">
-      </div>
-      <div class="form-group">
-        <label for="confirmPassword">Confirm New Password</label>
-        <input type="password" id="confirmPassword" placeholder="Confirm new password" required autocomplete="new-password">
+        <label for="appNameInput">Display Name</label>
+        <input type="text" id="appNameInput" placeholder="Service Status" value="{{.AppName}}" maxlength="50">
       </div>
       <div class="ops">
-        <button type="button" id="changePasswordBtn" class="btn">Change Password</button>
+        <button type="button" id="saveAppNameBtn" class="btn">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+          Save Name
+        </button>
       </div>
-      <div id="passwordStatus" class="status-message hidden"></div>
-    </form>
+      <div id="appNameStatus" class="status-message hidden"></div>
+    </div>
+
+    <div class="admin-section">
+      <h3>Change Password</h3>
+      <p class="muted">Update your admin account password</p>
+      <form id="changePasswordForm">
+        <input type="text" name="username" autocomplete="username" value="admin" class="hidden" aria-hidden="true" tabindex="-1">
+        <div class="form-group">
+          <label for="currentPassword">Current Password</label>
+          <input type="password" id="currentPassword" placeholder="Enter current password" required autocomplete="current-password">
+        </div>
+        <div class="form-group">
+          <label for="newPassword">New Password</label>
+          <input type="password" id="newPassword" placeholder="Enter new password" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="confirmPassword">Confirm New Password</label>
+          <input type="password" id="confirmPassword" placeholder="Confirm new password" required autocomplete="new-password">
+        </div>
+        <div class="ops">
+          <button type="button" id="changePasswordBtn" class="btn">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l2 2L21 6l-2-2"/></svg>
+            Change Password
+          </button>
+        </div>
+        <div id="passwordStatus" class="status-message hidden"></div>
+      </form>
+    </div>
   </div>
 
   <div class="admin-section">
-    <h3>💾 Backup & Restore</h3>
-    <p class="muted">Export or import your database for backup/migration purposes</p>
+    <h3>Backup &amp; Restore</h3>
+    <p class="muted">Export or import your database for backup and migration</p>
     <div class="backup-info">
-      <p>Export includes: services, settings, alert configuration, and historical data.</p>
+      <p>Exports include the application version, database schema, services, settings, alert configuration, and historical data.</p>
     </div>
     <div class="ops">
-      <button type="button" id="exportDbBtn" class="btn">📤 Export Database</button>
+      <button type="button" id="exportDbBtn" class="btn">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Export Database
+      </button>
       <label class="btn ghost file-upload-btn">
-        📥 Import Database
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Import Database
         <input type="file" id="importDbFile" accept=".json,.db,.sqlite,application/json" hidden>
       </label>
     </div>
@@ -57,15 +114,18 @@
   </div>
 
   <div class="admin-section danger-zone">
-    <h3>⚠️ Danger Zone</h3>
+    <h3>Danger Zone</h3>
     <p class="muted">These actions are irreversible. Use with caution.</p>
-    
+
     <div class="danger-action">
       <div class="danger-info">
         <strong>Reset Database</strong>
-        <p>Delete all services, settings, and historical data. This will restore the app to initial state.</p>
+        <p>Delete all services, settings, and historical data. This restores the app to its initial state.</p>
       </div>
-      <button type="button" id="resetDbBtn" class="btn danger">Reset Database</button>
+      <button type="button" id="resetDbBtn" class="btn danger">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></svg>
+        Reset Database
+      </button>
     </div>
   </div>
 </div>

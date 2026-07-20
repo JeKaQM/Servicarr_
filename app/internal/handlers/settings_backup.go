@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"status/app/internal/auth"
+	"status/app/internal/buildinfo"
 	"status/app/internal/database"
 	"status/app/internal/maintenance"
 	"status/app/internal/models"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -17,6 +19,9 @@ import (
 // DatabaseExport represents the exported database structure
 type DatabaseExport struct {
 	Version              string                       `json:"version"`
+	ApplicationVersion   string                       `json:"application_version,omitempty"`
+	ApplicationCommit    string                       `json:"application_commit,omitempty"`
+	DatabaseSchema       int                          `json:"database_schema,omitempty"`
 	ExportedAt           string                       `json:"exported_at"`
 	AppSettings          *exportAppSettings           `json:"app_settings"`
 	Services             []exportService              `json:"services"`
@@ -97,9 +102,13 @@ func HandleExportDatabase() http.HandlerFunc {
 			return
 		}
 
+		build := buildinfo.Current()
 		export := DatabaseExport{
-			Version:    "1.0",
-			ExportedAt: time.Now().UTC().Format(time.RFC3339),
+			Version:            "1.0",
+			ApplicationVersion: build.Version,
+			ApplicationCommit:  build.Commit,
+			DatabaseSchema:     database.SchemaVersion,
+			ExportedAt:         time.Now().UTC().Format(time.RFC3339),
 		}
 
 		// Export app settings (without sensitive data)
@@ -248,6 +257,12 @@ func HandleImportDatabase() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
 			return
 		}
+		if export.DatabaseSchema > database.SchemaVersion {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Backup requires a newer Servicarr database schema"})
+			return
+		}
 
 		// Import services (clear existing first)
 		if len(export.Services) > 0 {
@@ -341,6 +356,7 @@ func HandleImportDatabase() http.HandlerFunc {
 				}
 			}
 		}
+		logBackupImport(export)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "services_imported": len(export.Services)})
@@ -413,12 +429,14 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"incident_events",
 			"ups_monitor_state",
 			"app_metadata",
+			"software_deployments",
 		}
 
 		for _, table := range tables {
 			_, _ = database.DB.Exec(`DELETE FROM ` + table)
 		}
-		_ = database.EnsureDefaultMaintenanceSchedule()
+		_ = database.EnsureSchema()
+		_ = database.RecordSoftwareDeployment(buildinfo.Current())
 
 		// Generate a fresh random temporary secret
 		tempSecret := make([]byte, 32)
@@ -432,4 +450,19 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Database reset complete"})
 	}
+}
+
+func logBackupImport(export DatabaseExport) {
+	sourceVersion := export.ApplicationVersion
+	if sourceVersion == "" {
+		sourceVersion = "unknown"
+	}
+	details := "backup_format=" + export.Version + ", source_version=" + sourceVersion
+	if export.DatabaseSchema > 0 {
+		details += ", source_database_schema=" + strconv.Itoa(export.DatabaseSchema)
+	}
+	if export.ApplicationCommit != "" && export.ApplicationCommit != "unknown" {
+		details += ", source_commit=" + export.ApplicationCommit
+	}
+	_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Database backup imported", details)
 }

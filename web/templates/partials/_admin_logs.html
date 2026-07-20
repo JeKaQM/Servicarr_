@@ -1,8 +1,13 @@
 {{define "admin-logs"}}
 <!-- Logs Tab -->
 <div id="tab-logs" class="tab-content">
-  <h2>System Logs</h2>
-  <p class="muted">View system activity, service checks, email alerts, and errors.</p>
+  <div class="admin-page-heading">
+    <div>
+      <h2>System Logs</h2>
+      <p class="muted">View system activity, service checks, notifications, and errors.</p>
+    </div>
+    <span class="runtime-version-badge">v{{.AppVersion}}</span>
+  </div>
   
   <!-- Log Stats Summary -->
   <div class="admin-section log-stats">

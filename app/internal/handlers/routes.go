@@ -115,6 +115,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	authAPI.HandleFunc("/api/admin/maintenance-schedules", authMgr.RequireAuth(HandleMaintenanceSchedules()))
 
 	// Settings routes (admin only)
+	authAPI.HandleFunc("/api/admin/settings/system-info", authMgr.RequireAuth(HandleGetSystemInfo()))
 	authAPI.HandleFunc("/api/admin/settings/app-name", authMgr.RequireAuth(HandleUpdateAppName()))
 	authAPI.HandleFunc("/api/admin/settings/password", authMgr.RequireAuth(HandleChangePassword(authMgr)))
 	authAPI.HandleFunc("/api/admin/settings/export", authMgr.RequireAuth(HandleExportDatabase()))

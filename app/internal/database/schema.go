@@ -1,5 +1,10 @@
 package database
 
+import "strconv"
+
+// SchemaVersion identifies the current persistent database layout.
+const SchemaVersion = 1
+
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
 	_, err := DB.Exec(`
@@ -161,6 +166,18 @@ CREATE TABLE IF NOT EXISTS app_metadata (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS software_deployments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  commit_sha TEXT NOT NULL DEFAULT 'unknown',
+  build_time TEXT,
+  first_started_at TEXT NOT NULL,
+  last_started_at TEXT NOT NULL,
+  startup_count INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(version, commit_sha)
+);
+CREATE INDEX IF NOT EXISTS idx_software_deployments_last_started ON software_deployments(last_started_at DESC);
+
 CREATE TABLE IF NOT EXISTS ups_monitor_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   source TEXT NOT NULL,
@@ -260,6 +277,11 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	);`)
 	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_service ON incident_events(service_key);`)
 	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_started ON incident_events(started_at);`)
+
+	if _, err := DB.Exec(`INSERT INTO app_metadata (key, value) VALUES ('database_schema_version', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.Itoa(SchemaVersion)); err != nil {
+		return err
+	}
 
 	return EnsureDefaultMaintenanceSchedule()
 }

@@ -13,6 +13,7 @@ import (
 
 	"status/app/internal/alerts"
 	"status/app/internal/auth"
+	"status/app/internal/buildinfo"
 	"status/app/internal/checker"
 	"status/app/internal/config"
 	"status/app/internal/crypto"
@@ -27,6 +28,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "version") {
+		fmt.Printf("Servicarr %s\n", buildinfo.Current().Summary())
+		return
+	}
+
 	appCtx, cancelApp := context.WithCancel(context.Background())
 	defer cancelApp()
 
@@ -40,6 +46,11 @@ func main() {
 	if err := database.Init(cfg.DBPath); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
+	build := buildinfo.Current()
+	if err := recordSoftwareStartup(build); err != nil {
+		log.Printf("Warning: Failed to record software startup metadata: %v", err)
+	}
+	log.Printf("Servicarr %s starting (database schema %d, Go %s)", build.Summary(), database.SchemaVersion, build.GoVersion)
 
 	// Initialize statistics schema
 	if err := stats.EnsureStatsSchema(); err != nil {
@@ -109,6 +120,19 @@ func main() {
 		log.Fatalf("Server failed: %v", err)
 	}
 	log.Println("Server stopped gracefully")
+}
+
+func recordSoftwareStartup(build buildinfo.Info) error {
+	if err := database.RecordSoftwareDeployment(build); err != nil {
+		return err
+	}
+	buildTime := build.BuildTime
+	if buildTime == "" {
+		buildTime = "unknown"
+	}
+	details := fmt.Sprintf("version=%s, commit=%s, build_time=%s, database_schema=%d, go=%s",
+		build.Version, build.Commit, buildTime, database.SchemaVersion, build.GoVersion)
+	return database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "", "Application started", details)
 }
 
 func runUPSMonitor(ctx context.Context, alertMgr *alerts.Manager, interval time.Duration) {

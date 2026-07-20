@@ -3,9 +3,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY app/ ./app/
+ARG VCS_REF=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    cd app && go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/status .
+    VERSION="$(tr -d '\r\n' < app/internal/buildinfo/VERSION)" && \
+    BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
+    cd app && go build -trimpath -buildvcs=false \
+      -ldflags="-s -w -X status/app/internal/buildinfo.Version=${VERSION} -X status/app/internal/buildinfo.Commit=${VCS_REF} -X status/app/internal/buildinfo.BuildTime=${BUILD_TIME}" \
+      -o /out/status .
 
 FROM debian:bookworm-slim
 WORKDIR /app

@@ -62,6 +62,17 @@ A lightweight, self-hosted status page that monitors your services and displays 
 
 2. **Open** http://localhost:4555
 
+## Versioning
+
+Servicarr uses semantic versions. The canonical application version is stored in `app/internal/buildinfo/VERSION` and embedded into every Go binary. Keep `package.json` aligned; CI rejects mismatched values.
+
+```bash
+go run ./app --version
+docker exec servicarr status --version
+```
+
+Docker builds also embed the UTC build time and accept `VCS_REF` as a build argument for the source commit. The Compose deployment uses `SERVICARR_COMMIT` when provided. The running version, commit, build time, Go runtime, SQLite version, database schema, and recent deployment history are available under **Admin > Settings**. Each startup is also written to the system log and persisted in the database.
+
 ## Configuration
 
 All settings are stored in SQLite after the setup wizard completes. The following environment variables can still be set:

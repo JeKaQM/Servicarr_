@@ -83,7 +83,7 @@
   font-size: 0.75rem;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 /* Actions Bar */
@@ -134,9 +134,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 42px;
   padding: 10px 16px;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--border);
@@ -687,7 +688,7 @@
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   margin-bottom: 6px;
 }
 

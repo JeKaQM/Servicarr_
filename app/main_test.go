@@ -1,11 +1,43 @@
 package main
 
 import (
+	"status/app/internal/buildinfo"
 	"status/app/internal/database"
 	"status/app/internal/models"
 	"testing"
 	"time"
 )
+
+func TestRecordSoftwareStartupPersistsDeploymentAndLog(t *testing.T) {
+	if err := database.Init(":memory:"); err != nil {
+		t.Fatal(err)
+	}
+	build := buildinfo.Info{
+		Version:   "1.4.0",
+		Commit:    "abc123",
+		BuildTime: "2026-07-20T10:00:00Z",
+		StartedAt: "2026-07-20T11:00:00Z",
+		GoVersion: "go1.25.3",
+	}
+	if err := recordSoftwareStartup(build); err != nil {
+		t.Fatal(err)
+	}
+
+	deployments, err := database.GetSoftwareDeployments(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deployments) != 1 || deployments[0].Version != "1.4.0" {
+		t.Fatalf("unexpected deployments: %+v", deployments)
+	}
+	logs, err := database.GetLogs(10, database.LogLevelInfo, database.LogCategorySystem, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Message != "Application started" || logs[0].Details == "" {
+		t.Fatalf("unexpected startup logs: %+v", logs)
+	}
+}
 
 func TestCheckResultIsConfirmed(t *testing.T) {
 	tests := []struct {

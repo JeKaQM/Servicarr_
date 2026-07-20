@@ -347,6 +347,12 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
 			return
 		}
+		if export.DatabaseSchema > database.SchemaVersion {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Backup requires a newer Servicarr database schema"})
+			return
+		}
 
 		// Import services
 		if len(export.Services) > 0 {
@@ -440,6 +446,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				}
 			}
 		}
+		logBackupImport(export)
 
 		// Now we need credentials - prompt user to create them
 		// But for import, we'll require them in a separate step or use the backup username
