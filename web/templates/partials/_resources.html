@@ -11,13 +11,47 @@
   </div>
 
   <div class="resources-grid">
-    <div class="resource-tile hidden" data-kind="cpu">
+    <div class="resource-tile cpu-tile hidden" data-kind="cpu">
       <div class="tile-head">
         <div class="tile-label">🖥️ CPU</div>
         <div class="tile-kpi" id="res-cpu">—</div>
       </div>
       <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-cpu"></div></div>
-      <div class="tile-sub" id="res-cpu-detail">—</div>
+      <div class="cpu-summary" aria-label="CPU summary">
+        <div class="cpu-summary-item">
+          <span>Logical CPUs</span>
+          <strong id="res-cpu-detail">—</strong>
+        </div>
+        <div class="cpu-summary-item">
+          <span>Avg CPU temp</span>
+          <strong id="res-cpu-avg-temp">—</strong>
+        </div>
+      </div>
+      <button
+        class="cpu-details-toggle hidden"
+        id="res-cpu-details-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="res-cpu-details"
+      >
+        <span>Processor details</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
+      </button>
+      <div class="cpu-details hidden" id="res-cpu-details">
+        <div class="cpu-detail-section" id="res-cpu-core-section">
+          <div class="cpu-detail-heading">Logical CPU load</div>
+          <div class="cpu-core-grid" id="res-cpu-core-grid"></div>
+          <div class="cpu-temp-note hidden" id="res-cpu-temp-note">
+            Temperature appears only where the host reports a matching core sensor.
+          </div>
+        </div>
+        <div class="cpu-detail-section hidden" id="res-cpu-sensors-section">
+          <div class="cpu-detail-heading">CPU thermal sensors</div>
+          <div class="cpu-sensor-grid" id="res-cpu-sensor-grid"></div>
+        </div>
+      </div>
     </div>
 
     <div class="resource-tile hidden" data-kind="mem">

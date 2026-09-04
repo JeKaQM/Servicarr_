@@ -18,13 +18,16 @@ type Snapshot struct {
 	UptimeSeconds *float64 `json:"uptime_seconds,omitempty"`
 	UptimeString  string   `json:"uptime_string,omitempty"`
 
-	CPUPercent        *float64  `json:"cpu_percent,omitempty"`
-	CPUUserPercent    *float64  `json:"cpu_user_percent,omitempty"`
-	CPUSystemPercent  *float64  `json:"cpu_system_percent,omitempty"`
-	CPUIOWaitPercent  *float64  `json:"cpu_iowait_percent,omitempty"`
-	CPUIdlePercent    *float64  `json:"cpu_idle_percent,omitempty"`
-	CPUCores          *uint64   `json:"cpu_cores,omitempty"`
-	CPUPerCorePercent []float64 `json:"cpu_per_core_percent,omitempty"`
+	CPUPercent            *float64               `json:"cpu_percent,omitempty"`
+	CPUUserPercent        *float64               `json:"cpu_user_percent,omitempty"`
+	CPUSystemPercent      *float64               `json:"cpu_system_percent,omitempty"`
+	CPUIOWaitPercent      *float64               `json:"cpu_iowait_percent,omitempty"`
+	CPUIdlePercent        *float64               `json:"cpu_idle_percent,omitempty"`
+	CPUCores              *uint64                `json:"cpu_cores,omitempty"`
+	CPUAvgTempC           *float64               `json:"cpu_avg_temp_c,omitempty"`
+	CPUPerCorePercent     []float64              `json:"cpu_per_core_percent,omitempty"`
+	CPUCoreMetrics        []CPUCoreMetric        `json:"cpu_core_metrics,omitempty"`
+	CPUTemperatureSensors []CPUTemperatureSensor `json:"cpu_temperature_sensors,omitempty"`
 
 	Load1  *float64 `json:"load_1,omitempty"`
 	Load5  *float64 `json:"load_5,omitempty"`
@@ -71,6 +74,20 @@ type Snapshot struct {
 
 	// UPS metrics from Network UPS Tools (NUT)
 	UPS *UPSInfo `json:"ups,omitempty"`
+}
+
+// CPUCoreMetric holds the measurements Glances reports for one logical CPU.
+// A nil reading means the host did not expose that measurement for this CPU.
+type CPUCoreMetric struct {
+	Index       uint64   `json:"index"`
+	LoadPercent *float64 `json:"load_percent,omitempty"`
+	TempC       *float64 `json:"temp_c,omitempty"`
+}
+
+// CPUTemperatureSensor is a CPU thermal reading that is not tied to one core.
+type CPUTemperatureSensor struct {
+	Label string  `json:"label"`
+	TempC float64 `json:"temp_c"`
 }
 
 // ContainerInfo holds basic container stats
