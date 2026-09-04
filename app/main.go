@@ -410,15 +410,14 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 			// Track consecutive failures
 			consecutiveFailures := tracker.Update(sc.Key, checkOK)
 
-			// OK if check passed OR haven't hit 2 consecutive failures yet
-			ok := checkOK || consecutiveFailures < 2
-
-			// Degraded = responding but slow
-			degraded := ok && msPtr != nil && *msPtr > 200
+			// History and the live dashboard reflect the observed check immediately.
+			// Consecutive failures are used only to debounce notifications below.
+			observedOK := checkOK
+			degraded := observedOK && msPtr != nil && *msPtr > 200
 
 			// Record stats
-			importantHeartbeat := stats.RecordHeartbeat(sc.Key, ok, msPtr, code, errMsg)
-			database.InsertSample(now, sc.Key, ok, code, msPtr)
+			importantHeartbeat := stats.RecordHeartbeat(sc.Key, observedOK, msPtr, code, errMsg)
+			database.InsertSample(now, sc.Key, observedOK, code, msPtr)
 
 			// Log the check result
 			logLevel := database.LogLevelInfo
@@ -431,7 +430,7 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				logDetails = fmt.Sprintf("status=%d, interval=%ds", code, sc.CheckInterval)
 			}
 
-			if !ok {
+			if !observedOK {
 				logLevel = database.LogLevelError
 				logMsg = "Service check failed"
 				if errMsg != "" {
@@ -442,7 +441,7 @@ func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, track
 				logMsg = "Service degraded (slow response)"
 			}
 
-			if ok || importantHeartbeat {
+			if observedOK || importantHeartbeat {
 				_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
 			}
 

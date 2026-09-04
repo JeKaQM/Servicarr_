@@ -251,13 +251,18 @@
   padding: 12px 14px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   margin-bottom: 10px;
   transition: all 0.2s ease;
 }
 
 .banner-item:hover {
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.banner-item.is-hidden {
+  opacity: 0.62;
+  border-style: dashed;
 }
 
 .banner-item-level {
@@ -302,21 +307,11 @@
   color: var(--muted);
 }
 
-.banner-delete {
-  background: rgba(127, 29, 29, 0.6);
-  border: 1px solid rgba(153, 27, 27, 0.6);
-  color: #fca5a5;
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.banner-delete:hover {
-  background: rgba(153, 27, 27, 0.8);
-  border-color: #991b1b;
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Form select styling */

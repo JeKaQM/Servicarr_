@@ -16,6 +16,38 @@ import (
 	"time"
 )
 
+type incidentItem struct {
+	TakenAt         string `json:"taken_at"`
+	ServiceKey      string `json:"service_key"`
+	ServiceName     string `json:"service_name"`
+	HTTPStatus      int64  `json:"http_status"`
+	Error           string `json:"error,omitempty"`
+	LatencyMS       *int64 `json:"latency_ms,omitempty"`
+	CheckType       string `json:"check_type,omitempty"`
+	Ongoing         bool   `json:"ongoing,omitempty"`
+	StartedAt       string `json:"started_at,omitempty"`
+	DurationSeconds int64  `json:"duration_s,omitempty"`
+}
+
+type dayHourBucket struct {
+	Hour       string   `json:"hour"`
+	Uptime     float64  `json:"uptime"`
+	AvgMS      *float64 `json:"avg_ms,omitempty"`
+	Checks     int      `json:"checks"`
+	DownChecks int      `json:"down_checks"`
+}
+
+type dayDownEvent struct {
+	Time         string `json:"time"`
+	HTTPStatus   *int64 `json:"http_status,omitempty"`
+	Error        string `json:"error,omitempty"`
+	LatencyMS    *int64 `json:"latency_ms,omitempty"`
+	FailureCount int    `json:"failure_count"`
+	Kind         string `json:"kind,omitempty"`
+	AllDay       bool   `json:"all_day,omitempty"`
+	Ongoing      bool   `json:"ongoing,omitempty"`
+}
+
 // HandleHealth reports whether the HTTP process is ready to serve requests.
 // It intentionally avoids service checks so container probes do not affect
 // monitoring state or depend on external services.
@@ -26,7 +58,7 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCheck returns current status of all services
-func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
+func HandleCheck(_ *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
 		out := models.LivePayload{T: now, Status: map[string]models.LiveResult{}}
@@ -40,9 +72,6 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 		}
 
 		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
-		if maintenanceActive {
-			tracker.ResetAll()
-		}
 
 		for _, sc := range dbServices {
 			// Check if monitoring is disabled
@@ -91,7 +120,6 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			})
 			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
 			if maintenanceStarted {
-				tracker.ResetAll()
 				maintenanceActive = true
 				out.Status[sc.Key] = models.LiveResult{
 					Label:       sc.Name,
@@ -104,10 +132,9 @@ func HandleCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 				continue
 			}
 
-			failures := tracker.Update(sc.Key, checkOK)
-
-			// Service is only DOWN after 2 consecutive failures
-			ok := checkOK || failures < 2
+			// Public refreshes must not mutate the scheduler's notification debounce.
+			// The live status always represents this observed check.
+			ok := checkOK
 			degraded := ok && ms != nil && *ms > 200
 			out.Status[sc.Key] = models.LiveResult{
 				Label:       sc.Name,
@@ -232,50 +259,10 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 			}
 		}
 
-		downs := []map[string]any{}
-		downsSince := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
-		rows3, err := database.DB.Query(`
-			SELECT hb.time,
-			       hb.service_key,
-			       COALESCE(s.name, hb.service_key) AS service_name,
-			       hb.http_status,
-			       hb.msg,
-			       hb.ping,
-			       COALESCE(s.check_type, '') AS check_type
-			FROM heartbeats hb
-			LEFT JOIN services s ON s.key = hb.service_key
-			WHERE hb.status = 0 AND hb.important = 1 AND hb.time >= ?
-			ORDER BY hb.time DESC
-			LIMIT 50`, downsSince)
-		if err == nil {
-			defer rows3.Close()
-			for rows3.Next() {
-				var ts, key, name string
-				var st, ping sql.NullInt64
-				var msg, checkType sql.NullString
-				_ = rows3.Scan(&ts, &key, &name, &st, &msg, &ping, &checkType)
-				item := map[string]any{
-					"taken_at":     ts,
-					"service_key":  key,
-					"service_name": name,
-				}
-				if st.Valid {
-					item["http_status"] = st.Int64
-				} else {
-					item["http_status"] = 0
-				}
-				if msg.Valid && msg.String != "" {
-					// Always sanitize — defense-in-depth for older stored messages
-					item["error"] = checker.SanitizeError(msg.String)
-				}
-				if ping.Valid {
-					item["latency_ms"] = ping.Int64
-				}
-				if checkType.Valid && checkType.String != "" {
-					item["check_type"] = checkType.String
-				}
-				downs = append(downs, item)
-			}
+		downs, err := loadRecentIncidents(time.Now())
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
 		}
 
 		response := map[string]any{
@@ -293,6 +280,110 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
 	}
+}
+
+func loadRecentIncidents(now time.Time) ([]incidentItem, error) {
+	now = now.UTC()
+	downSince := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	rows, err := database.DB.Query(`
+		SELECT hb.time,
+		       hb.service_key,
+		       COALESCE(s.name, hb.service_key) AS service_name,
+		       hb.http_status,
+		       hb.msg,
+		       hb.ping,
+		       COALESCE(s.check_type, '') AS check_type
+		FROM heartbeats hb
+		LEFT JOIN services s ON s.key = hb.service_key
+		WHERE hb.status = 0 AND hb.important = 1 AND hb.time >= ?
+		ORDER BY hb.time DESC
+		LIMIT 50`, downSince)
+	if err != nil {
+		return nil, err
+	}
+
+	recent := make([]incidentItem, 0)
+	for rows.Next() {
+		var item incidentItem
+		var status, ping sql.NullInt64
+		var message, checkType sql.NullString
+		if err := rows.Scan(&item.TakenAt, &item.ServiceKey, &item.ServiceName, &status, &message, &ping, &checkType); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if status.Valid {
+			item.HTTPStatus = status.Int64
+		}
+		if message.Valid && message.String != "" {
+			item.Error = checker.SanitizeError(message.String)
+		}
+		if ping.Valid {
+			value := ping.Int64
+			item.LatencyMS = &value
+		}
+		if checkType.Valid {
+			item.CheckType = checkType.String
+		}
+		recent = append(recent, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	states, err := database.GetVisibleServiceOutageStates()
+	if err != nil {
+		return nil, err
+	}
+
+	ongoing := make([]incidentItem, 0)
+	consumed := make(map[int]bool)
+	for _, state := range states {
+		if !state.IsDown {
+			continue
+		}
+		started := state.UpdatedAt.UTC()
+		if state.DownSince != nil {
+			started = state.DownSince.UTC()
+		}
+
+		item := incidentItem{
+			TakenAt:         started.Format(time.RFC3339),
+			ServiceKey:      state.ServiceKey,
+			ServiceName:     state.ServiceName,
+			Ongoing:         true,
+			StartedAt:       started.Format(time.RFC3339),
+			DurationSeconds: max(0, int64(now.Sub(started).Seconds())),
+			Error:           "Service remains unavailable",
+		}
+		for index, candidate := range recent {
+			if consumed[index] || candidate.ServiceKey != state.ServiceKey {
+				continue
+			}
+			item.HTTPStatus = candidate.HTTPStatus
+			item.LatencyMS = candidate.LatencyMS
+			item.CheckType = candidate.CheckType
+			if candidate.Error != "" {
+				item.Error = candidate.Error
+			}
+			consumed[index] = true
+			break
+		}
+		ongoing = append(ongoing, item)
+	}
+
+	result := make([]incidentItem, 0, len(ongoing)+len(recent))
+	result = append(result, ongoing...)
+	for index, item := range recent {
+		if !consumed[index] {
+			result = append(result, item)
+		}
+	}
+	if len(result) > 50 {
+		result = result[:50]
+	}
+	return result, nil
 }
 
 // HandleUptimeStats returns pre-computed uptime statistics for services
@@ -382,7 +473,7 @@ func HandleDayDetail() http.HandlerFunc {
 		startStr := dayStart.Format(time.RFC3339)
 		endStr := dayEnd.Format(time.RFC3339)
 
-		// Hour-by-hour uptime from samples
+		// Hour-by-hour uptime from observed samples.
 		rows, err := database.DB.Query(`
 			SELECT substr(taken_at,1,13) AS hour_bin,
 			       SUM(ok) AS up_count,
@@ -396,36 +487,41 @@ func HandleDayDetail() http.HandlerFunc {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-
-		type HourBucket struct {
-			Hour   string   `json:"hour"`
-			Uptime float64  `json:"uptime"`
-			AvgMs  *float64 `json:"avg_ms,omitempty"`
-			Checks int      `json:"checks"`
-		}
-
-		hourMap := map[string]*HourBucket{}
+		hourMap := map[string]*dayHourBucket{}
+		totalUp := 0
+		totalChecks := 0
 		for rows.Next() {
 			var hourBin string
 			var up, total int
 			var avgMs sql.NullFloat64
-			_ = rows.Scan(&hourBin, &up, &total, &avgMs)
+			if err := rows.Scan(&hourBin, &up, &total, &avgMs); err != nil {
+				rows.Close()
+				http.Error(w, "server error", http.StatusInternalServerError)
+				return
+			}
 			pct := 0.0
 			if total > 0 {
 				pct = float64(up) / float64(total) * 100.0
 				pct = float64(int(pct*10+0.5)) / 10.0
 			}
-			bucket := &HourBucket{Hour: hourBin + ":00", Uptime: pct, Checks: total}
+			bucket := &dayHourBucket{Hour: hourBin + ":00", Uptime: pct, Checks: total, DownChecks: total - up}
 			if avgMs.Valid {
 				v := avgMs.Float64
-				bucket.AvgMs = &v
+				bucket.AvgMS = &v
 			}
 			hourMap[hourBin] = bucket
+			totalUp += up
+			totalChecks += total
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		rows.Close()
 
 		// Build 24 hour buckets
-		hours := make([]HourBucket, 24)
+		hours := make([]dayHourBucket, 24)
 		for h := 0; h < 24; h++ {
 			hourKey := fmt.Sprintf("%s %02d", dateStr, h)
 			// Also try ISO format
@@ -435,7 +531,7 @@ func HandleDayDetail() http.HandlerFunc {
 			} else if b, ok := hourMap[hourKeyISO]; ok {
 				hours[h] = *b
 			} else {
-				hours[h] = HourBucket{
+				hours[h] = dayHourBucket{
 					Hour:   fmt.Sprintf("%sT%02d:00", dateStr, h),
 					Uptime: -1, // -1 means no data
 					Checks: 0,
@@ -443,48 +539,95 @@ func HandleDayDetail() http.HandlerFunc {
 			}
 		}
 
-		// Downtime events: exact timestamps when service went down
+		// Build at most one representative downtime event per hour from raw
+		// failed samples. This also covers outages that began on an earlier day.
 		rows2, err := database.DB.Query(`
-			SELECT hb.time, hb.http_status, hb.msg, hb.ping
-			FROM heartbeats hb
-			WHERE hb.service_key = ? AND hb.status = 0 AND hb.important = 1 AND hb.time >= ? AND hb.time < ?
-			ORDER BY hb.time ASC`,
+			SELECT taken_at, http_status, latency_ms
+			FROM samples
+			WHERE service_key = ? AND ok = 0 AND taken_at >= ? AND taken_at < ?
+			ORDER BY taken_at ASC`,
 			serviceKey, startStr, endStr)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		defer rows2.Close()
-
-		type DownEvent struct {
-			Time       string `json:"time"`
-			HTTPStatus *int64 `json:"http_status,omitempty"`
-			Error      string `json:"error,omitempty"`
-			LatencyMs  *int64 `json:"latency_ms,omitempty"`
-		}
-
-		var downEvents []DownEvent
+		downEvents := make([]dayDownEvent, 0)
+		eventByHour := make(map[string]int)
 		for rows2.Next() {
 			var ts string
-			var st, ping sql.NullInt64
-			var msg sql.NullString
-			_ = rows2.Scan(&ts, &st, &msg, &ping)
-			ev := DownEvent{Time: ts}
-			if st.Valid {
-				ev.HTTPStatus = &st.Int64
+			var status, latency sql.NullInt64
+			if err := rows2.Scan(&ts, &status, &latency); err != nil {
+				rows2.Close()
+				http.Error(w, "server error", http.StatusInternalServerError)
+				return
 			}
-			if msg.Valid && msg.String != "" {
-				// Sanitize — defense-in-depth for older stored messages
-				ev.Error = checker.SanitizeError(msg.String)
+			hourKey := ts
+			if len(hourKey) > 13 {
+				hourKey = hourKey[:13]
 			}
-			if ping.Valid {
-				ev.LatencyMs = &ping.Int64
+			if index, exists := eventByHour[hourKey]; exists {
+				downEvents[index].FailureCount++
+				continue
 			}
+			ev := dayDownEvent{Time: ts, FailureCount: 1, Kind: "hourly_outage"}
+			if status.Valid {
+				value := status.Int64
+				ev.HTTPStatus = &value
+			}
+			if latency.Valid {
+				value := latency.Int64
+				ev.LatencyMS = &value
+			}
+			eventByHour[hourKey] = len(downEvents)
 			downEvents = append(downEvents, ev)
 		}
+		if err := rows2.Err(); err != nil {
+			rows2.Close()
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		rows2.Close()
 
-		if downEvents == nil {
-			downEvents = []DownEvent{}
+		// Add a sanitized diagnostic to the representative event when retained
+		// heartbeat data exists for that hour.
+		rows3, err := database.DB.Query(`SELECT time, msg FROM heartbeats
+			WHERE service_key = ? AND status = 0 AND time >= ? AND time < ?
+			ORDER BY time ASC`, serviceKey, startStr, endStr)
+		if err == nil {
+			for rows3.Next() {
+				var ts string
+				var message sql.NullString
+				if rows3.Scan(&ts, &message) != nil || !message.Valid || message.String == "" {
+					continue
+				}
+				hourKey := ts
+				if len(hourKey) > 13 {
+					hourKey = hourKey[:13]
+				}
+				if index, exists := eventByHour[hourKey]; exists && downEvents[index].Error == "" {
+					downEvents[index].Error = checker.SanitizeError(message.String)
+				}
+			}
+			rows3.Close()
+		}
+
+		ongoing := false
+		var currentDown int
+		if err := database.DB.QueryRow(`SELECT is_down FROM service_outage_state WHERE service_key = ?`, serviceKey).Scan(&currentDown); err == nil {
+			ongoing = currentDown != 0
+		}
+		if totalChecks > 0 && totalUp == 0 && len(eventByHour) == 24 && len(downEvents) > 0 {
+			allDay := downEvents[0]
+			allDay.Kind = "all_day_outage"
+			allDay.AllDay = true
+			allDay.Ongoing = ongoing
+			allDay.FailureCount = totalChecks
+			if allDay.Error == "" {
+				allDay.Error = "Every recorded check failed"
+			}
+			downEvents = []dayDownEvent{allDay}
+		} else if ongoing && len(downEvents) > 0 && !dayEnd.Before(time.Now().UTC()) {
+			downEvents[len(downEvents)-1].Ongoing = true
 		}
 
 		response := map[string]any{

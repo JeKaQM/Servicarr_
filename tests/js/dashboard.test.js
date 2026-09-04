@@ -171,3 +171,23 @@ describe('updCard', () => {
     expect(h.textContent).toBe('No response');
   });
 });
+
+describe('ongoing incidents', () => {
+  test('keeps an ongoing outage visible with its duration', () => {
+    document.body.innerHTML = '<ul id="incidents"></ul>';
+
+    renderIncidents([{
+      service_key: 'plex',
+      service_name: 'Plex',
+      ongoing: true,
+      started_at: '2026-09-01T10:00:00Z',
+      duration_s: 108000,
+      error: 'Connection refused'
+    }]);
+
+    const incident = document.querySelector('.incident-item');
+    expect(incident.classList.contains('incident-ongoing')).toBe(true);
+    expect(incident.textContent).toContain('Ongoing outage for 1d 6h');
+    expect(incident.textContent).toContain('Started');
+  });
+});

@@ -106,6 +106,8 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 			HandleGetStatusAlerts()(w, r)
 		case http.MethodPost:
 			HandleCreateStatusAlert()(w, r)
+		case http.MethodPut:
+			HandleUpdateStatusAlert()(w, r)
 		case http.MethodDelete:
 			HandleDeleteStatusAlert()(w, r)
 		default:
@@ -236,7 +238,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux.Handle("/api/me", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleWhoAmI(authMgr))))
 
 	// Admin API: 60 requests/minute
-	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, authAPI))
+	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, AuditAdminActions(authMgr, authAPI)))
 
 	// Public API: 30 requests/minute for check endpoint (prevents abuse)
 	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(tracker))))

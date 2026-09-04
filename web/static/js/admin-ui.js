@@ -308,6 +308,11 @@ window.addEventListener('load', async () => {
     createBannerBtn.addEventListener('click', createBanner);
   }
 
+  const cancelBannerEdit = $('#cancelBannerEdit');
+  if (cancelBannerEdit) {
+    cancelBannerEdit.addEventListener('click', resetBannerForm);
+  }
+
   const maintenanceForm = $('#maintenanceScheduleForm');
   if (maintenanceForm) {
     maintenanceForm.addEventListener('submit', saveMaintenanceSchedule);

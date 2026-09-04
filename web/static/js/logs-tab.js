@@ -10,7 +10,7 @@ async function loadLogStats() {
       setResText('logTotalCount', res.total_logs || 0);
       setResText('logErrorCount', res.error_count || 0);
       setResText('logWarnCount', res.warn_count || 0);
-      setResText('logInfoCount', res.info_count || 0);
+      setResText('logAuditCount', res.audit_count || 0);
     }
   } catch (err) {
     console.error('[Logs] Failed to load stats:', err);
@@ -18,7 +18,7 @@ async function loadLogStats() {
   }
 }
 
-async function loadLogs(append = false) {
+async function loadLogs(append = false, auditRefresh = false) {
   try {
     const params = new URLSearchParams();
     params.set('limit', LOGS_LIMIT);
@@ -27,7 +27,8 @@ async function loadLogs(append = false) {
     if (currentLogFilters.category) params.set('category', currentLogFilters.category);
     if (currentLogFilters.service) params.set('service', currentLogFilters.service);
 
-    const res = await j('/api/admin/logs?' + params.toString());
+    const headers = auditRefresh ? { 'X-Audit-Action': 'logs.refresh' } : undefined;
+    const res = await j('/api/admin/logs?' + params.toString(), headers ? { headers } : undefined);
     if (!res || !res.logs) {
       if (!append) {
         renderLogs('#allLogsList', [], false);
@@ -53,6 +54,16 @@ async function loadLogs(append = false) {
     }
   } catch (err) {
     console.error('[Logs] Failed to load logs:', err);
+    throw err;
+  }
+}
+
+async function loadAuditLogs() {
+  try {
+    const res = await j('/api/admin/logs?limit=10&category=audit');
+    renderLogs('#auditLogsList', res?.logs || [], false);
+  } catch (err) {
+    console.error('[Logs] Failed to load user activity:', err);
     throw err;
   }
 }
@@ -106,7 +117,7 @@ function renderLogEntry(log) {
   const category = log.category || '';
   const service = log.service || '';
   const message = escapeHtml(log.message || '');
-  const details = log.details ? escapeHtml(log.details) : '';
+  const details = log.details ? escapeHtml(summarizeLogDetails(log.details)) : '';
 
   // Level icons
   const levelIcons = {
@@ -122,7 +133,8 @@ function renderLogEntry(log) {
     email: 'Email',
     security: 'Security',
     system: 'System',
-    schedule: 'Scheduler'
+    schedule: 'Scheduler',
+    audit: 'User Action'
   };
 
   const levelIcon = levelIcons[level] || levelIcons.info;
@@ -131,7 +143,7 @@ function renderLogEntry(log) {
   // Escape details for use in data attribute
 
   return `
-    <div class="log-entry ${level}" data-action="show-log" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
+    <div class="log-entry ${level} category-${escapeHtml(category)}" data-action="show-log" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
       <span class="log-time">${time}</span>
       <span class="log-badge level-${level}">${levelIcon}${level.toUpperCase()}</span>
       ${category ? `<span class="log-badge category">${categoryLabel}</span>` : ''}
@@ -139,6 +151,21 @@ function renderLogEntry(log) {
       <span class="log-message">${message}</span>
       ${details ? `<span class="log-details">${details}</span>` : ''}
     </div>`;
+}
+
+function summarizeLogDetails(rawDetails) {
+  if (!rawDetails) return '';
+  try {
+    const details = JSON.parse(rawDetails);
+    const parts = [];
+    if (details.actor) parts.push(`User: ${details.actor}`);
+    if (details.outcome) parts.push(String(details.outcome).charAt(0).toUpperCase() + String(details.outcome).slice(1));
+    if (details.status) parts.push(`HTTP ${details.status}`);
+    if (details.ip) parts.push(details.ip);
+    return parts.length ? parts.join(' | ') : rawDetails;
+  } catch (_) {
+    return rawDetails;
+  }
 }
 
 function showLogDetails(el) {
@@ -218,14 +245,15 @@ function renderLogsEmpty(selector) {
     </div>`;
 }
 
-async function refreshLogs(silent = false) {
+async function refreshLogs(silent = false, auditRefresh = false) {
   const btn = $('#refreshLogsBtn');
   if (btn) btn.classList.add('loading');
 
   try {
     logsOffset = 0;
-    const [statsResult, logsResult] = await Promise.allSettled([loadLogStats(), loadLogs(false)]);
-    const anyFailed = statsResult.status === 'rejected' || logsResult.status === 'rejected';
+    const [logsResult] = await Promise.allSettled([loadLogs(false, auditRefresh)]);
+    const [statsResult, auditResult] = await Promise.allSettled([loadLogStats(), loadAuditLogs()]);
+    const anyFailed = statsResult.status === 'rejected' || logsResult.status === 'rejected' || auditResult.status === 'rejected';
     if (anyFailed) {
       showToast('Failed to refresh logs', 'error');
     } else if (!silent) {
@@ -236,6 +264,10 @@ async function refreshLogs(silent = false) {
   } finally {
     if (btn) btn.classList.remove('loading');
   }
+}
+
+function refreshLogsFromButton() {
+  return refreshLogs(false, true);
 }
 
 async function applyLogFilters() {
@@ -330,9 +362,8 @@ function initLogsTab() {
   // Refresh button
   const refreshBtn = $('#refreshLogsBtn');
   if (refreshBtn) {
-    // Remove existing listener to prevent duplicates if init is called multiple times
-    refreshBtn.removeEventListener('click', refreshLogs);
-    refreshBtn.addEventListener('click', refreshLogs);
+    refreshBtn.removeEventListener('click', refreshLogsFromButton);
+    refreshBtn.addEventListener('click', refreshLogsFromButton);
   }
 
   // Clear logs button

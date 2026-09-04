@@ -21,6 +21,7 @@ const (
 	LogCategorySecurity = "security"
 	LogCategorySystem   = "system"
 	LogCategorySchedule = "schedule"
+	LogCategoryAudit    = "audit"
 )
 
 // InsertLog adds a new log entry
@@ -83,6 +84,7 @@ func GetLogStats() (*models.LogStats, error) {
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'warn'`).Scan(&stats.WarnCount)
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'info'`).Scan(&stats.InfoCount)
 	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'debug'`).Scan(&stats.DebugCount)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE category = 'audit'`).Scan(&stats.AuditCount)
 
 	return &stats, nil
 }

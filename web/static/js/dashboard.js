@@ -117,12 +117,14 @@ function renderIncidents(items) {
   }
 
   const rendered = items.map((i, idx) => {
-    const rawTs = i.taken_at || i.time || '';
+    const ongoing = Boolean(i.ongoing);
+    const rawTs = i.started_at || i.taken_at || i.time || '';
     let ts = '';
     if (rawTs) {
       const d = new Date(rawTs);
       ts = Number.isNaN(d.getTime()) ? String(rawTs) : d.toLocaleString();
     }
+    const timeLabel = ongoing ? `Started ${ts}` : ts;
 
     const svcRaw = i.service_name || i.service_key || '';
     const svc = escapeHtml(svcRaw);
@@ -144,11 +146,15 @@ function renderIncidents(items) {
     if (latency && Number(latency) > 0) parts.push(`${Number(latency)}ms`);
     if (err) parts.push(err);
 
-    const detail = parts.length ? parts.join(' | ') : 'down';
-    const summary = detail.length > 90 ? detail.slice(0, 87) + '...' : detail;
+    let detail = parts.length ? parts.join(' | ') : 'Service unavailable';
+    if (ongoing) {
+      const duration = formatIncidentDuration(Number(i.duration_s) || 0);
+      detail = `Ongoing outage${duration ? ` for ${duration}` : ''} | ${detail}`;
+    }
+    const summary = detail.length > 110 ? detail.slice(0, 107) + '...' : detail;
 
     const payload = JSON.stringify({
-      time: ts || rawTs,
+      time: timeLabel || rawTs,
       service: svcRaw,
       check_type: checkType || 'http',
       status: statusCode > 0 ? `HTTP ${statusCode}` : 'No response',
@@ -161,10 +167,10 @@ function renderIncidents(items) {
     const hiddenAttr = idx >= VISIBLE_LIMIT ? ' data-hidden="true"' : '';
 
     return `
-      <li class="incident-item${hiddenClass}"${hiddenAttr} data-incident="${payload}">
+      <li class="incident-item${ongoing ? ' incident-ongoing' : ''}${hiddenClass}"${hiddenAttr} data-incident="${payload}">
         <span class="dot"></span>
         <div class="incident-content">
-          <span class="incident-time">${escapeHtml(ts)}</span>
+          <span class="incident-time">${escapeHtml(timeLabel)}</span>
           <span class="incident-detail">${svc} (${escapeHtml(summary)})</span>
         </div>
         <span class="incident-action">Details <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
@@ -211,6 +217,19 @@ function renderIncidents(items) {
   $$('#incidents .incident-item').forEach(item => {
     item.addEventListener('click', () => showIncidentDetails(item));
   });
+}
+
+function formatIncidentDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  if (seconds < 60) return 'under a minute';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return `${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ''}`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return `${days}d${remainingHours ? ` ${remainingHours}h` : ''}`;
 }
 
 function updateServiceStats(metrics) {

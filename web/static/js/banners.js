@@ -1,5 +1,6 @@
 ﻿/* Banner Functions */
 let bannersLoading = false;
+let editingStatusBanner = null;
 
 async function loadBanners() {
   if (bannersLoading) return;
@@ -59,6 +60,7 @@ function formatScheduledBannerTime(endsAt) {
 
 function formatAutomaticBannerTime(banner) {
   if (banner?.kind === 'critical_outage') return 'Automatic outage alert';
+  if (banner?.kind === 'ups_line_loss') return 'Automatic UPS warning';
   if (banner?.kind === 'services_restored' && banner.ends_at) {
     const end = new Date(banner.ends_at);
     if (!Number.isNaN(end.getTime())) {
@@ -84,6 +86,13 @@ function renderSiteBanners(banners) {
 
   // Only show global banners (no service_key) at the top
   const globalBanners = banners.filter(b => !b.service_key);
+
+  // Replace the immediate client-side fallback once the server-managed UPS
+  // occurrence is available, so administrators can edit or hide it.
+  if (globalBanners.some(b => b.kind === 'ups_line_loss')) {
+    const localUPSAlert = container.querySelector('[data-auto-alert="ups-line"]');
+    if (localUPSAlert) localUPSAlert.remove();
+  }
 
   globalBanners.forEach(b => {
     const level = normalizeAlertLevel(b.level);
@@ -119,6 +128,7 @@ function updateUPSLineAlert(ups) {
   if (!container) return;
 
   const existing = container.querySelector('[data-auto-alert="ups-line"]');
+  const managed = container.querySelector('[data-automatic-kind="ups_line_loss"]');
   if (!ups || typeof ups.power_present !== 'boolean') {
     // An unavailable reading is not proof that mains power recovered.
     return;
@@ -126,24 +136,13 @@ function updateUPSLineAlert(ups) {
 
   if (ups.power_present) {
     if (existing) existing.remove();
+    if (managed) managed.remove();
     return;
   }
 
-  if (existing) return;
-
-  const div = document.createElement('div');
-  div.className = 'site-alert warning site-alert-automatic';
-  div.dataset.autoAlert = 'ups-line';
-  div.setAttribute('role', 'alert');
-  div.setAttribute('aria-live', 'assertive');
-  div.innerHTML = `
-    ${getAlertIcon('warning')}
-    <div class="site-alert-content">
-      <span class="site-alert-message">Mains power lost. The monitored system is running on UPS battery.</span>
-      <span class="site-alert-time">Automatic UPS warning</span>
-    </div>
-  `;
-  container.prepend(div);
+  // The server-managed alert is authoritative. Creating a separate local
+  // banner here would bypass an administrator's edit or hide decision.
+  if (existing) existing.remove();
 }
 
 function clearUPSLineAlert() {
@@ -151,6 +150,8 @@ function clearUPSLineAlert() {
   if (!container) return;
   const existing = container.querySelector('[data-auto-alert="ups-line"]');
   if (existing) existing.remove();
+  const managed = container.querySelector('[data-automatic-kind="ups_line_loss"]');
+  if (managed) managed.remove();
 }
 
 function renderServiceBanners(banners) {
@@ -201,7 +202,7 @@ async function loadAdminBanners() {
     if (!list) return;
 
     if (banners.length === 0) {
-      list.innerHTML = '<div class="muted">No active banners</div>';
+      list.innerHTML = '<div class="muted">No manual or active automated banners</div>';
       return;
     }
 
@@ -210,17 +211,29 @@ async function loadAdminBanners() {
       const level = normalizeAlertLevel(b.level);
       const message = escapeHtml(b.message || '');
       const div = document.createElement('div');
-      div.className = 'banner-item';
+      const source = b.source || (b.automatic ? 'automatic' : b.scheduled ? 'scheduled' : 'manual');
+      div.className = `banner-item${b.hidden ? ' is-hidden' : ''}`;
       const scopeLabel = escapeHtml(b.service_key ? b.service_key.charAt(0).toUpperCase() + b.service_key.slice(1) : 'Global');
+      const sourceLabel = source === 'automatic' ? 'Automated' : source === 'scheduled' ? 'Scheduled' : 'Manual';
+      const stateLabel = b.hidden ? 'Hidden from visitors' : 'Visible';
       div.innerHTML = `
         <span class="banner-item-level ${level}">${level.toUpperCase()}</span>
         <div class="banner-item-content">
           <span class="banner-item-msg">${message}</span>
-          <span class="banner-item-service">${scopeLabel}</span>
+          <span class="banner-item-service">${scopeLabel} | ${sourceLabel} | ${stateLabel}</span>
         </div>
-        <button class="banner-delete">Delete</button>
+        <div class="banner-actions">
+          <button type="button" class="btn mini ghost banner-edit">Edit</button>
+          ${b.hidden
+            ? '<button type="button" class="btn mini banner-restore">Restore</button>'
+            : `<button type="button" class="btn mini danger banner-delete">${source === 'manual' ? 'Delete' : 'Hide'}</button>`}
+        </div>
       `;
-      div.querySelector('.banner-delete').addEventListener('click', () => deleteBanner(b.id));
+      div.querySelector('.banner-edit').addEventListener('click', () => editBanner(b));
+      const deleteButton = div.querySelector('.banner-delete');
+      if (deleteButton) deleteButton.addEventListener('click', () => deleteBanner(b));
+      const restoreButton = div.querySelector('.banner-restore');
+      if (restoreButton) restoreButton.addEventListener('click', () => restoreBanner(b));
       list.appendChild(div);
     });
   } catch (e) {
@@ -369,6 +382,45 @@ async function deleteMaintenanceSchedule(id) {
   }
 }
 
+function editBanner(banner) {
+  editingStatusBanner = banner;
+  const source = banner.source || (banner.automatic ? 'automatic' : banner.scheduled ? 'scheduled' : 'manual');
+  const serviceEl = $('#bannerService');
+  $('#bannerMessage').value = banner.message || '';
+  $('#bannerLevel').value = normalizeAlertLevel(banner.level);
+  if (serviceEl) {
+    serviceEl.value = banner.service_key || '';
+    serviceEl.disabled = source !== 'manual';
+  }
+  const templateEl = $('#bannerTemplate');
+  if (templateEl) templateEl.disabled = true;
+  const title = $('#bannerFormTitle');
+  if (title) title.textContent = source === 'manual' ? 'Edit Manual Banner' : 'Adjust Generated Banner';
+  $('#createBanner').textContent = 'Save Changes';
+  $('#cancelBannerEdit').classList.remove('hidden');
+  $('#bannerMessage').focus();
+}
+
+function resetBannerForm() {
+  editingStatusBanner = null;
+  const serviceEl = $('#bannerService');
+  if (serviceEl) {
+    serviceEl.value = '';
+    serviceEl.disabled = false;
+  }
+  const templateEl = $('#bannerTemplate');
+  if (templateEl) {
+    templateEl.value = '';
+    templateEl.disabled = false;
+  }
+  $('#bannerMessage').value = '';
+  $('#bannerLevel').value = 'info';
+  const title = $('#bannerFormTitle');
+  if (title) title.textContent = 'Manual Banner';
+  $('#createBanner').textContent = 'Create Banner';
+  $('#cancelBannerEdit').classList.add('hidden');
+}
+
 async function createBanner() {
   const msgEl = $('#bannerMessage');
   const levelEl = $('#bannerLevel');
@@ -385,39 +437,68 @@ async function createBanner() {
   }
 
   try {
+    const editing = editingStatusBanner;
+    const payload = editing
+      ? {
+          id: editing.id,
+          occurrence_at: editing.created_at,
+          message,
+          level,
+          service_key,
+          hidden: Boolean(editing.hidden)
+        }
+      : { message, level, service_key };
     await j('/api/admin/status-alerts', {
-      method: 'POST',
+      method: editing ? 'PUT' : 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': getCsrf()
       },
-      body: JSON.stringify({ message, level, service_key })
+      body: JSON.stringify(payload)
     });
 
-    msgEl.value = '';
-    showToast('Banner created');
-    loadBanners();
-    loadAdminBanners();
+    resetBannerForm();
+    showToast(editing ? 'Banner updated' : 'Banner created');
+    await Promise.all([loadBanners(), loadAdminBanners()]);
   } catch (e) {
     console.error('Failed to create banner', e);
     showToast('Failed to create banner', 'error');
   }
 }
 
-async function deleteBanner(id) {
-  if (!confirm('Delete this banner?')) return;
+async function deleteBanner(banner) {
+  const source = banner.source || (banner.automatic ? 'automatic' : banner.scheduled ? 'scheduled' : 'manual');
+  const generated = source !== 'manual';
+  if (!confirm(generated ? 'Hide this generated banner for its current occurrence?' : 'Delete this banner?')) return;
 
   try {
-    await j(`/api/admin/status-alerts?id=${id}`, {
+    const params = new URLSearchParams({ id: banner.id });
+    if (banner.created_at) params.set('occurrence_at', banner.created_at);
+    await j(`/api/admin/status-alerts?${params.toString()}`, {
       method: 'DELETE',
       headers: { 'X-CSRF-Token': getCsrf() }
     });
-    showToast('Banner deleted');
-    loadBanners();
-    loadAdminBanners();
+    showToast(generated ? 'Generated banner hidden' : 'Banner deleted');
+    if (editingStatusBanner?.id === banner.id) resetBannerForm();
+    await Promise.all([loadBanners(), loadAdminBanners()]);
   } catch (e) {
     console.error('Failed to delete banner', e);
     showToast('Failed to delete banner', 'error');
+  }
+}
+
+async function restoreBanner(banner) {
+  try {
+    await j('/api/admin/status-alerts', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify({ id: banner.id, occurrence_at: banner.created_at, hidden: false })
+    });
+    showToast('Generated banner restored');
+    await Promise.all([loadBanners(), loadAdminBanners()]);
+  } catch (e) {
+    console.error('Failed to restore banner', e);
+    showToast('Failed to restore banner', 'error');
   }
 }
 

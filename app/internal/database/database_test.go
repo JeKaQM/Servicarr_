@@ -129,6 +129,26 @@ func TestUPSPowerStateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStatusAlertOverrideRoundTrip(t *testing.T) {
+	initTestDB(t)
+	message, level := "Adjusted message", "warning"
+	override := StatusAlertOverride{
+		AlertID: "automatic:test", OccurrenceAt: "2026-09-04T12:00:00Z",
+		Message: &message, Level: &level, Hidden: true,
+	}
+	if err := SaveStatusAlertOverride(override); err != nil {
+		t.Fatal(err)
+	}
+	overrides, err := GetStatusAlertOverrides()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, exists := overrides[StatusAlertOverrideKey(override.AlertID, override.OccurrenceAt)]
+	if !exists || got.Message == nil || *got.Message != message || got.Level == nil || *got.Level != level || !got.Hidden {
+		t.Fatalf("unexpected override: %+v", got)
+	}
+}
+
 // --------------- InsertSample / Samples ---------------
 
 func TestInsertSample(t *testing.T) {
@@ -807,16 +827,17 @@ func TestGetLogStats(t *testing.T) {
 	InsertLog(LogLevelError, LogCategoryCheck, "", "error", "")
 	InsertLog(LogLevelWarn, LogCategoryCheck, "", "warn", "")
 	InsertLog(LogLevelDebug, LogCategoryCheck, "", "debug", "")
+	InsertLog(LogLevelInfo, LogCategoryAudit, "", "action", "")
 
 	stats, err := GetLogStats()
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if stats.TotalLogs != 5 {
-		t.Errorf("total = %d, want 5", stats.TotalLogs)
+	if stats.TotalLogs != 6 {
+		t.Errorf("total = %d, want 6", stats.TotalLogs)
 	}
-	if stats.InfoCount != 2 {
-		t.Errorf("info = %d, want 2", stats.InfoCount)
+	if stats.InfoCount != 3 {
+		t.Errorf("info = %d, want 3", stats.InfoCount)
 	}
 	if stats.ErrorCount != 1 {
 		t.Errorf("error = %d, want 1", stats.ErrorCount)
@@ -826,6 +847,9 @@ func TestGetLogStats(t *testing.T) {
 	}
 	if stats.DebugCount != 1 {
 		t.Errorf("debug = %d, want 1", stats.DebugCount)
+	}
+	if stats.AuditCount != 1 {
+		t.Errorf("audit = %d, want 1", stats.AuditCount)
 	}
 }
 

@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -145,6 +145,17 @@ CREATE TABLE IF NOT EXISTS status_alerts (
   level TEXT NOT NULL DEFAULT 'info',
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS status_alert_overrides (
+  alert_id TEXT NOT NULL,
+  occurrence_at TEXT NOT NULL,
+  message TEXT,
+  level TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (alert_id, occurrence_at)
+);
+CREATE INDEX IF NOT EXISTS idx_status_alert_overrides_updated ON status_alert_overrides(updated_at);
 
 CREATE TABLE IF NOT EXISTS maintenance_schedules (
   id TEXT PRIMARY KEY,

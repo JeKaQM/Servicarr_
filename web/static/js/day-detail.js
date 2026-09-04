@@ -38,15 +38,15 @@ function renderDayDetailHours(hours, container) {
   const dataHours = hours.filter(h => h.checks > 0).length;
 
   let dayUptime = 100;
-  if (dataHours > 0) {
-    const weighted = hours.filter(h => h.checks > 0);
-    dayUptime = weighted.reduce((s, h) => s + h.uptime, 0) / weighted.length;
+  if (totalChecks > 0) {
+    dayUptime = hours.reduce((sum, h) => sum + (h.checks > 0 ? h.uptime * h.checks : 0), 0) / totalChecks;
   }
+  const dayUptimeLabel = totalChecks === 0 ? 'N/A' : dayUptime >= 100 ? '100%' : dayUptime.toFixed(2) + '%';
 
   const summaryEl = document.createElement('div');
   summaryEl.className = 'dd-summary';
   summaryEl.innerHTML =
-    '<div class="dd-stat"><span class="dd-stat-val">' + (dayUptime >= 100 ? '100%' : dayUptime.toFixed(2) + '%') + '</span><span class="dd-stat-lbl">Day Uptime</span></div>' +
+    '<div class="dd-stat"><span class="dd-stat-val">' + dayUptimeLabel + '</span><span class="dd-stat-lbl">Day Uptime</span></div>' +
     '<div class="dd-stat"><span class="dd-stat-val">' + upHours + '/' + dataHours + '</span><span class="dd-stat-lbl">Hours Clean</span></div>' +
     '<div class="dd-stat"><span class="dd-stat-val">' + totalChecks + '</span><span class="dd-stat-lbl">Total Checks</span></div>';
   container.appendChild(summaryEl);
@@ -83,6 +83,7 @@ function renderDayDetailHours(hours, container) {
     } else {
       tip += '\n' + h.uptime.toFixed(1) + '% uptime';
       tip += '\n' + h.checks + ' checks';
+      if (h.down_checks > 0) tip += '\n' + h.down_checks + ' failed';
       if (h.avg_ms != null) tip += '\n' + Math.round(h.avg_ms) + 'ms avg';
     }
     bar.title = tip;
@@ -109,7 +110,9 @@ function renderDayDetailEvents(events, container) {
 
   const header = document.createElement('div');
   header.className = 'dd-events-header';
-  header.textContent = 'Downtime Events (' + events.length + ')';
+  header.textContent = events.length === 1 && events[0].all_day
+    ? 'Day Outage Summary'
+    : 'Downtime Events (' + events.length + ')';
   container.appendChild(header);
 
   const list = document.createElement('div');
@@ -117,15 +120,19 @@ function renderDayDetailEvents(events, container) {
 
   events.forEach(ev => {
     const row = document.createElement('div');
-    row.className = 'dd-event-row';
+    row.className = 'dd-event-row' + (ev.all_day ? ' dd-event-all-day' : '') + (ev.ongoing ? ' dd-event-ongoing' : '');
 
     const ts = new Date(ev.time);
-    const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    const timeStr = ev.all_day
+      ? (ev.ongoing ? 'ONGOING' : 'ALL DAY')
+      : ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
     let detail = '';
-    if (ev.http_status) detail += 'HTTP ' + ev.http_status;
-    if (ev.error) detail += (detail ? ' - ' : '') + ev.error;
+    if (ev.all_day) detail = ev.ongoing ? 'Ongoing outage: every recorded check failed' : 'Every recorded check failed this day';
+    if (ev.http_status) detail += (detail ? ' | ' : '') + 'HTTP ' + ev.http_status;
+    if (ev.error && (!ev.all_day || ev.error !== 'Every recorded check failed')) detail += (detail ? ' - ' : '') + ev.error;
     if (ev.latency_ms != null) detail += (detail ? ' | ' : '') + ev.latency_ms + 'ms';
+    if (!ev.all_day && ev.failure_count > 1) detail += (detail ? ' | ' : '') + ev.failure_count + ' failed checks this hour';
     if (!detail) detail = 'Service unreachable';
 
     const timeEl = document.createElement('time');
