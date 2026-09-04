@@ -273,6 +273,7 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 		s.TempMinC = &min
 		s.TempMaxC = &max
 	}
+	populateCPUTelemetry(&s, sensors, percpu)
 
 	// Network: sum rates across interfaces (ignore loopback)
 	var rxRate, txRate float64
@@ -301,43 +302,6 @@ func (c *Client) FetchSnapshot(ctx context.Context) (Snapshot, error) {
 	if hasRate {
 		s.NetRxBytesPerSec = &rxRate
 		s.NetTxBytesPerSec = &txRate
-	}
-
-	// Per-CPU totals
-	if len(percpu) > 0 {
-		maxIdx := -1
-		vals := map[int]float64{}
-		for _, p := range percpu {
-			idxPtr := asUint64Ptr(p.CPUNumber)
-			valPtr := asFloatPtr(p.Total)
-			if idxPtr == nil || valPtr == nil {
-				continue
-			}
-			if *idxPtr > uint64(^uint(0)>>1) {
-				continue
-			}
-			idx := int(*idxPtr) // #nosec G115 -- bounds checked above
-			if idx < 0 {
-				continue
-			}
-			vals[idx] = *valPtr
-			if idx > maxIdx {
-				maxIdx = idx
-			}
-		}
-		if maxIdx >= 0 {
-			out := make([]float64, maxIdx+1)
-			seen := false
-			for i := 0; i <= maxIdx; i++ {
-				if v, ok := vals[i]; ok {
-					out[i] = v
-					seen = true
-				}
-			}
-			if seen {
-				s.CPUPerCorePercent = out
-			}
-		}
 	}
 
 	// Disk I/O: sum read/write throughput

@@ -47,6 +47,7 @@ var publicJSFiles = []string{
 	"web/static/js/utils.js",
 	"web/static/js/core.js",
 	"web/static/js/resources.js",
+	"web/static/js/cpu-resources.js",
 	"web/static/js/dashboard.js",
 	"web/static/js/day-detail.js",
 	"web/static/js/auth.js",

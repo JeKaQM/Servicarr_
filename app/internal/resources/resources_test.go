@@ -527,6 +527,12 @@ func TestFetchSnapshot_FullHappyPath(t *testing.T) {
 	if snap.TempMinC == nil || snap.TempMaxC == nil {
 		t.Error("temp min/max should be set")
 	}
+	if snap.CPUAvgTempC == nil || *snap.CPUAvgTempC != 57.5 {
+		t.Errorf("average CPU temp = %v, want 57.5", snap.CPUAvgTempC)
+	}
+	if len(snap.CPUTemperatureSensors) != 0 {
+		t.Fatalf("shared CPU temperature sensor count = %d, want 0", len(snap.CPUTemperatureSensors))
+	}
 
 	// Network (eth0 only, loopback excluded)
 	if snap.NetRxBytesPerSec == nil || *snap.NetRxBytesPerSec != 1000 {
@@ -546,6 +552,18 @@ func TestFetchSnapshot_FullHappyPath(t *testing.T) {
 		if snap.CPUPerCorePercent[1] != 60.0 {
 			t.Errorf("percpu[1] = %v, want 60", snap.CPUPerCorePercent[1])
 		}
+	}
+	if len(snap.CPUCoreMetrics) != 2 {
+		t.Fatalf("CPU metric count = %d, want 2", len(snap.CPUCoreMetrics))
+	}
+	if snap.CPUCoreMetrics[0].Index != 0 || snap.CPUCoreMetrics[0].LoadPercent == nil || *snap.CPUCoreMetrics[0].LoadPercent != 50 {
+		t.Errorf("CPU 0 load metric = %+v, want index 0 at 50%%", snap.CPUCoreMetrics[0])
+	}
+	if snap.CPUCoreMetrics[0].TempC == nil || *snap.CPUCoreMetrics[0].TempC != 55 {
+		t.Errorf("CPU 0 temp = %v, want 55", snap.CPUCoreMetrics[0].TempC)
+	}
+	if snap.CPUCoreMetrics[1].Index != 1 || snap.CPUCoreMetrics[1].TempC == nil || *snap.CPUCoreMetrics[1].TempC != 60 {
+		t.Errorf("CPU 1 metric = %+v, want index 1 at 60C", snap.CPUCoreMetrics[1])
 	}
 
 	// Disk I/O
@@ -1118,6 +1136,68 @@ func TestFetchSnapshot_SensorFiltersByType(t *testing.T) {
 	snap, _ := c.FetchSnapshot(context.Background())
 	if snap.TempC == nil || *snap.TempC != 45.0 {
 		t.Errorf("temp = %v, want 45 (fan should be ignored)", snap.TempC)
+	}
+}
+
+func TestFetchSnapshot_CPUCCDTemperaturesStaySeparateFromLogicalCPUs(t *testing.T) {
+	srv := glancesMockServer(t, map[string]interface{}{
+		"/sensors": []map[string]interface{}{
+			{"label": "Composite", "unit": "C", "value": 36.0, "type": "temperature_core"},
+			{"label": "Tccd1", "unit": "C", "value": 60.0, "type": "temperature_core"},
+			{"label": "Tccd2", "unit": "C", "value": 62.0, "type": "temperature_core"},
+			{"label": "Tctl", "unit": "C", "value": 69.0, "type": "temperature_core"},
+			{"label": "iwlwifi_1 0", "unit": "C", "value": 34.0, "type": "temperature_core"},
+		},
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetCacheTTL(0)
+
+	snap, err := c.FetchSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.CPUAvgTempC == nil || *snap.CPUAvgTempC != 61 {
+		t.Errorf("average CPU temp = %v, want 61 from CCD sensors", snap.CPUAvgTempC)
+	}
+	if len(snap.CPUTemperatureSensors) != 3 {
+		t.Fatalf("CPU temperature sensor count = %d, want 3", len(snap.CPUTemperatureSensors))
+	}
+	for _, metric := range snap.CPUCoreMetrics {
+		if metric.TempC != nil {
+			t.Errorf("logical CPU %d received fabricated temperature %v", metric.Index, *metric.TempC)
+		}
+	}
+}
+
+func TestFetchSnapshot_CPUMetricsPreserveUnavailableReadings(t *testing.T) {
+	srv := glancesMockServer(t, map[string]interface{}{
+		"/sensors": []map[string]interface{}{
+			{"label": "Core 2", "unit": "C", "value": 58.0, "type": "temperature_core"},
+		},
+		"/percpu": []map[string]interface{}{
+			{"cpu_number": 0, "total": 20.0},
+			{"cpu_number": 2, "total": 40.0},
+		},
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetCacheTTL(0)
+
+	snap, err := c.FetchSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snap.CPUCoreMetrics) != 2 {
+		t.Fatalf("CPU metric count = %d, want 2", len(snap.CPUCoreMetrics))
+	}
+	if snap.CPUCoreMetrics[0].Index != 0 || snap.CPUCoreMetrics[0].LoadPercent == nil || snap.CPUCoreMetrics[0].TempC != nil {
+		t.Errorf("CPU 0 metric = %+v, want load with unavailable temp", snap.CPUCoreMetrics[0])
+	}
+	if snap.CPUCoreMetrics[1].Index != 2 || snap.CPUCoreMetrics[1].LoadPercent == nil || snap.CPUCoreMetrics[1].TempC == nil {
+		t.Errorf("CPU 2 metric = %+v, want load and temp", snap.CPUCoreMetrics[1])
 	}
 }
 

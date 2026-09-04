@@ -8,6 +8,7 @@ function applyAdminUIState() {
     adminPanel?.classList.add('hidden');
     $$('.adminRow').forEach(e => e.classList.add('hidden'));
   }
+  if (typeof syncCPUAdminVisibility === 'function') syncCPUAdminVisibility();
 }
 
 function shouldSuspendDashboardRefresh() {
@@ -513,30 +514,7 @@ async function refreshResources() {
   try {
     const snap = await j('/api/resources');
 
-    if (cpuEnabled) {
-      setResText('res-cpu', fmtPct(snap.cpu_percent));
-      setMeter('meter-cpu', snap.cpu_percent);
-    }
-
-    // CPU detail: cores + breakdown when available
-    let cpuDetail = '—';
-    if (Array.isArray(snap.cpu_per_core_percent) && snap.cpu_per_core_percent.length) {
-      // Example: C0 12% • C1 6% • C2 18% ...
-      cpuDetail = snap.cpu_per_core_percent
-        .map((v, i) => `C${i} ${fmtPct(v)}`)
-        .join(' • ');
-    } else if (snap.cpu_percent == null) {
-      cpuDetail = 'CPU usage unavailable';
-    } else {
-      // fallback: show cores + avg/max when we have at least an average
-      const bits = [];
-      if (snap.cpu_cores != null) bits.push(`${snap.cpu_cores} cores`);
-      bits.push(`Avg ${fmtPct(snap.cpu_percent)}`);
-      cpuDetail = bits.join(' — ');
-    }
-    if (cpuEnabled) {
-      setResText('res-cpu-detail', cpuDetail);
-    }
+    if (cpuEnabled) updateCPUTile(snap);
 
     if (memEnabled) {
       setResText('res-mem', fmtPct(snap.mem_percent));
@@ -759,7 +737,7 @@ async function refreshResources() {
       pill.className = 'pill warn';
     }
     // Only reset meters for enabled tiles
-    if (cpuEnabled) setMeter('meter-cpu', null);
+    if (cpuEnabled) updateCPUTile(null);
     if (memEnabled) setMeter('meter-mem', null);
     if (tempEnabled) {
       setResText('res-temp', '—');
