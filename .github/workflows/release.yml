@@ -106,10 +106,12 @@ jobs:
       - name: Verify published application version
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_SHA: ${{ steps.version.outputs.commit }}
         run: |
           ACTUAL_VERSION="$(docker run --rm --entrypoint status "${IMAGE_NAME}:${RELEASE_VERSION}" --version)"
-          test "$ACTUAL_VERSION" = "Servicarr v${RELEASE_VERSION}" || {
-            echo "::error::Published image reported '${ACTUAL_VERSION}'"
+          EXPECTED_VERSION="Servicarr v${RELEASE_VERSION} (${RELEASE_SHA:0:12})"
+          test "$ACTUAL_VERSION" = "$EXPECTED_VERSION" || {
+            echo "::error::Published image reported '${ACTUAL_VERSION}', expected '${EXPECTED_VERSION}'"
             exit 1
           }
 

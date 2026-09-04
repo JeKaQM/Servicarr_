@@ -62,6 +62,23 @@ afterEach(() => {
 });
 
 describe("release version calculation", () => {
+  test("verifies the published version with its embedded release commit", () => {
+    const workflow = fs.readFileSync(
+      path.join(__dirname, "../../.github/workflows/release.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toContain(
+      "RELEASE_SHA: ${{ steps.version.outputs.commit }}",
+    );
+    expect(workflow).toContain(
+      'EXPECTED_VERSION="Servicarr v${RELEASE_VERSION} (${RELEASE_SHA:0:12})"',
+    );
+    expect(workflow).toContain(
+      'test "$ACTUAL_VERSION" = "$EXPECTED_VERSION"',
+    );
+  });
+
   test("requires a strict semantic base version", () => {
     expect(parseVersion("1.2.3")).toMatchObject({
       major: 1,
