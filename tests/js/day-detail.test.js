@@ -52,4 +52,37 @@ describe('day detail rendering', () => {
     expect(time.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
     expect(detail.textContent).toBe('connect: connection refused | 123ms');
   });
+
+  test('weights day uptime by the number of checks', () => {
+    const container = document.createElement('div');
+    const hours = Array.from({ length: 24 }, (_, i) => ({
+      hour: `2026-05-31T${String(i).padStart(2, '0')}:00`,
+      uptime: -1,
+      checks: 0
+    }));
+    hours[0] = { hour: '2026-05-31T00:00', uptime: 0, checks: 1, down_checks: 1 };
+    hours[1] = { hour: '2026-05-31T01:00', uptime: 100, checks: 9, down_checks: 0 };
+
+    renderDayDetailHours(hours, container);
+
+    expect(container.querySelector('.dd-stat-val').textContent).toBe('90.00%');
+  });
+
+  test('renders a single all-day ongoing outage summary clearly', () => {
+    const container = document.createElement('div');
+
+    renderDayDetailEvents([{
+      time: '2026-05-31T00:01:00Z',
+      kind: 'all_day_outage',
+      all_day: true,
+      ongoing: true,
+      failure_count: 96,
+      error: 'Every recorded check failed'
+    }], container);
+
+    expect(container.querySelector('.dd-events-header').textContent).toBe('Day Outage Summary');
+    expect(container.querySelector('.dd-event-time').textContent).toBe('ONGOING');
+    expect(container.querySelector('.dd-event-detail').textContent).toContain('every recorded check failed');
+    expect(container.querySelectorAll('.dd-event-row')).toHaveLength(1);
+  });
 });

@@ -45,15 +45,15 @@
           <span class="log-stat-label">Warnings</span>
         </div>
       </div>
-      <div class="log-stat-box info">
+      <div class="log-stat-box audit">
         <div class="log-stat-icon">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zm7-3l2 2 4-4"/>
           </svg>
         </div>
         <div class="log-stat-content">
-          <span class="log-stat-value" id="logInfoCount">0</span>
-          <span class="log-stat-label">Info</span>
+          <span class="log-stat-value" id="logAuditCount">0</span>
+          <span class="log-stat-label">User Actions</span>
         </div>
       </div>
     </div>
@@ -76,6 +76,7 @@
         <option value="security">Security</option>
         <option value="system">System</option>
         <option value="schedule">Scheduler</option>
+        <option value="audit">User Actions</option>
       </select>
       <select id="logServiceFilter" class="log-select">
         <option value="">All Services</option>
@@ -95,6 +96,19 @@
         </svg>
         <span class="btn-text">Clear</span>
       </button>
+    </div>
+  </div>
+
+  <!-- User Activity -->
+  <div class="admin-section log-audit">
+    <div class="log-section-header">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zm7-3l2 2 4-4"/>
+      </svg>
+      <h3>Recent User Actions</h3>
+    </div>
+    <div id="auditLogsList" class="logs-list">
+      <div class="logs-loading"><div class="spinner"></div><p>Loading user activity...</p></div>
     </div>
   </div>
   

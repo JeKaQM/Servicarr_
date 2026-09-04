@@ -482,6 +482,22 @@ li {
   background: rgba(255, 255, 255, 0.04);
 }
 
+#incidents .incident-item.incident-ongoing {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+#incidents .incident-item.incident-ongoing .incident-time {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.dd-event-row.dd-event-all-day,
+.dd-event-row.dd-event-ongoing {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
 #incidents .incident-content {
   display: flex;
   flex-direction: column;

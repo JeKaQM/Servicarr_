@@ -2,6 +2,7 @@ package database
 
 import (
 	"status/app/internal/buildinfo"
+	"strconv"
 	"testing"
 )
 
@@ -53,7 +54,7 @@ func TestRecordSoftwareDeploymentTracksRestartsAndVersions(t *testing.T) {
 	if err := DB.QueryRow(`SELECT value FROM app_metadata WHERE key = 'database_schema_version'`).Scan(&schemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if currentVersion != "1.1.0" || schemaVersion != "1" {
+	if currentVersion != "1.1.0" || schemaVersion != strconv.Itoa(SchemaVersion) {
 		t.Fatalf("metadata version=%q schema=%q", currentVersion, schemaVersion)
 	}
 }

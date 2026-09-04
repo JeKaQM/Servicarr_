@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"status/app/internal/auth"
+	"status/app/internal/database"
 	"status/app/internal/security"
 )
 
@@ -39,6 +40,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		var c creds
 		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 			log.Printf("login: decode error: %v", err)
+			writeAuditLog(r, database.LogLevelWarn, "anonymous", "Login failed", map[string]any{"outcome": "invalid_request"})
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -46,6 +48,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		ip := security.ClientIP(r)
 		if security.IsIPBlocked(ip) {
 			log.Printf("login: IP blocked: %s", ip)
+			writeAuditLog(r, database.LogLevelWarn, c.Username, "Login blocked", map[string]any{"outcome": "blocked"})
 			http.Error(w, "access denied - too many failed attempts", http.StatusForbidden)
 			return
 		}
@@ -53,6 +56,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		if c.Username != authMgr.User {
 			log.Printf("login: wrong username from %s", ip)
 			security.LogFailedLoginAttempt(ip)
+			writeAuditLog(r, database.LogLevelWarn, c.Username, "Login failed", map[string]any{"outcome": "invalid_credentials"})
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -60,6 +64,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		if !authMgr.CheckCredentials(c.Username, c.Password) {
 			log.Printf("login: wrong password for user %s from %s", c.Username, ip)
 			security.LogFailedLoginAttempt(ip)
+			writeAuditLog(r, database.LogLevelWarn, c.Username, "Login failed", map[string]any{"outcome": "invalid_credentials"})
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -68,6 +73,7 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		// Clear any failed login attempts for this IP on successful login
 		_ = security.ClearIPBlock(ip)
 		_ = authMgr.MakeSessionCookie(w, c.Username, authMgr.SessionMaxAge())
+		writeAuditLog(r, database.LogLevelInfo, c.Username, "Login succeeded", map[string]any{"outcome": "success"})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}
@@ -76,7 +82,12 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 // HandleLogout logs out the current user
 func HandleLogout(authMgr *auth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor := "anonymous"
+		if session, err := authMgr.ParseSession(r); err == nil {
+			actor = session.U
+		}
 		authMgr.ClearSessionCookie(w)
+		writeAuditLog(r, database.LogLevelInfo, actor, "Logout succeeded", map[string]any{"outcome": "success"})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}
@@ -113,6 +124,7 @@ func HandleSelfUnblock() http.HandlerFunc {
 		// Verify token (constant-time comparison to prevent timing attacks)
 		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(unblockToken)) != 1 {
 			log.Printf("self-unblock: invalid token from %s", security.ClientIP(r))
+			writeAuditLog(r, database.LogLevelWarn, "anonymous", "Self-unblock failed", map[string]any{"outcome": "invalid_token"})
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -131,6 +143,7 @@ func HandleSelfUnblock() http.HandlerFunc {
 		}
 
 		log.Printf("self-unblock: successfully unblocked %s", ip)
+		writeAuditLog(r, database.LogLevelInfo, "anonymous", "Self-unblock succeeded", map[string]any{"outcome": "success"})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":      true,

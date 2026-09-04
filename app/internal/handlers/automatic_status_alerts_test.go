@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +161,155 @@ func TestBannerOnlyScheduleDoesNotSuppressCriticalOutage(t *testing.T) {
 	if len(automatic) != 1 || automatic[0].Kind != "critical_outage" {
 		t.Fatalf("banner-only schedule suppressed outage: %+v", alerts)
 	}
+}
+
+func TestAutomaticUPSPowerLossIsManagedServerSide(t *testing.T) {
+	initAutomaticBannerTest(t)
+	if err := database.SaveResourcesUIConfig(&models.ResourcesUIConfig{
+		Enabled: true,
+		UPS:     true,
+		NUTHost: "nut-host",
+		UPSName: "apc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveUPSPowerState("nut-host:3493/apc", false, true); err != nil {
+		t.Fatal(err)
+	}
+
+	alerts, err := getPublicStatusAlerts(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ups *models.StatusAlert
+	for index := range alerts {
+		if alerts[index].Kind == "ups_line_loss" {
+			ups = &alerts[index]
+			break
+		}
+	}
+	if ups == nil || ups.Level != "warning" || !ups.Automatic || ups.Source != "automatic" {
+		t.Fatalf("managed UPS alert missing: %+v", alerts)
+	}
+	if strings.Contains(ups.Message, "nut-host") || !strings.Contains(ups.Message, "notification has been sent") {
+		t.Fatalf("unexpected UPS message: %q", ups.Message)
+	}
+}
+
+func TestAutomaticUPSPowerLossIgnoresStateFromPreviousConfiguration(t *testing.T) {
+	initAutomaticBannerTest(t)
+	if err := database.SaveResourcesUIConfig(&models.ResourcesUIConfig{
+		Enabled: true,
+		UPS:     true,
+		NUTHost: "new-host",
+		UPSName: "apc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveUPSPowerState("old-host:3493/apc", false, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if alerts := automaticAlerts(mustPublicStatusAlerts(t, time.Now())); len(alerts) != 0 {
+		t.Fatalf("stale UPS state produced an alert: %+v", alerts)
+	}
+}
+
+func TestGeneratedBannerOverrideCanEditHideAndResetNextOccurrence(t *testing.T) {
+	initAutomaticBannerTest(t)
+	now := time.Date(2026, time.September, 4, 12, 0, 0, 0, time.UTC)
+	createAutomaticBannerService(t, "override", "Override Service")
+	if err := database.RecordServiceOutageState("override", true, true, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	alert := onlyAutomaticAlert(t, mustPublicStatusAlerts(t, now))
+	message, level := "Custom outage wording", "warning"
+	if err := database.SaveStatusAlertOverride(database.StatusAlertOverride{
+		AlertID: alert.ID, OccurrenceAt: alert.CreatedAt, Message: &message, Level: &level,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	edited := onlyAutomaticAlert(t, mustPublicStatusAlerts(t, now))
+	if edited.Message != message || edited.Level != level {
+		t.Fatalf("override was not applied: %+v", edited)
+	}
+	if err := database.SaveStatusAlertOverride(database.StatusAlertOverride{
+		AlertID: alert.ID, OccurrenceAt: alert.CreatedAt, Hidden: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := automaticAlerts(mustPublicStatusAlerts(t, now)); len(got) != 0 {
+		t.Fatalf("hidden generated alert remained public: %+v", got)
+	}
+	adminAlerts, err := getAdminStatusAlerts(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := onlyAutomaticAlert(t, adminAlerts); !got.Hidden {
+		t.Fatalf("hidden alert was not retained for admin restore: %+v", got)
+	}
+
+	if err := database.RecordServiceOutageState("override", false, false, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecordServiceOutageState("override", true, true, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	next := onlyAutomaticAlert(t, mustPublicStatusAlerts(t, now.Add(3*time.Minute)))
+	if next.Hidden || next.Message == message || next.CreatedAt == alert.CreatedAt {
+		t.Fatalf("old occurrence override leaked into a new outage: %+v", next)
+	}
+}
+
+func TestStatusAlertHandlersEditManualAndHideGeneratedBanners(t *testing.T) {
+	initAutomaticBannerTest(t)
+	createRecorder := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/admin/status-alerts",
+		strings.NewReader(`{"message":"Initial","level":"info"}`))
+	HandleCreateStatusAlert().ServeHTTP(createRecorder, createRequest)
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createRecorder.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/admin/status-alerts",
+		strings.NewReader(`{"id":"`+created.ID+`","message":"Updated","level":"error","service_key":""}`))
+	HandleUpdateStatusAlert().ServeHTTP(updateRecorder, updateRequest)
+	manual, err := getStatusAlerts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updateRecorder.Code != http.StatusOK || len(manual) != 1 || manual[0].Message != "Updated" || manual[0].Level != "error" {
+		t.Fatalf("manual banner was not updated: status=%d alerts=%+v", updateRecorder.Code, manual)
+	}
+
+	now := time.Now().UTC()
+	createAutomaticBannerService(t, "handler-generated", "Generated Service")
+	if err := database.RecordServiceOutageState("handler-generated", true, true, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	generated := onlyAutomaticAlert(t, mustPublicStatusAlerts(t, now))
+	deleteRecorder := httptest.NewRecorder()
+	deleteRequest := httptest.NewRequest(http.MethodDelete,
+		"/api/admin/status-alerts?id="+generated.ID+"&occurrence_at="+generated.CreatedAt, nil)
+	HandleDeleteStatusAlert().ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("generated hide status = %d: %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+	if got := automaticAlerts(mustPublicStatusAlerts(t, now)); len(got) != 0 {
+		t.Fatalf("generated banner remained public after hide: %+v", got)
+	}
+}
+
+func mustPublicStatusAlerts(t *testing.T, now time.Time) []models.StatusAlert {
+	t.Helper()
+	alerts, err := getPublicStatusAlerts(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return alerts
 }
 
 func initAutomaticBannerTest(t *testing.T) {

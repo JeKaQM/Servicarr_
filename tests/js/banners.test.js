@@ -135,6 +135,10 @@ describe('formatAutomaticBannerTime', () => {
   test('falls back for unknown automatic updates', () => {
     expect(formatAutomaticBannerTime({ kind: 'unknown' })).toBe('Automatic status update');
   });
+
+  test('labels a UPS power warning clearly', () => {
+    expect(formatAutomaticBannerTime({ kind: 'ups_line_loss' })).toBe('Automatic UPS warning');
+  });
 });
 
 describe('normalizeAlertLevel', () => {
@@ -247,6 +251,20 @@ describe('renderSiteBanners', () => {
     expect(alert.getAttribute('aria-live')).toBe('polite');
     expect(alert.textContent).toContain('Monitoring until');
   });
+
+  test('replaces the local UPS fallback with the managed UPS banner', () => {
+    updateUPSLineAlert({ power_present: false });
+    renderSiteBanners([{
+      id: 'automatic:ups-line-loss',
+      level: 'warning',
+      message: 'Managed UPS warning',
+      automatic: true,
+      kind: 'ups_line_loss'
+    }]);
+
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
+    expect(document.querySelector('[data-automatic-kind="ups_line_loss"]')).not.toBeNull();
+  });
 });
 
 /* ── automatic UPS line alert ───────────────────────────── */
@@ -275,50 +293,40 @@ describe('automatic UPS line alert', () => {
     document.body.innerHTML = '<div id="siteAlerts"></div>';
   });
 
-  test('shows a persistent warning when line power is lost', () => {
+  test('does not create a client-only warning that bypasses admin controls', () => {
     updateUPSLineAlert({ power_present: false });
 
-    const alert = document.querySelector('[data-auto-alert="ups-line"]');
-    expect(alert).not.toBeNull();
-    expect(alert.classList.contains('warning')).toBe(true);
-    expect(alert.textContent).toContain('Mains power lost');
-    expect(alert.getAttribute('role')).toBe('alert');
+    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
   });
 
-  test('does not duplicate the warning on subsequent UPS polls', () => {
-    updateUPSLineAlert({ power_present: false });
-    updateUPSLineAlert({ power_present: false });
-
-    expect(document.querySelectorAll('[data-auto-alert="ups-line"]')).toHaveLength(1);
-  });
-
-  test('keeps the warning when UPS state is temporarily unavailable', () => {
-    updateUPSLineAlert({ power_present: false });
+  test('keeps a managed warning when UPS state is temporarily unavailable', () => {
+    renderSiteBanners([{
+      id: 'automatic:ups-line-loss', level: 'warning', message: 'Mains power lost',
+      automatic: true, kind: 'ups_line_loss'
+    }]);
     updateUPSLineAlert(null);
 
-    expect(document.querySelector('[data-auto-alert="ups-line"]')).not.toBeNull();
+    expect(document.querySelector('[data-automatic-kind="ups_line_loss"]')).not.toBeNull();
   });
 
   test('removes the warning after confirmed line-power recovery', () => {
-    updateUPSLineAlert({ power_present: false });
+    renderSiteBanners([{
+      id: 'automatic:ups-line-loss', level: 'warning', message: 'Mains power lost',
+      automatic: true, kind: 'ups_line_loss'
+    }]);
     updateUPSLineAlert({ power_present: true });
 
-    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
-  });
-
-  test('manual banner refresh preserves the automatic warning', () => {
-    updateUPSLineAlert({ power_present: false });
-    renderSiteBanners([{ id: 1, level: 'info', message: 'Maintenance' }]);
-
-    expect(document.querySelector('[data-auto-alert="ups-line"]')).not.toBeNull();
-    expect(document.getElementById('siteAlerts').textContent).toContain('Maintenance');
+    expect(document.querySelector('[data-automatic-kind="ups_line_loss"]')).toBeNull();
   });
 
   test('clears the warning when UPS monitoring is disabled', () => {
-    updateUPSLineAlert({ power_present: false });
+    renderSiteBanners([{
+      id: 'automatic:ups-line-loss', level: 'warning', message: 'Mains power lost',
+      automatic: true, kind: 'ups_line_loss'
+    }]);
     clearUPSLineAlert();
 
-    expect(document.querySelector('[data-auto-alert="ups-line"]')).toBeNull();
+    expect(document.querySelector('[data-automatic-kind="ups_line_loss"]')).toBeNull();
   });
 });
 
@@ -448,5 +456,39 @@ describe('renderMaintenanceSchedules', () => {
     expect(list.innerHTML).not.toContain('<script>');
     expect(list.innerHTML).not.toContain('<b>bad</b>');
     expect(list.textContent).toContain('<script>x</script>');
+  });
+});
+
+describe('banner editing form', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <h3 id="bannerFormTitle">Manual Banner</h3>
+      <select id="bannerService"><option value="">Global</option><option value="plex">Plex</option></select>
+      <select id="bannerTemplate"><option value=""></option></select>
+      <input id="bannerMessage">
+      <select id="bannerLevel"><option value="info">Info</option><option value="warning">Warning</option><option value="error">Error</option></select>
+      <button id="createBanner">Create Banner</button>
+      <button id="cancelBannerEdit" class="hidden">Cancel</button>
+    `;
+  });
+
+  test('allows generated banner wording and severity to be adjusted', () => {
+    editBanner({
+      id: 'automatic:critical-outage', source: 'automatic', message: 'Outage', level: 'error', service_key: ''
+    });
+
+    expect(document.getElementById('bannerMessage').value).toBe('Outage');
+    expect(document.getElementById('bannerLevel').value).toBe('error');
+    expect(document.getElementById('bannerService').disabled).toBe(true);
+    expect(document.getElementById('createBanner').textContent).toBe('Save Changes');
+  });
+
+  test('reset returns the editor to manual banner creation', () => {
+    editBanner({ id: 'alert_1', source: 'manual', message: 'Notice', level: 'info', service_key: 'plex' });
+    resetBannerForm();
+
+    expect(document.getElementById('bannerMessage').value).toBe('');
+    expect(document.getElementById('bannerService').disabled).toBe(false);
+    expect(document.getElementById('createBanner').textContent).toBe('Create Banner');
   });
 });

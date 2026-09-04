@@ -58,11 +58,8 @@ func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 				return
 			}
 
-			failures := tracker.Update(sc.Key, checkOK)
-			ok := checkOK || failures < 2
-
-			stats.RecordHeartbeat(sc.Key, ok, ms, code, errMsg)
-			database.InsertSample(now, sc.Key, ok, code, ms)
+			stats.RecordHeartbeat(sc.Key, checkOK, ms, code, errMsg)
+			database.InsertSample(now, sc.Key, checkOK, code, ms)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"saved": true, "t": now})
@@ -153,14 +150,12 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			return
 		}
 
-		failures := tracker.Update(sc.Key, checkOK)
-		ok := checkOK || failures < 2
-		stats.RecordHeartbeat(sc.Key, ok, ms, code, errMsg)
-		database.InsertSample(now, sc.Key, ok, code, ms)
+		stats.RecordHeartbeat(sc.Key, checkOK, ms, code, errMsg)
+		database.InsertSample(now, sc.Key, checkOK, code, ms)
 
-		degraded := ok && ms != nil && *ms > 200
+		degraded := checkOK && ms != nil && *ms > 200
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: ok, Status: code, MS: ms, Degraded: degraded, CheckType: sc.CheckType})
+		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: checkOK, Status: code, MS: ms, Degraded: degraded, CheckType: sc.CheckType})
 	}
 }
 

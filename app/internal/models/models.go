@@ -143,6 +143,9 @@ type StatusAlert struct {
 	Automatic  bool   `json:"automatic,omitempty"`
 	Kind       string `json:"kind,omitempty"`
 	EndsAt     string `json:"ends_at,omitempty"`
+	Source     string `json:"source,omitempty"`
+	Editable   bool   `json:"editable,omitempty"`
+	Hidden     bool   `json:"hidden,omitempty"`
 }
 
 // MaintenanceSchedule describes a recurring weekly maintenance banner.
@@ -177,7 +180,7 @@ type LogEntry struct {
 	ID        int64  `json:"id"`
 	Timestamp string `json:"timestamp"`
 	Level     string `json:"level"`    // info, warn, error, debug
-	Category  string `json:"category"` // check, email, security, system, schedule
+	Category  string `json:"category"` // check, email, security, system, schedule, audit
 	Service   string `json:"service"`  // service key if applicable
 	Message   string `json:"message"`
 	Details   string `json:"details"` // Additional details (JSON or plain text)
@@ -190,6 +193,7 @@ type LogStats struct {
 	WarnCount  int `json:"warn_count"`
 	InfoCount  int `json:"info_count"`
 	DebugCount int `json:"debug_count"`
+	AuditCount int `json:"audit_count"`
 }
 
 // ScheduleInfo represents a scheduled task

@@ -416,6 +416,7 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"alert_config",
 			"resources_ui_config",
 			"status_alerts",
+			"status_alert_overrides",
 			"service_status_history",
 			"service_outage_state",
 			"app_settings",
