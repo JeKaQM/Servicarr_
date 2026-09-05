@@ -4,6 +4,27 @@
   <h2>Notifications Configuration</h2>
   <p class="muted">Configure how you want to be notified when service status changes.</p>
   
+  <div class="admin-section">
+    <div class="form-group">
+      <label><input type="checkbox" id="alertsEnabled"> Enable notifications for all configured channels</label>
+      <small class="help-text">This master switch controls automatic service alerts. Discord, Telegram and webhook tests use saved settings and can be sent while automatic notifications are paused.</small>
+    </div>
+    <div class="form-group">
+      <h4>Notify me when</h4>
+      <label><input type="checkbox" id="alertOnDown" checked> A service becomes unavailable</label>
+      <label><input type="checkbox" id="alertOnDegraded" checked> A service becomes degraded (response time over 200 ms)</label>
+      <label><input type="checkbox" id="alertOnUp"> A service fully recovers from an outage or degraded performance</label>
+      <small class="help-text">Applies to all channels. Repeated checks in the same state do not send duplicate alerts.</small>
+    </div>
+    <div class="form-group">
+      <label for="statusPageUrl">Public dashboard URL</label>
+      <input type="url" id="statusPageUrl" placeholder="https://status.example.com" />
+      <small class="help-text">Links email and Discord alerts to your status page. Use a URL without credentials or query parameters.</small>
+    </div>
+    <button type="button" class="btn save-alerts-btn">Save Configuration</button>
+    <div id="alertStatus" class="status-message hidden" role="status" aria-live="polite"></div>
+  </div>
+
   <!-- Notification Provider Selector -->
   <div class="notification-selector">
     <button type="button" class="notification-option active" data-provider="smtp">
@@ -28,12 +49,6 @@
   <div class="notification-panel active" data-provider="smtp">
     <div class="admin-section">
       <form id="alertsForm">
-        <div class="form-group">
-          <label for="alertsEnabled">
-            <input type="checkbox" id="alertsEnabled"> Enable email alerts
-          </label>
-        </div>
-        
         <div class="form-group">
           <label for="smtpHost">SMTP Host</label>
           <input type="text" id="smtpHost" placeholder="smtp.gmail.com" />
@@ -65,37 +80,17 @@
         </div>
 
         <div class="form-group">
-          <label for="statusPageUrl">Dashboard URL</label>
-          <input type="text" id="statusPageUrl" placeholder="https://status.example.com" />
-          <small class="help-text">Used for the "View Status Dashboard" link in alert emails.</small>
-        </div>
-
-        <div class="form-group">
           <label>
             <input type="checkbox" id="smtpSkipVerify">
             Allow self-signed certificates (skip TLS verification)
           </label>
         </div>
         
-        <div class="form-group">
-          <h4>Alert Conditions</h4>
-          <label>
-            <input type="checkbox" id="alertOnDown" checked> Alert when service goes DOWN
-          </label>
-          <label>
-            <input type="checkbox" id="alertOnDegraded" checked> Alert when service becomes DEGRADED
-          </label>
-          <label>
-            <input type="checkbox" id="alertOnUp"> Alert when service comes back UP
-          </label>
-        </div>
-        
         <div class="ops">
-          <button type="button" id="saveAlerts" class="btn">Save Configuration</button>
+          <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
           <button type="button" id="testEmail" class="btn ghost">Send Test Email</button>
         </div>
         
-        <div id="alertStatus" class="status-message hidden"></div>
       </form>
     </div>
   </div>
@@ -109,11 +104,30 @@
         </div>
         <div class="form-group">
           <label for="discordWebhookUrl">Webhook URL</label>
-          <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+          <input type="password" autocomplete="off" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
           <small class="help-text">Create a webhook in your Discord server: Server Settings → Integrations → Webhooks</small>
         </div>
+        <div class="form-group">
+          <label for="discordUsername">Display name</label>
+          <input type="text" id="discordUsername" maxlength="80" placeholder="Servicarr">
+          <small class="help-text">Leave blank to use Servicarr.</small>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="discordSilent"> Send silently (no push notification or sound)</label>
+          <small class="help-text">Alerts include the status change, check type, response time, HTTP status and time when available. Mentions never ping users or roles.</small>
+        </div>
+        <div class="form-group">
+          <label for="discordTestStatus">Test message</label>
+          <select id="discordTestStatus">
+            <option value="test">Connection test</option>
+            <option value="down">Unavailable example</option>
+            <option value="degraded">Degraded example</option>
+            <option value="up">Recovery example</option>
+          </select>
+          <small class="help-text">Save changes before testing. Test messages are clearly labelled and do not change service status.</small>
+        </div>
         <div class="ops">
-          <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+          <button type="button" class="btn save-alerts-btn">Save Configuration</button>
           <button type="button" class="btn ghost test-channel-btn" data-channel="discord">Send Test</button>
         </div>
       </form>
@@ -129,16 +143,16 @@
         </div>
         <div class="form-group">
           <label for="telegramBotToken">Bot Token</label>
-          <input type="text" id="telegramBotToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
-          <small class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a></small>
+          <input type="password" autocomplete="off" id="telegramBotToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+          <small class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a></small>
         </div>
         <div class="form-group">
           <label for="telegramChatId">Chat ID</label>
           <input type="text" id="telegramChatId" placeholder="-1001234567890">
-          <small class="help-text">Use <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> or forward a message to <a href="https://t.me/JsonDumpBot" target="_blank">@JsonDumpBot</a> to get your chat ID</small>
+          <small class="help-text">Use <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer">@userinfobot</a> or forward a message to <a href="https://t.me/JsonDumpBot" target="_blank" rel="noopener noreferrer">@JsonDumpBot</a> to get your chat ID</small>
         </div>
         <div class="ops">
-          <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+          <button type="button" class="btn save-alerts-btn">Save Configuration</button>
           <button type="button" class="btn ghost test-channel-btn" data-channel="telegram">Send Test</button>
         </div>
       </form>
@@ -159,11 +173,11 @@
         </div>
         <div class="form-group">
           <label for="webhookSecret">Signing Secret (optional)</label>
-          <input type="text" id="webhookSecret" placeholder="your-hmac-secret">
+          <input type="password" autocomplete="off" id="webhookSecret" placeholder="your-hmac-secret">
           <small class="help-text">If set, requests include an X-Servicarr-Signature header (HMAC-SHA256)</small>
         </div>
         <div class="ops">
-          <button type="button" id="saveAlerts" class="btn save-alerts-btn">Save Configuration</button>
+          <button type="button" class="btn save-alerts-btn">Save Configuration</button>
           <button type="button" class="btn ghost test-channel-btn" data-channel="webhook">Send Test</button>
         </div>
       </form>

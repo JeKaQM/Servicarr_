@@ -20,8 +20,9 @@ jobs:
           fetch-depth: 0
 
       - name: Check PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
           if [ ${#PR_TITLE} -lt 10 ]; then
             echo "::error::PR title is too short. Please provide a descriptive title (at least 10 characters)."
             exit 1
@@ -29,18 +30,22 @@ jobs:
           echo "✅ PR title is valid"
 
       - name: Check for merge conflicts
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch origin ${{ github.base_ref }}
-          if git merge-tree $(git merge-base HEAD origin/${{ github.base_ref }}) HEAD origin/${{ github.base_ref }} | grep -q '<<<<<<<'; then
+          git fetch origin "$BASE_REF"
+          if ! git merge-tree --write-tree HEAD "origin/$BASE_REF" > merge-result.txt; then
             echo "::error::This PR has merge conflicts. Please resolve them before merging."
             exit 1
           fi
           echo "✅ No merge conflicts detected"
 
       - name: Validate file changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           # Get list of changed files
-          git diff --name-only origin/${{ github.base_ref }}...HEAD > changed_files.txt
+          git diff --name-only "origin/$BASE_REF...HEAD" > changed_files.txt
           
           # Check if any files were changed
           if [ ! -s changed_files.txt ]; then
@@ -63,7 +68,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
 
       - name: Run gosec security scan
         run: |

@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -259,8 +257,19 @@ func HandleGetServiceTemplates(w http.ResponseWriter, r *http.Request) {
 
 // HandleGetServices returns all services (admin: all, public: visible only)
 func HandleGetServices(w http.ResponseWriter, r *http.Request) {
-	// Check if admin
-	isAdmin := r.URL.Query().Get("admin") == "true"
+	serveServices(w, r, false)
+}
+
+// HandleGetAdminServices must only be registered behind authentication.
+func HandleGetAdminServices(w http.ResponseWriter, r *http.Request) {
+	serveServices(w, r, true)
+}
+
+func serveServices(w http.ResponseWriter, r *http.Request, isAdmin bool) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 	var services []models.ServiceConfig
 	var err error
@@ -278,6 +287,7 @@ func HandleGetServices(w http.ResponseWriter, r *http.Request) {
 
 	// Don't expose API tokens or internal URLs to non-admin
 	if !isAdmin {
+		filterPublicRelationships(services)
 		for i := range services {
 			services[i].APIToken = ""
 			services[i].URL = ""
@@ -291,6 +301,28 @@ func HandleGetServices(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(services)
+}
+
+// Public relationships may only refer to services present in the public view.
+func filterPublicRelationships(services []models.ServiceConfig) {
+	visible := make(map[string]bool, len(services))
+	for _, service := range services {
+		visible[service.Key] = true
+	}
+	filter := func(value string) string {
+		keys := make([]string, 0)
+		for _, key := range strings.Split(value, ",") {
+			key = strings.TrimSpace(key)
+			if visible[key] {
+				keys = append(keys, key)
+			}
+		}
+		return strings.Join(keys, ",")
+	}
+	for i := range services {
+		services[i].DependsOn = filter(services[i].DependsOn)
+		services[i].ConnectedTo = filter(services[i].ConnectedTo)
+	}
 }
 
 // HandleCreateService creates a new service
@@ -548,183 +580,29 @@ func HandleTestServiceConnection(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// testServiceConnection performs the actual connection test
+// testServiceConnection shares the scheduler's target validation, redirect rules,
+// credential handling, and timeouts so a preview exercises the real check.
 func testServiceConnection(url, apiToken, checkType, serviceType string, timeout int) map[string]any {
-	// SSRF protection: validate URL target
-	if err := checker.ValidateURLTarget(url); err != nil {
-		return map[string]any{
-			"success": false,
-			"error":   "URL target is not allowed",
-		}
+	if timeout <= 0 {
+		timeout = 5
 	}
-
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow redirects but limit them
-			if len(via) >= 10 {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
+	if timeout > 60 {
+		timeout = 60
 	}
-
-	// Always-up demo check
-	if checkType == "always_up" || checkType == "demo" {
-		return map[string]any{
-			"success":     true,
-			"status":      "Always up",
-			"status_code": 200,
-			"latency_ms":  0,
-		}
+	ok, code, ms, errText := checker.Check(checker.CheckOptions{
+		URL: url, APIToken: apiToken, CheckType: checkType, ServiceType: serviceType,
+		Timeout: time.Duration(timeout) * time.Second, ExpectedMin: 200, ExpectedMax: 399,
+	})
+	result := map[string]any{"success": ok, "status_code": code, "latency_ms": ms}
+	if errText != "" {
+		result["error"] = checker.SanitizeError(errText)
+	} else if !ok {
+		result["error"] = "Unexpected status code: " + strconv.Itoa(code)
 	}
-
-	// Handle TCP checks
-	if checkType == "tcp" || strings.HasPrefix(url, "tcp://") {
-		return testTCPConnection(url, timeout)
+	if code != 0 {
+		result["status"] = strconv.Itoa(code) + " " + http.StatusText(code)
+	} else if ok {
+		result["status"] = "Connection successful"
 	}
-
-	// Handle DNS checks
-	if checkType == "dns" || strings.HasPrefix(url, "dns://") {
-		return testDNSConnection(url, timeout)
-	}
-
-	// HTTP/HTTPS check
-	start := time.Now()
-
-	// For Plex, append token as query parameter
-	testURL := url
-	if apiToken != "" && serviceType == "plex" {
-		if strings.Contains(testURL, "?") {
-			testURL += "&X-Plex-Token=" + apiToken
-		} else {
-			testURL += "?X-Plex-Token=" + apiToken
-		}
-	}
-
-	req, err := http.NewRequest("GET", testURL, nil)
-	if err != nil {
-		return map[string]any{
-			"success": false,
-			"error":   "Invalid URL: " + checker.SanitizeError(err.Error()),
-		}
-	}
-
-	// Add common headers
-	req.Header.Set("User-Agent", "Servicarr/1.0")
-	req.Header.Set("Accept", "application/json")
-
-	// Add API token based on service type
-	if apiToken != "" {
-		switch serviceType {
-		case "plex":
-			// Plex uses X-Plex-Token (already added as query param, but also add header)
-			req.Header.Set("X-Plex-Token", apiToken)
-		case "sonarr", "radarr", "lidarr", "readarr", "prowlarr", "bazarr":
-			// *arr services use X-Api-Key
-			req.Header.Set("X-Api-Key", apiToken)
-		case "overseerr", "jellyseerr":
-			// Overseerr/Jellyseerr use X-Api-Key
-			req.Header.Set("X-Api-Key", apiToken)
-		case "tautulli":
-			// Tautulli uses apikey query param - append to URL
-			if strings.Contains(req.URL.String(), "?") {
-				req.URL.RawQuery += "&apikey=" + apiToken
-			} else {
-				req.URL.RawQuery = "apikey=" + apiToken
-			}
-		case "jellyfin", "emby":
-			// Jellyfin/Emby use X-Emby-Token or api_key param
-			req.Header.Set("X-Emby-Token", apiToken)
-		default:
-			// Generic: try common patterns
-			req.Header.Set("X-Api-Key", apiToken)
-			req.Header.Set("Authorization", "Bearer "+apiToken)
-		}
-	}
-
-	resp, err := client.Do(req)
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		return map[string]any{
-			"success":    false,
-			"error":      "Connection failed: " + checker.SanitizeError(err.Error()),
-			"latency_ms": latency,
-		}
-	}
-	defer resp.Body.Close()
-
-	// Consider 2xx and 3xx as success
-	success := resp.StatusCode >= 200 && resp.StatusCode < 400
-
-	result := map[string]any{
-		"success":     success,
-		"status_code": resp.StatusCode,
-		"status":      resp.Status,
-		"latency_ms":  latency,
-	}
-
-	if !success {
-		result["error"] = "Unexpected status code: " + resp.Status
-	}
-
 	return result
-}
-
-// testTCPConnection tests a TCP connection
-func testTCPConnection(url string, timeout int) map[string]any {
-	// Parse TCP URL (tcp://host:port)
-	address := strings.TrimPrefix(url, "tcp://")
-
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, time.Duration(timeout)*time.Second)
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		return map[string]any{
-			"success":    false,
-			"error":      "TCP connection failed: " + checker.SanitizeError(err.Error()),
-			"latency_ms": latency,
-		}
-	}
-	conn.Close()
-
-	return map[string]any{
-		"success":    true,
-		"status":     "TCP port open",
-		"latency_ms": latency,
-	}
-}
-
-// testDNSConnection tests a DNS lookup
-func testDNSConnection(url string, timeout int) map[string]any {
-	// Parse DNS URL (dns://hostname)
-	hostname := strings.TrimPrefix(url, "dns://")
-
-	start := time.Now()
-	addrs, err := net.LookupHost(hostname)
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		return map[string]any{
-			"success":    false,
-			"error":      "DNS lookup failed: " + checker.SanitizeError(err.Error()),
-			"latency_ms": latency,
-		}
-	}
-
-	if len(addrs) == 0 {
-		return map[string]any{
-			"success":    false,
-			"error":      "DNS lookup returned no addresses",
-			"latency_ms": latency,
-		}
-	}
-
-	return map[string]any{
-		"success":    true,
-		"status":     fmt.Sprintf("Resolved to %s", strings.Join(addrs, ", ")),
-		"latency_ms": latency,
-	}
 }

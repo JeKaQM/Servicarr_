@@ -113,7 +113,7 @@ function appendLogs(selector, logs) {
 
 function renderLogEntry(log) {
   const time = new Date(log.timestamp).toLocaleString();
-  const level = log.level || 'info';
+  const level = ['error', 'warn', 'info', 'debug'].includes(log.level) ? log.level : 'info';
   const category = log.category || '';
   const service = log.service || '';
   const message = escapeHtml(log.message || '');
@@ -143,10 +143,10 @@ function renderLogEntry(log) {
   // Escape details for use in data attribute
 
   return `
-    <div class="log-entry ${level} category-${escapeHtml(category)}" data-action="show-log" data-log='${JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }).replace(/'/g, "&#39;").replace(/"/g, "&quot;")}'>
+    <div class="log-entry ${level} category-${escapeHtml(category)}" data-action="show-log" data-log='${escapeHtml(JSON.stringify({ time, level, category: categoryLabel, service, message: log.message || '', details: log.details || '' }))}'>
       <span class="log-time">${time}</span>
       <span class="log-badge level-${level}">${levelIcon}${level.toUpperCase()}</span>
-      ${category ? `<span class="log-badge category">${categoryLabel}</span>` : ''}
+      ${category ? `<span class="log-badge category">${escapeHtml(categoryLabel)}</span>` : ''}
       ${service ? `<span class="log-service-name">${escapeHtml(service)}</span>` : ''}
       <span class="log-message">${message}</span>
       ${details ? `<span class="log-details">${details}</span>` : ''}
@@ -170,7 +170,8 @@ function summarizeLogDetails(rawDetails) {
 
 function showLogDetails(el) {
   try {
-    const data = JSON.parse(el.dataset.log.replace(/&#39;/g, "'"));
+    const data = JSON.parse(el.dataset.log);
+    data.level = ['error', 'warn', 'info', 'debug'].includes(data.level) ? data.level : 'info';
 
     // Level icons for modal
     const levelIcons = {

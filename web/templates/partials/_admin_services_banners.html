@@ -80,41 +80,68 @@
 
   <div class="admin-section maintenance-schedules-section">
     <h3>Scheduled Maintenance</h3>
-    <p class="muted">Recurring windows display a site banner. Monitoring, incidents, and uptime recording can be paused for the full window.</p>
+    <p class="muted">Choose any start and end date, leave a window open until you disable it, or repeat it on the days you choose. Monitoring, incidents, and uptime recording can be paused for the full window.</p>
 
     <form id="maintenanceScheduleForm">
       <div class="maintenance-form-grid">
         <div class="form-group maintenance-name-field">
           <label for="maintenanceName">Name</label>
-          <input type="text" id="maintenanceName" maxlength="100" placeholder="Monday maintenance" required>
+          <input type="text" id="maintenanceName" maxlength="100" placeholder="Server upgrade" required>
         </div>
         <div class="form-group maintenance-message-field">
           <label for="maintenanceMessage">Banner Message</label>
           <input type="text" id="maintenanceMessage" maxlength="500" placeholder="Scheduled maintenance is in progress." required>
         </div>
         <div class="form-group">
-          <label for="maintenanceWeekday">Day</label>
-          <select id="maintenanceWeekday">
-            <option value="0">Sunday</option>
-            <option value="1" selected>Monday</option>
-            <option value="2">Tuesday</option>
-            <option value="3">Wednesday</option>
-            <option value="4">Thursday</option>
-            <option value="5">Friday</option>
-            <option value="6">Saturday</option>
+          <label for="maintenanceScheduleType">Repeat</label>
+          <select id="maintenanceScheduleType">
+            <option value="once">Does not repeat</option>
+            <option value="daily">Every day</option>
+            <option value="weekly">Selected weekdays</option>
           </select>
         </div>
-        <div class="form-group">
-          <label for="maintenanceStartTime">Starts</label>
-          <input type="time" id="maintenanceStartTime" value="02:55" required>
+        <div class="form-group maintenance-once-field maintenance-date-field">
+          <label for="maintenanceStartsAt">Start date and time</label>
+          <input type="datetime-local" id="maintenanceStartsAt" required>
         </div>
-        <div class="form-group">
-          <label for="maintenanceDuration">Duration (minutes)</label>
-          <input type="number" id="maintenanceDuration" min="1" max="10080" step="1" value="30" required>
+        <div class="form-group maintenance-once-field maintenance-date-field">
+          <label for="maintenanceEndsAt">End date and time</label>
+          <input type="datetime-local" id="maintenanceEndsAt" required>
+          <label class="maintenance-no-end" for="maintenanceNoEnd">
+            <input type="checkbox" id="maintenanceNoEnd"> No scheduled end (disable manually)
+          </label>
+        </div>
+        <fieldset id="maintenanceWeekdaysField" class="form-group maintenance-weekdays-field hidden" disabled>
+          <legend>Repeat on</legend>
+          <div class="maintenance-weekdays">
+            <label><input type="checkbox" name="maintenanceWeekdays" value="1" checked> Mon</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="2"> Tue</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="3"> Wed</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="4"> Thu</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="5"> Fri</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="6"> Sat</label>
+            <label><input type="checkbox" name="maintenanceWeekdays" value="0"> Sun</label>
+          </div>
+        </fieldset>
+        <div class="form-group maintenance-recurring-field hidden">
+          <label for="maintenanceStartTime">Start time</label>
+          <input type="time" id="maintenanceStartTime" value="02:55" disabled>
+        </div>
+        <div class="form-group maintenance-recurring-field hidden">
+          <label for="maintenanceDuration">Duration</label>
+          <div class="maintenance-duration-inputs">
+            <input type="number" id="maintenanceDuration" min="0" step="any" value="30" disabled>
+            <select id="maintenanceDurationUnit" aria-label="Duration unit" disabled>
+              <option value="1">Minutes</option>
+              <option value="60">Hours</option>
+              <option value="1440">Days</option>
+              <option value="10080">Weeks</option>
+            </select>
+          </div>
         </div>
         <div class="form-group">
           <label for="maintenanceTimezone">Timezone</label>
-          <input type="text" id="maintenanceTimezone" value="Europe/London" list="maintenanceTimezones" required>
+          <input type="text" id="maintenanceTimezone" value="Europe/London" list="maintenanceTimezones" aria-describedby="maintenanceTimezoneHelp" required>
           <datalist id="maintenanceTimezones">
             <option value="Europe/London"></option>
             <option value="UTC"></option>
@@ -129,6 +156,7 @@
           </select>
         </div>
       </div>
+      <p id="maintenanceTimezoneHelp" class="muted maintenance-help">All dates and times use the selected timezone. At clock changes, repeated times use the first occurrence; missing times are skipped for repeats. Durations use elapsed time, and overlapping windows keep maintenance active.</p>
 
       <div class="maintenance-options">
         <label class="toggle" for="maintenanceEnabled">
@@ -149,7 +177,7 @@
       </div>
     </form>
 
-    <h3 class="banner-list-heading">Recurring Schedules</h3>
+    <h3 class="banner-list-heading">Maintenance Schedules</h3>
     <div id="maintenanceSchedulesList" class="maintenance-schedules-list">
       <div class="muted">Loading schedules...</div>
     </div>

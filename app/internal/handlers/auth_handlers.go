@@ -33,6 +33,10 @@ func HandleWhoAmI(authMgr *auth.Auth) http.HandlerFunc {
 // HandleLogin authenticates a user
 func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		type creds struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -46,18 +50,11 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		ip := security.ClientIP(r)
-		if security.IsIPBlocked(ip) {
+		blacklisted, _ := security.IsBlacklisted(ip)
+		if security.IsIPBlocked(ip) || blacklisted {
 			log.Printf("login: IP blocked: %s", ip)
 			writeAuditLog(r, database.LogLevelWarn, c.Username, "Login blocked", map[string]any{"outcome": "blocked"})
 			http.Error(w, "access denied - too many failed attempts", http.StatusForbidden)
-			return
-		}
-
-		if c.Username != authMgr.User {
-			log.Printf("login: wrong username from %s", ip)
-			security.LogFailedLoginAttempt(ip)
-			writeAuditLog(r, database.LogLevelWarn, c.Username, "Login failed", map[string]any{"outcome": "invalid_credentials"})
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
@@ -82,6 +79,14 @@ func HandleLogin(authMgr *auth.Auth) http.HandlerFunc {
 // HandleLogout logs out the current user
 func HandleLogout(authMgr *auth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authMgr.VerifyCSRF(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		actor := "anonymous"
 		if session, err := authMgr.ParseSession(r); err == nil {
 			actor = session.U

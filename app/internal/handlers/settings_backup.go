@@ -223,6 +223,7 @@ func HandleImportDatabase() http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 
 		file, _, err := r.FormFile("backup")
 		if err != nil {

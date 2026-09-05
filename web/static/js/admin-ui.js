@@ -1,6 +1,6 @@
 ﻿async function saveAlertsConfig(e) {
   const statusEl = $('#alertStatus');
-  const btn = (e && e.target) ? e.target : $('#saveAlerts');
+  const btn = (e && e.currentTarget) ? e.currentTarget : $('#saveAlerts');
 
   const config = {
     enabled: $('#alertsEnabled').checked,
@@ -18,6 +18,8 @@
     // Multi-channel
     discord_webhook_url: $('#discordWebhookUrl') ? $('#discordWebhookUrl').value : '',
     discord_enabled: $('#discordEnabled') ? $('#discordEnabled').checked : false,
+    discord_username: $('#discordUsername') ? $('#discordUsername').value.trim() : '',
+    discord_silent: $('#discordSilent') ? $('#discordSilent').checked : false,
     telegram_bot_token: $('#telegramBotToken') ? $('#telegramBotToken').value : '',
     telegram_chat_id: $('#telegramChatId') ? $('#telegramChatId').value : '',
     telegram_enabled: $('#telegramEnabled') ? $('#telegramEnabled').checked : false,
@@ -68,6 +70,23 @@ async function sendTestEmail() {
   );
 }
 
+async function sendTestNotification(btn) {
+  const channel = btn.getAttribute('data-channel');
+  const status = channel === 'discord' ? ($('#discordTestStatus')?.value || 'test') : 'test';
+  await handleButtonAction(btn, async () => {
+    const result = await j('/api/admin/alerts/test-channel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify({ channel, status })
+    });
+    if (result.success !== true) throw new Error(result.message || 'Notification delivery failed');
+    const statusEl = $('#alertStatus');
+    statusEl.textContent = result.message || `Test ${channel} notification sent`;
+    statusEl.className = 'status-message success';
+    statusEl.classList.remove('hidden');
+  }, 'Test notification delivered');
+}
+
 async function loadAlertsConfig() {
   try {
     const config = await j('/api/admin/alerts/config');
@@ -87,6 +106,8 @@ async function loadAlertsConfig() {
       // Multi-channel
       if ($('#discordWebhookUrl')) $('#discordWebhookUrl').value = config.discord_webhook_url || '';
       if ($('#discordEnabled')) $('#discordEnabled').checked = config.discord_enabled || false;
+      if ($('#discordUsername')) $('#discordUsername').value = config.discord_username || '';
+      if ($('#discordSilent')) $('#discordSilent').checked = config.discord_silent || false;
       if ($('#telegramBotToken')) $('#telegramBotToken').value = config.telegram_bot_token || '';
       if ($('#telegramChatId')) $('#telegramChatId').value = config.telegram_chat_id || '';
       if ($('#telegramEnabled')) $('#telegramEnabled').checked = config.telegram_enabled || false;
@@ -231,30 +252,12 @@ window.addEventListener('load', async () => {
     });
   });
 
-  // Alerts form handlers
-  const saveAlertsBtn = $('#saveAlerts');
-  if (saveAlertsBtn) {
-    saveAlertsBtn.addEventListener('click', saveAlertsConfig);
-  }
-  // Also wire up all save-alerts-btn buttons in channel panels
+  // All channel and global save buttons share one handler.
   $$('.save-alerts-btn').forEach(btn => {
     btn.addEventListener('click', saveAlertsConfig);
   });
-  // Test channel buttons
   $$('.test-channel-btn').forEach(btn => {
-    btn.addEventListener('click', async function() {
-      const channel = this.getAttribute('data-channel');
-      try {
-        const result = await j('/api/admin/alerts/test-channel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
-          body: JSON.stringify({ channel })
-        });
-        alert(result.message || `Test ${channel} notification sent`);
-      } catch (err) {
-        alert(`Failed to send test: ${err.message || err}`);
-      }
-    });
+    btn.addEventListener('click', () => sendTestNotification(btn));
   });
 
   const testEmailBtn = $('#testEmail');
@@ -316,6 +319,8 @@ window.addEventListener('load', async () => {
   const maintenanceForm = $('#maintenanceScheduleForm');
   if (maintenanceForm) {
     maintenanceForm.addEventListener('submit', saveMaintenanceSchedule);
+    maintenanceForm.addEventListener('change', updateMaintenanceScheduleForm);
+    updateMaintenanceScheduleForm();
   }
 
   const cancelMaintenanceBtn = $('#cancelMaintenanceSchedule');

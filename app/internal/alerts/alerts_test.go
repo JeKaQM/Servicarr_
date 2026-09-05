@@ -569,30 +569,22 @@ func TestSendDiscord(t *testing.T) {
 
 func TestSendTelegram(t *testing.T) {
 	initTestDB(t)
-	var receivedPayload map[string]interface{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &receivedPayload)
-		w.WriteHeader(200)
-	}))
-	defer srv.Close()
-
-	// Replace the Telegram API URL by using a token that includes the server URL
-	// Since SendTelegram constructs: https://api.telegram.org/bot{token}/sendMessage
-	// We'll test via the mock server approach differently
 	m := &Manager{
-		config: &models.AlertConfig{
-			TelegramEnabled:  true,
-			TelegramBotToken: "testtoken",
-			TelegramChatID:   "12345",
-		},
+		config: &models.AlertConfig{TelegramEnabled: true, TelegramBotToken: "testtoken", TelegramChatID: "12345"},
+		httpClient: &http.Client{Transport: notificationRoundTripper(func(r *http.Request) (*http.Response, error) {
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["chat_id"] != "12345" || !strings.Contains(payload["text"].(string), "Test") {
+				t.Errorf("unexpected payload: %v", payload)
+			}
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: make(http.Header)}, nil
+		})},
 	}
-
-	// Since Telegram sends to api.telegram.org, we can't easily mock it with httptest
-	// without changing the production code. Test that it doesn't panic.
-	// (Integration test would use a real Telegram bot)
-	m.SendTelegram("Test", "down", "Svc", "msg")
-	// No assertion needed - just ensure no panic
+	if err := m.SendTelegram("Test", "down", "Svc", "msg"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // --------------- SendWebhook tests ---------------

@@ -71,7 +71,11 @@ func SanitizeError(errStr string) string {
 func isCloudMetadataIP(ip net.IP) bool {
 	metadataIPs := []string{
 		"169.254.169.254/32", // AWS, GCP, Azure metadata
+		"169.254.170.2/32",   // AWS ECS task credentials
+		"169.254.170.23/32",  // AWS EKS pod credentials
+		"100.100.100.200/32", // Alibaba Cloud metadata
 		"fd00:ec2::254/128",  // AWS IMDSv2 IPv6
+		"fd00:ec2::23/128",   // AWS EKS pod credentials IPv6
 	}
 	for _, cidr := range metadataIPs {
 		_, network, _ := net.ParseCIDR(cidr)
@@ -82,7 +86,8 @@ func isCloudMetadataIP(ip net.IP) bool {
 	return false
 }
 
-// ValidateURLTarget rejects URLs that resolve to cloud metadata endpoints (SSRF protection).
+// ValidateURLTarget rejects invalid URLs and known cloud metadata targets.
+// Resolved addresses are additionally checked when establishing the connection.
 // Private RFC1918 IPs are allowed since monitoring internal services is the core use case.
 func ValidateURLTarget(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
@@ -91,24 +96,12 @@ func ValidateURLTarget(rawURL string) error {
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return nil
+		return fmt.Errorf("URL must include a host")
 	}
-	// Block known metadata hostnames
-	lower := strings.ToLower(host)
-	if lower == "metadata.google.internal" || lower == "metadata" {
-		return fmt.Errorf("URL target %q is a blocked cloud metadata endpoint", host)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "tcp" && parsed.Scheme != "dns" {
+		return fmt.Errorf("unsupported URL scheme")
 	}
-	// Resolve and check IPs
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return nil // allow — resolution may fail transiently
-	}
-	for _, ip := range ips {
-		if isCloudMetadataIP(ip) {
-			return fmt.Errorf("URL target %q resolves to blocked cloud metadata IP %s", host, ip)
-		}
-	}
-	return nil
+	return validateTargetHost(host)
 }
 
 // CheckOptions defines parameters for a service health check.
@@ -166,7 +159,9 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 	case "tcp":
 		addr := strings.TrimPrefix(url, "tcp://")
 		t0 := time.Now()
-		conn, err := net.DialTimeout("tcp", addr, opts.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+		defer cancel()
+		conn, err := dialTargetContext(ctx, "tcp", addr)
 		d := int(time.Since(t0).Milliseconds())
 		ms = &d
 		if err != nil {
@@ -201,17 +196,10 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 			log.Printf("SSRF blocked: %v", err)
 			return false, 0, nil, err.Error()
 		}
-		client := &http.Client{Timeout: opts.Timeout}
+		client := newCheckHTTPClient(opts.Timeout, opts.APIToken != "" || strings.Contains(url, "?") || strings.Contains(url, "@"))
 		t0 := time.Now()
 
 		testURL := url
-		if opts.APIToken != "" && strings.ToLower(opts.ServiceType) == "plex" {
-			if strings.Contains(testURL, "?") {
-				testURL += "&X-Plex-Token=" + opts.APIToken
-			} else {
-				testURL += "?X-Plex-Token=" + opts.APIToken
-			}
-		}
 
 		req, err := http.NewRequest("GET", testURL, nil)
 		if err != nil {
@@ -229,11 +217,9 @@ func Check(opts CheckOptions) (ok bool, code int, ms *int, errStr string) {
 			case "overseerr", "jellyseerr":
 				req.Header.Set("X-Api-Key", token)
 			case "tautulli":
-				if strings.Contains(req.URL.String(), "?") {
-					req.URL.RawQuery += "&apikey=" + token
-				} else {
-					req.URL.RawQuery = "apikey=" + token
-				}
+				query := req.URL.Query()
+				query.Set("apikey", token)
+				req.URL.RawQuery = query.Encode()
 			case "jellyfin", "emby":
 				req.Header.Set("X-Emby-Token", token)
 			case "homeassistant":

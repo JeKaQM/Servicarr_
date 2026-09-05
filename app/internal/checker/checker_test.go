@@ -60,8 +60,8 @@ func TestValidateURLTarget_MetadataHostname(t *testing.T) {
 func TestValidateURLTarget_EmptyHost(t *testing.T) {
 	// Edge case: URL with no host
 	err := ValidateURLTarget("/relative/path")
-	if err != nil {
-		t.Errorf("empty host should be allowed (non-routable): %v", err)
+	if err == nil {
+		t.Error("empty host must be rejected")
 	}
 }
 

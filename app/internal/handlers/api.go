@@ -71,6 +71,7 @@ func HandleCheck(_ *monitor.FailureTracker) http.HandlerFunc {
 			return
 		}
 
+		filterPublicRelationships(dbServices)
 		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
 
 		for _, sc := range dbServices {
@@ -212,7 +213,7 @@ WITH aggregated AS (
          COUNT(*) AS total_count,
          AVG(latency_ms) AS avg_ms
   FROM samples
-  WHERE taken_at >= ?
+  WHERE taken_at >= ? AND service_key IN (SELECT key FROM services WHERE visible = 1)
   GROUP BY service_key, time_bin
 )
 SELECT service_key, time_bin, up_count, total_count, avg_ms
@@ -245,7 +246,7 @@ FROM aggregated ORDER BY time_bin ASC`, groupBy)
 		}
 
 		overall := map[string]float64{}
-		rows2, err := database.DB.Query(`SELECT service_key, SUM(ok), COUNT(*) FROM samples WHERE taken_at >= ? GROUP BY service_key`, since)
+		rows2, err := database.DB.Query(`SELECT service_key, SUM(ok), COUNT(*) FROM samples WHERE taken_at >= ? AND service_key IN (SELECT key FROM services WHERE visible = 1) GROUP BY service_key`, since)
 		if err == nil {
 			defer rows2.Close()
 			for rows2.Next() {
@@ -295,7 +296,7 @@ func loadRecentIncidents(now time.Time) ([]incidentItem, error) {
 		       COALESCE(s.check_type, '') AS check_type
 		FROM heartbeats hb
 		LEFT JOIN services s ON s.key = hb.service_key
-		WHERE hb.status = 0 AND hb.important = 1 AND hb.time >= ?
+		WHERE hb.status = 0 AND hb.important = 1 AND hb.time >= ? AND s.visible = 1
 		ORDER BY hb.time DESC
 		LIMIT 50`, downSince)
 	if err != nil {
@@ -392,6 +393,9 @@ func HandleUptimeStats() http.HandlerFunc {
 		serviceKey := r.URL.Query().Get("service")
 
 		if serviceKey != "" {
+			if !requireVisibleService(w, serviceKey) {
+				return
+			}
 			// Get stats for a specific service
 			uptimeStats := stats.GetUptimeStats(serviceKey)
 			w.Header().Set("Content-Type", "application/json")
@@ -399,19 +403,29 @@ func HandleUptimeStats() http.HandlerFunc {
 			return
 		}
 
-		// Get stats for all services
-		cacheKey := "all_uptime_stats"
-		if cached, ok := cache.StatsCache.Get(cacheKey); ok {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(cached)
-			return
-		}
-
-		// Load all services and compute stats
-		services, err := database.GetAllServices()
+		// Recheck visibility even for cached statistics so hiding a service takes
+		// effect immediately on every public endpoint.
+		services, err := database.GetVisibleServices()
 		if err != nil {
 			http.Error(w, "failed to load services", http.StatusInternalServerError)
 			return
+		}
+		// Get stats for all services
+		cacheKey := "all_uptime_stats"
+		if cached, ok := cache.StatsCache.Get(cacheKey); ok {
+			if cachedStats, valid := cached.(map[string]*stats.UptimeStats); valid {
+				visibleStats := make(map[string]*stats.UptimeStats, len(services))
+				for _, svc := range services {
+					if value, exists := cachedStats[svc.Key]; exists {
+						visibleStats[svc.Key] = value
+					} else {
+						visibleStats[svc.Key] = stats.GetUptimeStats(svc.Key)
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(visibleStats)
+				return
+			}
 		}
 
 		result := make(map[string]*stats.UptimeStats)
@@ -435,6 +449,9 @@ func HandleRecentHeartbeats() http.HandlerFunc {
 			http.Error(w, "service parameter required", http.StatusBadRequest)
 			return
 		}
+		if !requireVisibleService(w, serviceKey) {
+			return
+		}
 
 		count := 20
 		if q := r.URL.Query().Get("count"); q != "" {
@@ -445,6 +462,9 @@ func HandleRecentHeartbeats() http.HandlerFunc {
 
 		calc := stats.GetCalculator(serviceKey)
 		heartbeats := calc.GetRecentHeartbeats(count)
+		for i := range heartbeats {
+			heartbeats[i].Msg = checker.SanitizeError(heartbeats[i].Msg)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(heartbeats)
@@ -459,6 +479,9 @@ func HandleDayDetail() http.HandlerFunc {
 
 		if serviceKey == "" || dateStr == "" {
 			http.Error(w, "key and date parameters required", http.StatusBadRequest)
+			return
+		}
+		if !requireVisibleService(w, serviceKey) {
 			return
 		}
 
@@ -640,4 +663,17 @@ func HandleDayDetail() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
 	}
+}
+
+func requireVisibleService(w http.ResponseWriter, serviceKey string) bool {
+	service, err := database.GetServiceByKey(serviceKey)
+	if err != nil {
+		http.Error(w, "failed to load service", http.StatusInternalServerError)
+		return false
+	}
+	if service == nil || !service.Visible {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return false
+	}
+	return true
 }

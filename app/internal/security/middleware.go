@@ -5,6 +5,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +25,21 @@ func SecureHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		// Setup and login cannot require an authenticated CSRF token yet. Reject
+		// browser cross-origin mutations there as well as on authenticated routes.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				parsed, err := url.Parse(origin)
+				if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || !strings.EqualFold(parsed.Host, r.Host) {
+					http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+					return
+				}
+			} else if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+				http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -174,16 +192,75 @@ func CheckIPBlock(next http.Handler) http.Handler {
 	})
 }
 
-// ClientIP extracts the client IP from the request
-func ClientIP(r *http.Request) string {
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
+var trustedProxies = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+
+// ConfigureTrustedProxies runs at startup after .env has been loaded, before
+// serving requests. Configuration changes require restarting the application.
+func ConfigureTrustedProxies(value string) {
+	trustedProxies = parseTrustedProxies(value)
+}
+
+func parseTrustedProxies(value string) []netip.Prefix {
+	var prefixes []netip.Prefix
+	for _, entry := range strings.Split(value, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			if ip, ipErr := netip.ParseAddr(entry); ipErr == nil {
+				ip = ip.Unmap()
+				prefix = netip.PrefixFrom(ip, ip.BitLen())
+			} else {
+				log.Printf("Ignoring invalid TRUSTED_PROXIES entry %q", entry)
+				continue
+			}
+		}
+		prefixes = append(prefixes, prefix)
 	}
+	return prefixes
+}
+
+// ClientIP accepts forwarded addresses only from explicitly trusted proxies.
+// Walk from the nearest hop to avoid trusting attacker-supplied XFF prefixes.
+func ClientIP(r *http.Request) string {
+	return clientIP(r, trustedProxies)
+}
+
+func clientIP(r *http.Request, trusted []netip.Prefix) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil {
 		return host
 	}
-	return r.RemoteAddr
+	peer = peer.Unmap()
+	isTrusted := func(ip netip.Addr) bool {
+		for _, prefix := range trusted {
+			if prefix.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}
+	if !isTrusted(peer) {
+		return peer.String()
+	}
+	parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+	current := peer
+	for i := len(parts) - 1; i >= 0; i-- {
+		forwarded, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
+		if err != nil {
+			// A malformed chain cannot establish a trustworthy client address.
+			return peer.String()
+		}
+		current = forwarded.Unmap()
+		if !isTrusted(current) {
+			return current.String()
+		}
+	}
+	return current.String()
 }

@@ -340,11 +340,13 @@
 }
 
 .maintenance-name-field,
-.maintenance-message-field {
+.maintenance-message-field,
+.maintenance-date-field {
   grid-column: span 2;
 }
 
-.maintenance-form-grid input[type="time"] {
+.maintenance-form-grid input[type="time"],
+.maintenance-form-grid input[type="datetime-local"] {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 12px;
@@ -354,6 +356,53 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 5px;
   font-size: 13px;
+}
+
+.maintenance-weekdays-field {
+  grid-column: 1 / -1;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.maintenance-weekdays-field legend {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.maintenance-weekdays,
+.maintenance-duration-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.maintenance-weekdays label,
+.maintenance-no-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.maintenance-weekdays label {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.maintenance-duration-inputs > * {
+  flex: 1 1 80px;
+  min-width: 0;
+}
+
+.maintenance-no-end {
+  margin-top: 8px;
+}
+
+.maintenance-help {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .maintenance-options {
@@ -441,7 +490,8 @@
   }
 
   .maintenance-name-field,
-  .maintenance-message-field {
+  .maintenance-message-field,
+  .maintenance-date-field {
     grid-column: 1 / -1;
   }
 
@@ -461,7 +511,8 @@
   }
 
   .maintenance-name-field,
-  .maintenance-message-field {
+  .maintenance-message-field,
+  .maintenance-date-field {
     grid-column: auto;
   }
 

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"status/app/internal/alerts"
 	"status/app/internal/database"
 	"status/app/internal/models"
 	"strings"
+	"unicode/utf16"
 )
 
 // HandleGetAlertsConfig retrieves alert configuration
@@ -34,9 +36,20 @@ func HandleGetAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 // HandleSaveAlertsConfig saves alert configuration
 func HandleSaveAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		var config models.AlertConfig
-		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&config); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if err := validateAlertConfig(&config); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -59,6 +72,12 @@ func HandleSaveAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 // HandleTestEmail sends a test email
 func HandleTestEmail(alertMgr *alerts.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		config := alertMgr.GetConfig()
 		if config == nil || !config.Enabled {
 			http.Error(w, "alerts not configured or disabled", http.StatusBadRequest)
@@ -121,10 +140,17 @@ func inferRequestBaseURL(r *http.Request) string {
 // HandleTestNotification sends a test notification to a specific channel
 func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		var req struct {
 			Channel string `json:"channel"` // discord, telegram, webhook
+			Status  string `json:"status"`  // optional preview: down, degraded, up
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -135,8 +161,24 @@ func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 			return
 		}
 
-		subject := "🔔 Test Notification from Servicarr"
+		statusType := req.Status
+		if statusType == "" {
+			statusType = "test"
+		}
+		messages := map[string]string{
+			"test":     "This is a test notification from Servicarr. Your notification destination accepted delivery.",
+			"down":     "Example: the service is failing health checks. Investigate its availability.",
+			"degraded": "Example: the service is responding, but response time exceeds the 200 ms degradation threshold.",
+			"up":       "Example: the service has recovered and is responding normally to health checks.",
+		}
+		message, valid := messages[statusType]
+		if !valid {
+			http.Error(w, "unknown test status", http.StatusBadRequest)
+			return
+		}
+		subject := "[Test] Servicarr notification: " + statusType
 		statusPageURL := alertMgr.ResolveStatusPageURL("")
+		var deliveryErr error
 
 		switch req.Channel {
 		case "discord":
@@ -144,25 +186,75 @@ func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 				http.Error(w, "Discord webhook URL not configured", http.StatusBadRequest)
 				return
 			}
-			alertMgr.SendDiscord(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Discord notifications are working!", statusPageURL)
+			deliveryErr = alertMgr.SendDiscord(subject, statusType, "Test Service", message, statusPageURL)
 		case "telegram":
 			if config.TelegramBotToken == "" || config.TelegramChatID == "" {
 				http.Error(w, "Telegram bot token or chat ID not configured", http.StatusBadRequest)
 				return
 			}
-			alertMgr.SendTelegram(subject, "up", "Test Service", "This is a test notification from Servicarr. If you see this, Telegram notifications are working!")
+			deliveryErr = alertMgr.SendTelegram(subject, statusType, "Test Service", message)
 		case "webhook":
 			if config.WebhookURL == "" {
 				http.Error(w, "Webhook URL not configured", http.StatusBadRequest)
 				return
 			}
-			alertMgr.SendWebhook(subject, "up", "Test Service", "test", "This is a test notification from Servicarr.")
+			deliveryErr = alertMgr.SendWebhook(subject, statusType, "Test Service", "test", message)
 		default:
 			http.Error(w, "unknown channel: "+req.Channel, http.StatusBadRequest)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		if deliveryErr != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": deliveryErr.Error()})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Test " + req.Channel + " notification sent"})
 	}
+}
+
+func validateAlertConfig(config *models.AlertConfig) error {
+	config.DiscordWebhookURL = strings.TrimSpace(config.DiscordWebhookURL)
+	config.WebhookURL = strings.TrimSpace(config.WebhookURL)
+	config.StatusPageURL = strings.TrimSpace(config.StatusPageURL)
+	config.DiscordUsername = strings.TrimSpace(config.DiscordUsername)
+	if len(utf16.Encode([]rune(config.DiscordUsername))) > 80 {
+		return fmt.Errorf("Discord display name must be at most 80 characters")
+	}
+	if config.SMTPHost != "" && (config.SMTPPort < 1 || config.SMTPPort > 65535) {
+		return fmt.Errorf("SMTP port must be between 1 and 65535")
+	}
+	for _, field := range []struct{ name, value string }{
+		{"Discord webhook URL", config.DiscordWebhookURL},
+		{"Webhook URL", config.WebhookURL},
+		{"Dashboard URL", config.StatusPageURL},
+	} {
+		if field.value == "" {
+			continue
+		}
+		u, err := url.Parse(field.value)
+		if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Fragment != "" {
+			return fmt.Errorf("%s must use HTTP or HTTPS without embedded credentials or fragments", field.name)
+		}
+		if field.name == "Dashboard URL" && u.RawQuery != "" {
+			return fmt.Errorf("Dashboard URL must not include query parameters")
+		}
+		if field.name == "Discord webhook URL" {
+			host := strings.ToLower(u.Hostname())
+			if u.Scheme != "https" || (host != "discord.com" && host != "discordapp.com" && host != "canary.discord.com" && host != "ptb.discord.com") || (u.Port() != "" && u.Port() != "443") || !strings.HasPrefix(u.Path, "/api/webhooks/") {
+				return fmt.Errorf("Discord webhook URL must be an HTTPS Discord webhook address")
+			}
+		}
+	}
+	if config.DiscordEnabled && config.DiscordWebhookURL == "" {
+		return fmt.Errorf("Discord webhook URL is required when Discord is enabled")
+	}
+	if config.TelegramEnabled && (strings.TrimSpace(config.TelegramBotToken) == "" || strings.TrimSpace(config.TelegramChatID) == "") {
+		return fmt.Errorf("Telegram bot token and chat ID are required when Telegram is enabled")
+	}
+	if config.WebhookEnabled && config.WebhookURL == "" {
+		return fmt.Errorf("Webhook URL is required when webhook notifications are enabled")
+	}
+	return nil
 }

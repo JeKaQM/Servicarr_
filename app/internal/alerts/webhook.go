@@ -1,23 +1,21 @@
 package alerts
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
-	"status/app/internal/database"
 	"strings"
 	"time"
 )
 
 // SendWebhook sends a JSON payload to a generic webhook URL with optional HMAC signing
-func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, message string) {
+func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, message string) error {
 	config := m.GetConfig()
 	if config == nil || config.WebhookURL == "" {
-		return
+		return errors.New("Webhook URL is not configured")
 	}
 	payload := map[string]interface{}{
 		"event":        "status_change",
@@ -31,28 +29,17 @@ func (m *Manager) SendWebhook(subject, statusType, serviceName, serviceKey, mess
 
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest("POST", config.WebhookURL, bytes.NewReader(body))
-	if err != nil {
-		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Webhook request failed", err.Error())
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Servicarr/1.0")
+	headers := make(http.Header)
 
 	// HMAC-SHA256 signature
 	if config.WebhookSecret != "" {
 		mac := hmac.New(sha256.New, []byte(config.WebhookSecret))
 		mac.Write(body)
 		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Servicarr-Signature", "sha256="+sig)
+		headers.Set("X-Servicarr-Signature", "sha256="+sig)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		_ = database.InsertLog(database.LogLevelError, "notification", serviceName, "Webhook notification failed", err.Error())
-		return
-	}
-	defer resp.Body.Close()
-	_ = database.InsertLog(database.LogLevelInfo, "notification", serviceName, "Webhook notification sent", fmt.Sprintf("url=%s, status=%d", config.WebhookURL, resp.StatusCode))
+	err := m.postNotification(config.WebhookURL, body, headers, false)
+	logDelivery("Webhook", serviceName, err)
+	return err
 }

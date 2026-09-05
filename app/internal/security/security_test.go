@@ -96,64 +96,35 @@ func TestSecureHeaders_CallsNext(t *testing.T) {
 
 // --- ClientIP ---
 
-func TestClientIP_XForwardedFor(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18")
-
-	ip := ClientIP(req)
-	if ip != "203.0.113.50" {
-		t.Errorf("expected first IP from XFF, got %q", ip)
+func TestClientIPProxyTrust(t *testing.T) {
+	trusted := parseTrustedProxies("127.0.0.1, 10.0.0.0/8, ::1/128, invalid")
+	cases := []struct{ name, remote, forwarded, want string }{
+		{"untrusted peer cannot spoof", "192.0.2.5:1234", "198.51.100.9", "192.0.2.5"},
+		{"trusted proxy", "127.0.0.1:1234", "198.51.100.9", "198.51.100.9"},
+		{"multiple trusted hops", "127.0.0.1:1234", "198.51.100.9, 10.0.0.2", "198.51.100.9"},
+		{"ignore spoofed prefix", "127.0.0.1:1234", "198.51.100.9, 192.0.2.5", "192.0.2.5"},
+		{"whitespace", "127.0.0.1:1234", " 198.51.100.9 , 10.0.0.2 ", "198.51.100.9"},
+		{"invalid chain", "127.0.0.1:1234", "198.51.100.9, invalid", "127.0.0.1"},
+		{"no forwarded header", "127.0.0.1:1234", "", "127.0.0.1"},
+		{"no port", "192.0.2.5", "", "192.0.2.5"},
+		{"ipv6", "[::1]:1234", "2001:db8::1", "2001:db8::1"},
+		{"mapped ipv4", "[::ffff:127.0.0.1]:1234", "::ffff:198.51.100.9", "198.51.100.9"},
 	}
-}
-
-func TestClientIP_XFF_SingleIP(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Forwarded-For", "198.51.100.1")
-
-	ip := ClientIP(req)
-	if ip != "198.51.100.1" {
-		t.Errorf("expected %q, got %q", "198.51.100.1", ip)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tc.remote
+			req.Header.Set("X-Forwarded-For", tc.forwarded)
+			if got := clientIP(req, trusted); got != tc.want {
+				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
+			}
+		})
 	}
-}
-
-func TestClientIP_RemoteAddr(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.168.1.100:54321"
-
-	ip := ClientIP(req)
-	if ip != "192.168.1.100" {
-		t.Errorf("expected '192.168.1.100', got %q", ip)
-	}
-}
-
-func TestClientIP_RemoteAddr_NoPort(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.168.1.100"
-
-	ip := ClientIP(req)
-	if ip != "192.168.1.100" {
-		t.Errorf("expected '192.168.1.100', got %q", ip)
-	}
-}
-
-func TestClientIP_XFF_TakePrecedence(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Forwarded-For", "10.0.0.1")
-	req.RemoteAddr = "192.168.1.100:54321"
-
-	ip := ClientIP(req)
-	if ip != "10.0.0.1" {
-		t.Errorf("XFF should take precedence, got %q", ip)
-	}
-}
-
-func TestClientIP_XFF_WhitespaceHandling(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Forwarded-For", "  203.0.113.1  , 10.0.0.1")
-
-	ip := ClientIP(req)
-	if ip != "203.0.113.1" {
-		t.Errorf("expected trimmed IP, got %q", ip)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "198.51.100.9")
+	if got := clientIP(req, nil); got != "127.0.0.1" {
+		t.Fatalf("default trust accepted spoofed IP: %s", got)
 	}
 }
 

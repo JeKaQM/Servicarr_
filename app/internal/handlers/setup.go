@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"status/app/internal/auth"
@@ -26,11 +27,19 @@ type SetupState struct {
 	HasServices bool `json:"has_services"`
 }
 
+// Serialize unauthenticated setup mutations with completion so an in-flight
+// setup request cannot overwrite configuration after credentials are created.
+var setupMu sync.RWMutex
+
 // HandleSetupPage serves the setup wizard page
 func HandleSetupPage(w http.ResponseWriter, r *http.Request) {
 	// Check if setup is already complete
 	complete, err := database.IsSetupComplete()
-	if err == nil && complete {
+	if err != nil {
+		http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if complete {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -50,7 +59,11 @@ func HandleSetupPage(w http.ResponseWriter, r *http.Request) {
 
 // HandleSetupStatus returns the current setup state
 func HandleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	complete, _ := database.IsSetupComplete()
+	complete, err := database.IsSetupComplete()
+	if err != nil {
+		http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	serviceCount, _ := database.GetServiceCount()
 
 	state := SetupState{
@@ -71,9 +84,16 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		// Check if setup is already complete
-		complete, _ := database.IsSetupComplete()
+		setupMu.Lock()
+		defer setupMu.Unlock()
+		complete, err := database.IsSetupComplete()
+		if err != nil {
+			http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if complete {
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
 			json.NewEncoder(w).Encode(map[string]any{
 				"success": false,
 				"error":   "Setup already completed",
@@ -107,12 +127,12 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		if req.Password == "" || len(req.Password) < 8 {
+		if len(req.Password) < 8 || len(req.Password) > 72 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]any{
 				"success": false,
-				"error":   "Password must be at least 8 characters",
+				"error":   "Password must be between 8 and 72 bytes",
 			})
 			return
 		}
@@ -162,7 +182,7 @@ func HandleCompleteSetup(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		// Reload auth manager with new credentials
-		authMgr.Reload(req.Username, passwordHash, authSecretBytes)
+		authMgr.Reload(req.Username, passwordHash, []byte(authSecret))
 		log.Printf("Setup complete - auth credentials loaded for user: %s", req.Username)
 
 		// Initialize encryption key for API token encryption at rest
@@ -211,7 +231,13 @@ func HandleAddFirstService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only allow during initial setup
-	complete, _ := database.IsSetupComplete()
+	setupMu.Lock()
+	defer setupMu.Unlock()
+	complete, err := database.IsSetupComplete()
+	if err != nil {
+		http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if complete {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -298,7 +324,13 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		}
 
 		// Only allow import if setup is not complete
-		complete, _ := database.IsSetupComplete()
+		setupMu.Lock()
+		defer setupMu.Unlock()
+		complete, err := database.IsSetupComplete()
+		if err != nil {
+			http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if complete {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
@@ -313,6 +345,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 
 		file, _, err := r.FormFile("backup")
 		if err != nil {
@@ -483,7 +516,11 @@ func SetupRequiredMiddleware(next http.Handler) http.Handler {
 
 		// Check if setup is complete - ONLY check the database flag
 		// Don't consider existing services as setup complete (they could be migrated from env)
-		complete, _ := database.IsSetupComplete()
+		complete, err := database.IsSetupComplete()
+		if err != nil {
+			http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		if complete {
 			next.ServeHTTP(w, r)

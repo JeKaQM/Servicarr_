@@ -117,11 +117,11 @@ function renderDynamicUptimeBars(services) {
     row.innerHTML = `
       <div class="service-uptime-header">
         <span class="service-name">${svcName}</span>
-        <span class="protocol-badge">${protocolBadge}</span>
-        <span class="uptime-percent" id="uptime-${svc.key}">—%</span>
+        <span class="protocol-badge">${escapeHtml(protocolBadge)}</span>
+        <span class="uptime-percent" id="uptime-${escapeHtml(svc.key)}">—%</span>
       </div>
       <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-${svc.key}"></div>
+        <div class="uptime-bar" id="uptime-bar-${escapeHtml(svc.key)}"></div>
       </div>
     `;
     container.appendChild(row);
@@ -197,15 +197,15 @@ function renderServiceCards(services) {
         <div class="stats-grid">
           <div class="stat-item">
             <div class="stat-label">Uptime</div>
-            <div class="stat-value" id="uptime-24h-${svc.key}">—</div>
+            <div class="stat-value" id="uptime-24h-${escapeHtml(svc.key)}">—</div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Response</div>
-            <div class="stat-value" id="avg-response-${svc.key}">—</div>
+            <div class="stat-value" id="avg-response-${escapeHtml(svc.key)}">—</div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Checked</div>
-            <div class="stat-value" id="last-check-${svc.key}">—</div>
+            <div class="stat-value" id="last-check-${escapeHtml(svc.key)}">—</div>
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
 	"strings"
@@ -130,5 +131,80 @@ func TestIngestNowWritesNothingDuringMaintenance(t *testing.T) {
 	}
 	if samples != 0 {
 		t.Fatalf("recorded %d samples during maintenance", samples)
+	}
+}
+
+func TestMaintenanceSchedulesAPIHandlesFlexibleWindows(t *testing.T) {
+	initMaintenanceHandlerDB(t)
+	for _, body := range []string{
+		`{"id":"once","name":"Long upgrade","message":"In progress","level":"warning","schedule_type":"once","starts_at":"2026-09-15T10:00","ends_at":"2027-11-20T10:00","timezone":"Europe/London","enabled":true}`,
+		`{"id":"recurring","name":"Multiweek","message":"In progress","level":"info","schedule_type":"weekly","weekdays":[1,3,5],"start_time":"01:00","duration_minutes":40000,"timezone":"UTC","enabled":true}`,
+		`{"id":"open","name":"Open","message":"In progress","level":"info","schedule_type":"once","starts_at":"2026-09-15T10:00","timezone":"UTC","enabled":true}`,
+	} {
+		r := httptest.NewRecorder()
+		HandleMaintenanceSchedules().ServeHTTP(r, httptest.NewRequest(http.MethodPost, "/api/admin/maintenance-schedules", strings.NewReader(body)))
+		if r.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", r.Code, r.Body.String())
+		}
+		var s models.MaintenanceSchedule
+		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+			t.Fatal(err)
+		}
+		if s.ScheduleType == "once" && s.StartsAt == "" {
+			t.Fatalf("missing start: %+v", s)
+		}
+		// Backups serialize this same model. Verify it remains valid after JSON export/import.
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored models.MaintenanceSchedule
+		if err := json.Unmarshal(data, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if err := maintenance.ValidateSchedule(&restored); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.SaveMaintenanceSchedule(&restored); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := httptest.NewRecorder()
+	HandleMaintenanceSchedules().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/admin/maintenance-schedules", nil))
+	var schedules []models.MaintenanceSchedule
+	if err := json.NewDecoder(list.Body).Decode(&schedules); err != nil {
+		t.Fatal(err)
+	}
+	if len(schedules) != 4 {
+		t.Fatalf("expected default + 3 new schedules, got %d", len(schedules))
+	}
+}
+
+func TestMaintenanceSchedulesAPIRejectsCalendarErrors(t *testing.T) {
+	initMaintenanceHandlerDB(t)
+	for _, dates := range []string{
+		`"starts_at":"2026-03-29T01:30"`,
+		`"starts_at":"2026-09-12T12:00","ends_at":"2026-09-12T11:00"`,
+		`"starts_at":"2026-02-30T12:00"`,
+	} {
+		body := `{"name":"Invalid","message":"In progress","level":"warning","schedule_type":"once","timezone":"Europe/London",` + dates + `}`
+		r := httptest.NewRecorder()
+		HandleMaintenanceSchedules().ServeHTTP(r, httptest.NewRequest(http.MethodPost, "/api/admin/maintenance-schedules", strings.NewReader(body)))
+		if r.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, body = %s", r.Code, r.Body.String())
+		}
+	}
+}
+
+func TestOpenEndedPublicBannerOmitsEnd(t *testing.T) {
+	initMaintenanceHandlerDB(t)
+	_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
+	s := &models.MaintenanceSchedule{ID: "open", Name: "Open", Message: "Maintenance", Level: "warning", ScheduleType: "once", StartsAt: "2026-01-01T00:00:00Z", Timezone: "UTC", Enabled: true, SuppressMonitoring: true}
+	if err := database.SaveMaintenanceSchedule(s); err != nil {
+		t.Fatal(err)
+	}
+	alerts, err := getPublicStatusAlerts(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(alerts) != 1 || alerts[0].EndsAt != "" || !alerts[0].Scheduled {
+		t.Fatalf("alerts = %+v, err = %v", alerts, err)
 	}
 }
