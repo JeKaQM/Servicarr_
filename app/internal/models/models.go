@@ -90,6 +90,8 @@ type AlertConfig struct {
 	// Multi-channel notification fields
 	DiscordWebhookURL string `json:"discord_webhook_url"`
 	DiscordEnabled    bool   `json:"discord_enabled"`
+	DiscordUsername   string `json:"discord_username"`
+	DiscordSilent     bool   `json:"discord_silent"`
 	TelegramBotToken  string `json:"telegram_bot_token"`
 	TelegramChatID    string `json:"telegram_chat_id"`
 	TelegramEnabled   bool   `json:"telegram_enabled"`
@@ -148,14 +150,18 @@ type StatusAlert struct {
 	Hidden     bool   `json:"hidden,omitempty"`
 }
 
-// MaintenanceSchedule describes a recurring weekly maintenance banner.
+// MaintenanceSchedule describes a one-time, daily, or weekly maintenance banner.
 type MaintenanceSchedule struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	Message            string `json:"message"`
 	Level              string `json:"level"`
+	ScheduleType       string `json:"schedule_type"` // once, daily, weekly; empty means legacy weekly
+	Weekdays           []int  `json:"weekdays,omitempty"`
 	Weekday            int    `json:"weekday"`
 	StartTime          string `json:"start_time"`
+	StartsAt           string `json:"starts_at,omitempty"` // RFC3339 instant for one-time windows
+	EndsAt             string `json:"ends_at,omitempty"`   // Empty means no scheduled end
 	DurationMinutes    int    `json:"duration_minutes"`
 	Timezone           string `json:"timezone"`
 	SuppressMonitoring bool   `json:"suppress_monitoring"`

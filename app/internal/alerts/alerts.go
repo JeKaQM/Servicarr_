@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"html"
+	"net/http"
 	"status/app/internal/database"
 	"status/app/internal/models"
 	"status/app/internal/resources"
 	"strings"
 	"sync"
+	"time"
 )
 
 type dispatchQueue struct {
@@ -34,6 +36,7 @@ func (q *dispatchQueue) enqueue(send func()) {
 
 // Manager handles alert notification functionality
 type Manager struct {
+	httpClient    *http.Client
 	configMu      sync.RWMutex
 	config        *models.AlertConfig
 	statusPageURL string
@@ -111,7 +114,7 @@ func (m *Manager) NotifyUPSLineLost(info *resources.UPSInfo) bool {
 	}
 
 	config := *configSnapshot
-	sender := &Manager{config: &config, statusPageURL: m.statusPageURL}
+	sender := &Manager{config: &config, statusPageURL: m.statusPageURL, httpClient: m.httpClient}
 	name := "UPS"
 	if info != nil && strings.TrimSpace(info.Model) != "" {
 		name = cleanNotificationName(info.Model, name)
@@ -168,55 +171,52 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 		}
 	}
 
-	// Get previous status
+	// Treat unavailable, degraded and healthy as three distinct states.
 	var prevOK, prevDegraded int
 	err := database.DB.QueryRow(`SELECT ok, degraded FROM service_status_history WHERE service_key = ?`, serviceKey).
 		Scan(&prevOK, &prevDegraded)
-
+	if err != nil && err != sql.ErrNoRows {
+		return false
+	}
+	firstStatus := err == sql.ErrNoRows
+	previous := "unknown"
+	if !firstStatus {
+		previous = notificationStatus(prevOK == 1, prevDegraded == 1)
+	}
+	current := notificationStatus(ok, degraded)
 	queued := false
-	if err == sql.ErrNoRows {
-		// First time
-		if !ok && config.AlertOnDown {
-			_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert (first status)", serviceName)
-			subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
-			message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", safeServiceName)
-			queued = m.dispatchAll(subject, "down", serviceName, serviceKey, message)
-		} else if ok && degraded && config.AlertOnDegraded {
-			_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert (first status)", serviceName)
-			subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
-			message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", safeServiceName)
-			queued = m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
+	if current != previous {
+		var subject, message string
+		switch {
+		case current == "down" && config.AlertOnDown:
+			subject = fmt.Sprintf("🔴 Service Down: %s", serviceName)
+			message = fmt.Sprintf("The service <strong>%s</strong> is failing health checks. Investigate its availability.", safeServiceName)
+		case current == "degraded" && config.AlertOnDegraded:
+			subject = fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
+			message = fmt.Sprintf("The service <strong>%s</strong> is responding, but response time exceeds the 200 ms degradation threshold.", safeServiceName)
+			if previous == "down" {
+				message += " The service is reachable again, but has not fully recovered."
+			}
+		case current == "up" && !firstStatus && config.AlertOnUp:
+			subject = fmt.Sprintf("✅ Service Recovered: %s", serviceName)
+			message = fmt.Sprintf("The service <strong>%s</strong> has recovered and is responding normally to health checks.", safeServiceName)
 		}
-
-		_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))`,
-			serviceKey, boolToInt(ok), boolToInt(degraded))
-		return queued
+		if subject != "" {
+			queued = m.dispatchAll(subject, current, serviceName, serviceKey, message)
+		}
 	}
-
-	prevOKBool := prevOK == 1
-	prevDegradedBool := prevDegraded == 1
-
-	// Check for status changes
-	if !ok && prevOKBool && config.AlertOnDown {
-		_ = database.InsertLog(database.LogLevelError, database.LogCategoryEmail, serviceKey, "Service went DOWN - sending alert", serviceName)
-		subject := fmt.Sprintf("🔴 Service Down: %s", serviceName)
-		message := fmt.Sprintf("The service <strong>%s</strong> is currently unreachable and not responding to health checks. Please investigate immediately.", safeServiceName)
-		queued = m.dispatchAll(subject, "down", serviceName, serviceKey, message)
-	} else if ok && !prevOKBool && config.AlertOnUp {
-		_ = database.InsertLog(database.LogLevelInfo, database.LogCategoryEmail, serviceKey, "Service RECOVERED - sending alert", serviceName)
-		subject := fmt.Sprintf("✅ Service Recovered: %s", serviceName)
-		message := fmt.Sprintf("Great news! The service <strong>%s</strong> has recovered and is now responding normally to health checks.", safeServiceName)
-		queued = m.dispatchAll(subject, "up", serviceName, serviceKey, message)
-	} else if ok && degraded && !prevDegradedBool && config.AlertOnDegraded {
-		_ = database.InsertLog(database.LogLevelWarn, database.LogCategoryEmail, serviceKey, "Service DEGRADED - sending alert", serviceName)
-		subject := fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
-		message := fmt.Sprintf("The service <strong>%s</strong> is responding but experiencing high latency (over 200ms). Performance may be impacted.", safeServiceName)
-		queued = m.dispatchAll(subject, "degraded", serviceName, serviceKey, message)
-	}
-
-	// Update status history
 	m.updateStatusHistory(serviceKey, ok, degraded)
 	return queued
+}
+
+func notificationStatus(ok, degraded bool) string {
+	if !ok {
+		return "down"
+	}
+	if degraded {
+		return "degraded"
+	}
+	return "up"
 }
 
 func (m *Manager) statusChanged(serviceKey string, ok, degraded bool) bool {
@@ -235,8 +235,10 @@ func (m *Manager) statusChanged(serviceKey string, ok, degraded bool) bool {
 // updateStatusHistory persists the current status for comparison on next check
 func (m *Manager) updateStatusHistory(serviceKey string, ok, degraded bool) {
 	_, _ = database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))
-		ON CONFLICT(service_key) DO UPDATE SET ok=?, degraded=?, updated_at=datetime('now')`,
-		serviceKey, boolToInt(ok), boolToInt(degraded), boolToInt(ok), boolToInt(degraded))
+		ON CONFLICT(service_key) DO UPDATE SET
+		updated_at=CASE WHEN ok != excluded.ok OR degraded != excluded.degraded THEN excluded.updated_at ELSE updated_at END,
+		ok=excluded.ok, degraded=excluded.degraded`,
+		serviceKey, boolToInt(ok), boolToInt(degraded))
 }
 
 // dispatchAll sends a notification across all enabled channels.
@@ -247,7 +249,7 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 	}
 	statusPageURL := m.ResolveStatusPageURL("")
 	config := *configSnapshot
-	sender := &Manager{config: &config, statusPageURL: m.statusPageURL}
+	sender := &Manager{config: &config, statusPageURL: m.statusPageURL, httpClient: m.httpClient}
 	queued := false
 
 	// Email
@@ -261,8 +263,9 @@ func (m *Manager) dispatchAll(subject, statusType, serviceName, serviceKey, mess
 
 	// Discord
 	if config.DiscordEnabled && config.DiscordWebhookURL != "" {
+		details := loadNotificationDetails(serviceKey, time.Now())
 		m.discordQueue.enqueue(func() {
-			sender.SendDiscord(subject, statusType, serviceName, message, statusPageURL)
+			_ = sender.sendDiscord(subject, statusType, serviceName, message, statusPageURL, details)
 		})
 		queued = true
 	}

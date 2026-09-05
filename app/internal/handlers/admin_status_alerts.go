@@ -60,6 +60,10 @@ func getEffectiveStatusAlerts(now time.Time, includeHidden bool) ([]models.Statu
 	alerts := make([]models.StatusAlert, 0, len(windows)+len(manual)+2)
 	monitoringSuppressed := false
 	for _, window := range windows {
+		endsAt := ""
+		if !window.EndsAt.IsZero() {
+			endsAt = window.EndsAt.UTC().Format(time.RFC3339)
+		}
 		if window.Schedule.SuppressMonitoring {
 			monitoringSuppressed = true
 		}
@@ -69,7 +73,7 @@ func getEffectiveStatusAlerts(now time.Time, includeHidden bool) ([]models.Statu
 			Level:     window.Schedule.Level,
 			CreatedAt: window.StartsAt.UTC().Format(time.RFC3339),
 			Scheduled: true,
-			EndsAt:    window.EndsAt.UTC().Format(time.RFC3339),
+			EndsAt:    endsAt,
 			Source:    "scheduled",
 			Editable:  true,
 		})

@@ -141,9 +141,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	authAPI.HandleFunc("/api/admin/services", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			// Add admin query param
-			r.URL.RawQuery = "admin=true"
-			HandleGetServices(w, r)
+			HandleGetAdminServices(w, r)
 		case http.MethodPost:
 			HandleCreateService(w, r)
 		default:
@@ -160,7 +158,13 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	}))
 	authAPI.HandleFunc("/api/admin/services/test", func(w http.ResponseWriter, r *http.Request) {
 		// Allow test connection during setup (no auth required)
-		complete, _ := database.IsSetupComplete()
+		setupMu.RLock()
+		defer setupMu.RUnlock()
+		complete, err := database.IsSetupComplete()
+		if err != nil {
+			http.Error(w, "setup state unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if !complete {
 			if r.Method == http.MethodPost {
 				HandleTestServiceConnection(w, r)

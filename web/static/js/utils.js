@@ -33,7 +33,8 @@ window.showToast = function(message, type = 'success') {
 
 // HTML escaping — used across public and admin bundles
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Quotes must be escaped too: callers also interpolate into HTML attributes.
+  return String(str ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
 }

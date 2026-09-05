@@ -17,8 +17,8 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances), plus UPS status, automatic mains-loss warnings and transition-based email alerts via Network UPS Tools
-- **Multi-Channel Alerts** — SMTP, webhook, Discord, Telegram, Gotify, Pushover, ntfy and Apprise notifications
-- **Status Alerts** — Manual banners and editable recurring maintenance windows with automatic monitoring and uptime suppression
+- **Multi-Channel Alerts** — SMTP, webhook, Discord and Telegram notifications
+- **Status Alerts** — Manual banners, one-time windows and flexible daily/weekly maintenance schedules with automatic monitoring and uptime suppression
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
 - **Security** — CSRF protection, CSP headers (no unsafe-inline for scripts), HSTS, IP-based rate limiting, auto-blocking after failed logins, IP whitelist/blacklist, SSRF protection, request body size limits
 - **Responsive** — Mobile-optimised layout with touch-friendly uptime tooltips
@@ -30,7 +30,7 @@ A lightweight, self-hosted status page that monitors your services and displays 
 ### Prerequisites
 
 - Docker and Docker Compose
-- Or: Go 1.25+ for local development
+- Or: Go 1.26.8+ for local development
 
 ### Using Docker (Recommended)
 
@@ -88,6 +88,7 @@ All settings are stored in SQLite after the setup wizard completes. The followin
 | `INSECURE_DEV` | `false` | Set to `true` only for local HTTP development (disables Secure cookie flag) |
 | `UNBLOCK_TOKEN` | — | Secret token for the self-unblock endpoint |
 | `SESSION_MAX_AGE` | `86400` | Session cookie lifetime in seconds |
+| `TRUSTED_PROXIES` | empty | Comma-separated IPs/CIDRs of trusted reverse proxy peers; empty ignores forwarded client IP headers |
 | `STATUS_PAGE_URL` | — | Public URL included in alert emails |
 
 > **Production deployment**: Always run behind a reverse proxy (nginx, Caddy, Cloudflare Tunnel) that terminates TLS. The application sets `Strict-Transport-Security`, `X-Frame-Options: DENY`, and strict CSP headers automatically.
@@ -101,13 +102,25 @@ Set during the setup wizard. Defaults if using env-based config:
 
 ## Scheduled Maintenance
 
-The initial recurring window is Monday from 02:55 to 03:25 in `Europe/London`. It can be edited, disabled, or deleted under **Admin > Banners**. While a schedule with monitoring suppression is active, Servicarr shows a maintenance banner and skips service checks, failure tracking, incidents, alert dispatch, heartbeats, samples, and uptime updates.
+Under **Admin > Banners**, choose a one-time window with calendar start/end dates, a daily repeat, or a weekly repeat on any combination of weekdays. One-time windows can span any number of days or stay active with **No end date** until disabled or deleted. Recurring durations accept minutes, hours, days or weeks without the old 24-hour/one-week limits (only a numeric overflow guard of approximately 292 years remains). Existing Monday 02:55–03:25 `Europe/London` rules are preserved and remain editable.
+
+Times use the schedule's IANA timezone, independent of the browser timezone. During a daylight-saving change, missing one-time clock times are rejected, missing recurring occurrences are skipped, and repeated clock times use their first occurrence. API clients can supply an explicit RFC3339 offset to select the second occurrence. Existing schedules and their new fields survive database backup/restore. While a schedule with monitoring suppression is active, Servicarr shows a maintenance banner and skips service checks, failure tracking, incidents, alert dispatch, heartbeats, samples, and uptime updates.
 
 Outside maintenance, a confirmed service failure creates an automatic critical-outage banner. Once all affected services recover, it is replaced by a restoration banner for 24 hours while performance is monitored. The outage banner only states that an alert was sent when at least one configured notification channel was actually queued.
 
 UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifications**. One email is queued per confirmed outage; NUT connection failures and unknown UPS states do not trigger it.
 
+## Notifications
+
+The master enable switch, event filters and public dashboard URL under **Admin > Notifications** apply to all configured channels. Select unavailable, degraded and fully recovered events; repeated checks in the same state do not send duplicate alerts. Recovery from degraded performance is handled as well as recovery from downtime.
+
+Discord embeds show the service, new/previous status, observation time and available check type, HTTP response code, latency and time in the previous unhealthy state. The title links to your public dashboard. Set a custom sender name or enable silent delivery, and use the scenario selector to test unavailable, degraded, recovery and test messages. Mentions are disabled; monitor URLs and raw check errors are excluded from notification details. Save configuration before testing. Failed deliveries now report an error, and Discord rate limits receive bounded retries.
+
 ## Security
+
+When upgrading behind a reverse proxy, set `TRUSTED_PROXIES` to the actual proxy IPs or CIDRs and restart Servicarr. For a local proxy this might be `127.0.0.1/32,::1/128`; a Docker proxy needs its actual network peer address. Only trusted peers can supply forwarded client IPs, and forwarded chains are evaluated from right to left. With the default empty setting, rate limits and blocks use the direct peer IP. Configure the proxy to overwrite client-supplied forwarded headers.
+
+Password changes invalidate existing sessions. Public service and history endpoints omit hidden services and private connection details. The CI pipeline checks reachable Go vulnerabilities and high-severity npm advisories, and its aggregate status fails if a required CI job fails or is skipped.
 
 - **Rate limiting**: Login 10/min, public API 120/min, health-check 30/min, setup/unblock 5/min per IP
 - **Auto-blocking**: 3 failed login attempts → 24-hour IP block (cleared on successful login)
@@ -117,7 +130,7 @@ UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifica
 - **CSP headers**: Strict Content-Security-Policy (no `unsafe-inline` for scripts)
 - **HSTS**: `Strict-Transport-Security` header on all responses
 - **SSRF protection**: Cloud metadata endpoints (169.254.169.254, metadata.google.internal) blocked in health-check URLs
-- **Request limits**: 35 MB global body size limit; minimum 8-character passwords
+- **Request limits**: 70 MB global body size limit; minimum 8-character passwords
 - **Slowloris protection**: `ReadHeaderTimeout` set on the HTTP server
 - **Graceful shutdown**: SIGINT/SIGTERM signal handling with connection draining
 - **SQLite hardening**: WAL mode, busy timeout, single-connection pool

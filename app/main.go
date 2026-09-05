@@ -41,6 +41,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	security.ConfigureTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
 
 	// Initialize database
 	if err := database.Init(cfg.DBPath); err != nil {

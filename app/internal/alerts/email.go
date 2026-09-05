@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/smtp"
 	"status/app/internal/database"
+	"strconv"
 	"time"
 )
 
@@ -44,10 +45,11 @@ func (m *Manager) SendEmail(subject, body string) error {
 
 	host := config.SMTPHost
 	port := config.SMTPPort
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	c, err := dialSMTP(addr, host, port, config.SMTPSkipVerify)
 	if err == nil {
+		defer c.Close()
 		auth := smtp.PlainAuth("", config.SMTPUser, config.SMTPPassword, host)
 		if ok, _ := c.Extension("AUTH"); ok && config.SMTPUser != "" {
 			if authErr := c.Auth(auth); authErr != nil {
@@ -212,21 +214,34 @@ func dialSMTP(addr, host string, port int, skipVerify bool) (*smtp.Client, error
 		InsecureSkipVerify: skipVerify,
 	}
 
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	// Implicit TLS for SMTPS (commonly port 465)
 	if port == 465 {
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 		if err != nil {
 			return nil, err
 		}
-		return smtp.NewClient(conn, host)
+		if err := conn.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			_ = conn.Close()
+		}
+		return client, err
 	}
 
 	// Plain TCP + STARTTLS if supported
-	conn, err := net.Dial("tcp", addr)
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 
+	if err := conn.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
 		_ = conn.Close()

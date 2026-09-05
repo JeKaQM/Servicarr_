@@ -243,6 +243,71 @@ async function loadAdminBanners() {
 
 const maintenanceWeekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 let editingMaintenanceScheduleID = '';
+let originalMaintenanceSchedule = null;
+
+function updateMaintenanceScheduleForm() {
+  const type = $('#maintenanceScheduleType')?.value || 'once';
+  const once = type === 'once';
+  $$('.maintenance-once-field').forEach(field => {
+    field.classList.toggle('hidden', !once);
+    $$('input', field).forEach(input => { input.disabled = !once; });
+  });
+  $$('.maintenance-recurring-field').forEach(field => {
+    field.classList.toggle('hidden', once);
+    $$('input, select', field).forEach(input => { input.disabled = once; });
+  });
+  const weekdays = $('#maintenanceWeekdaysField');
+  if (weekdays) {
+    weekdays.classList.toggle('hidden', type !== 'weekly');
+    weekdays.disabled = type !== 'weekly';
+  }
+  const start = $('#maintenanceStartsAt');
+  const end = $('#maintenanceEndsAt');
+  if (start) start.required = once;
+  if (end) {
+    end.disabled = !once || Boolean($('#maintenanceNoEnd')?.checked);
+    end.required = !end.disabled;
+  }
+  const time = $('#maintenanceStartTime');
+  const duration = $('#maintenanceDuration');
+  if (time) time.required = !once;
+  if (duration) duration.required = !once;
+}
+
+// Format the stored instant in the schedule's timezone, never the browser's timezone.
+function maintenanceLocalDate(value, timezone) {
+  if (!value) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date(value));
+    const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${fields.year.padStart(4, '0')}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+  } catch (_) {
+    return '';
+  }
+}
+
+function maintenanceDurationParts(minutes) {
+  const value = Number(minutes) || 30;
+  const unit = [10080, 1440, 60, 1].find(candidate => value % candidate === 0);
+  return { value: value / unit, unit };
+}
+
+function maintenanceTimingSummary(schedule) {
+  if (schedule.schedule_type === 'once') {
+    const start = maintenanceLocalDate(schedule.starts_at, schedule.timezone).replace('T', ' ');
+    const end = maintenanceLocalDate(schedule.ends_at, schedule.timezone).replace('T', ' ');
+    return `${start || 'Unknown start'} to ${end || 'no scheduled end'}`;
+  }
+  const days = schedule.schedule_type === 'daily' ? 'Every day'
+    : (schedule.weekdays?.length ? schedule.weekdays : [schedule.weekday])
+      .map(day => maintenanceWeekdays[Number(day)] || 'Unknown day').join(', ');
+  const { value, unit } = maintenanceDurationParts(schedule.duration_minutes);
+  const unitName = { 1: 'min', 60: 'hour', 1440: 'day', 10080: 'week' }[unit];
+  return `${days} at ${schedule.start_time || ''} for ${value} ${unitName}${unit !== 1 && value !== 1 ? 's' : ''}`;
+}
 
 async function loadMaintenanceSchedules() {
   const list = $('#maintenanceSchedulesList');
@@ -263,7 +328,7 @@ function renderMaintenanceSchedules(schedules) {
   const list = $('#maintenanceSchedulesList');
   if (!list) return;
   if (!Array.isArray(schedules) || schedules.length === 0) {
-    list.innerHTML = '<div class="muted">No recurring schedules</div>';
+    list.innerHTML = '<div class="muted">No maintenance schedules</div>';
     return;
   }
 
@@ -271,13 +336,13 @@ function renderMaintenanceSchedules(schedules) {
   schedules.forEach(schedule => {
     const row = document.createElement('div');
     row.className = `maintenance-schedule-row${schedule.enabled ? '' : ' is-disabled'}`;
-    const day = maintenanceWeekdays[Number(schedule.weekday)] || 'Unknown day';
     const name = escapeHtml(schedule.name || 'Scheduled maintenance');
     const message = escapeHtml(schedule.message || '');
     const timezone = escapeHtml(schedule.timezone || 'UTC');
     const level = normalizeAlertLevel(schedule.level);
     const monitorText = schedule.suppress_monitoring ? 'Monitoring paused' : 'Banner only';
-    const enabledText = schedule.enabled ? 'Enabled' : 'Disabled';
+    const completed = schedule.schedule_type === 'once' && schedule.ends_at && new Date(schedule.ends_at) <= new Date();
+    const enabledText = !schedule.enabled ? 'Disabled' : completed ? 'Completed' : 'Enabled';
 
     row.innerHTML = `
       <span class="banner-item-level ${level}">${level.toUpperCase()}</span>
@@ -287,7 +352,7 @@ function renderMaintenanceSchedules(schedules) {
           <span class="maintenance-schedule-state">${enabledText}</span>
         </div>
         <span class="maintenance-schedule-message">${message}</span>
-        <span class="maintenance-schedule-meta">${day} at ${escapeHtml(schedule.start_time || '')} for ${Number(schedule.duration_minutes) || 0} min | ${timezone} | ${monitorText}</span>
+        <span class="maintenance-schedule-meta">${escapeHtml(maintenanceTimingSummary(schedule))} | ${timezone} | ${monitorText}</span>
       </div>
       <div class="maintenance-schedule-actions">
         <button type="button" class="btn mini ghost maintenance-edit">Edit</button>
@@ -302,33 +367,49 @@ function renderMaintenanceSchedules(schedules) {
 
 function editMaintenanceSchedule(schedule) {
   editingMaintenanceScheduleID = schedule.id || '';
+  originalMaintenanceSchedule = schedule;
   $('#maintenanceName').value = schedule.name || '';
   $('#maintenanceMessage').value = schedule.message || '';
-  $('#maintenanceWeekday').value = String(schedule.weekday ?? 1);
+  $('#maintenanceScheduleType').value = schedule.schedule_type || 'weekly';
+  const weekdays = schedule.weekdays?.length ? schedule.weekdays : [schedule.weekday ?? 1];
+  $$('[name="maintenanceWeekdays"]').forEach(input => { input.checked = weekdays.includes(Number(input.value)); });
+  $('#maintenanceStartsAt').value = maintenanceLocalDate(schedule.starts_at, schedule.timezone);
+  $('#maintenanceEndsAt').value = maintenanceLocalDate(schedule.ends_at, schedule.timezone);
+  $('#maintenanceNoEnd').checked = schedule.schedule_type === 'once' && !schedule.ends_at;
   $('#maintenanceStartTime').value = schedule.start_time || '02:55';
-  $('#maintenanceDuration').value = String(schedule.duration_minutes || 30);
+  const duration = maintenanceDurationParts(schedule.duration_minutes);
+  $('#maintenanceDuration').value = String(duration.value);
+  $('#maintenanceDurationUnit').value = String(duration.unit);
   $('#maintenanceTimezone').value = schedule.timezone || 'Europe/London';
   $('#maintenanceLevel').value = normalizeAlertLevel(schedule.level);
   $('#maintenanceEnabled').checked = Boolean(schedule.enabled);
   $('#maintenanceSuppressMonitoring').checked = Boolean(schedule.suppress_monitoring);
   $('#saveMaintenanceSchedule').textContent = 'Update Schedule';
   $('#cancelMaintenanceSchedule').classList.remove('hidden');
+  updateMaintenanceScheduleForm();
   $('#maintenanceName').focus();
 }
 
 function resetMaintenanceScheduleForm() {
   editingMaintenanceScheduleID = '';
+  originalMaintenanceSchedule = null;
   const form = $('#maintenanceScheduleForm');
   if (form) form.reset();
-  $('#maintenanceWeekday').value = '1';
+  $('#maintenanceScheduleType').value = 'once';
+  $('#maintenanceStartsAt').value = '';
+  $('#maintenanceEndsAt').value = '';
+  $('#maintenanceNoEnd').checked = false;
+  $$('[name="maintenanceWeekdays"]').forEach(input => { input.checked = input.value === '1'; });
   $('#maintenanceStartTime').value = '02:55';
   $('#maintenanceDuration').value = '30';
+  $('#maintenanceDurationUnit').value = '1';
   $('#maintenanceTimezone').value = 'Europe/London';
   $('#maintenanceLevel').value = 'warning';
   $('#maintenanceEnabled').checked = true;
   $('#maintenanceSuppressMonitoring').checked = true;
   $('#saveMaintenanceSchedule').textContent = 'Create Schedule';
   $('#cancelMaintenanceSchedule').classList.add('hidden');
+  updateMaintenanceScheduleForm();
 }
 
 async function saveMaintenanceSchedule(event) {
@@ -337,21 +418,48 @@ async function saveMaintenanceSchedule(event) {
     id: editingMaintenanceScheduleID,
     name: $('#maintenanceName').value.trim(),
     message: $('#maintenanceMessage').value.trim(),
-    weekday: Number($('#maintenanceWeekday').value),
-    start_time: $('#maintenanceStartTime').value,
-    duration_minutes: Number($('#maintenanceDuration').value),
+    schedule_type: $('#maintenanceScheduleType').value,
     timezone: $('#maintenanceTimezone').value.trim(),
     level: $('#maintenanceLevel').value,
     enabled: $('#maintenanceEnabled').checked,
     suppress_monitoring: $('#maintenanceSuppressMonitoring').checked
   };
 
-  if (!payload.name || !payload.message || !payload.start_time || !payload.timezone || payload.duration_minutes < 1) {
-    showToast('Complete all schedule fields', 'error');
-    return;
-  }
+  const saveButton = $('#saveMaintenanceSchedule');
+  if (saveButton.disabled) return;
 
   try {
+    if (!payload.name || !payload.message || !payload.timezone) throw new Error('Complete all schedule fields');
+    if (payload.schedule_type === 'once') {
+      payload.starts_at = $('#maintenanceStartsAt').value;
+      payload.ends_at = $('#maintenanceNoEnd').checked ? '' : $('#maintenanceEndsAt').value;
+      if (!payload.starts_at || (!$('#maintenanceNoEnd').checked && !payload.ends_at)) {
+        throw new Error('Choose a start and end date, or select no scheduled end');
+      }
+      // Preserve an API-supplied offset/seconds if its displayed wall time was not edited.
+      // This also preserves the second occurrence of a repeated DST time.
+      if (originalMaintenanceSchedule?.timezone === payload.timezone) {
+        ['starts_at', 'ends_at'].forEach(key => {
+          if (payload[key] && payload[key] === maintenanceLocalDate(originalMaintenanceSchedule[key], payload.timezone)) {
+            payload[key] = originalMaintenanceSchedule[key];
+          }
+        });
+      }
+    } else {
+      payload.start_time = $('#maintenanceStartTime').value;
+      const duration = Number($('#maintenanceDuration').value) * Number($('#maintenanceDurationUnit').value);
+      if (!Number.isFinite(duration) || duration < 1 || duration > 153722867 || Math.abs(duration - Math.round(duration)) > 0.000001) {
+        throw new Error('Enter a duration of at least one whole minute (up to approximately 292 years)');
+      }
+      payload.duration_minutes = Math.round(duration);
+      if (!payload.start_time) throw new Error('Choose a start time');
+      if (payload.schedule_type === 'weekly') {
+        payload.weekdays = $$('[name="maintenanceWeekdays"]:checked').map(input => Number(input.value));
+        if (payload.weekdays.length === 0) throw new Error('Choose at least one weekday');
+        payload.weekday = payload.weekdays[0];
+      }
+    }
+    saveButton.disabled = true;
     await j('/api/admin/maintenance-schedules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
@@ -362,12 +470,14 @@ async function saveMaintenanceSchedule(event) {
     await Promise.all([loadMaintenanceSchedules(), loadBanners()]);
   } catch (e) {
     console.error('Failed to save maintenance schedule', e);
-    showToast('Failed to save schedule', 'error');
+    showToast(typeof e.body === 'string' && e.body.trim() ? e.body.trim() : e.message || 'Failed to save schedule', 'error');
+  } finally {
+    saveButton.disabled = false;
   }
 }
 
 async function deleteMaintenanceSchedule(id) {
-  if (!confirm('Delete this recurring schedule?')) return;
+  if (!confirm('Delete this maintenance schedule?')) return;
   try {
     await j(`/api/admin/maintenance-schedules?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',

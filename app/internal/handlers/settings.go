@@ -85,10 +85,10 @@ func HandleChangePassword(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		if len(req.NewPassword) < 8 {
+		if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "New password must be at least 8 characters"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "New password must be between 8 and 72 bytes"})
 			return
 		}
 
@@ -129,6 +129,11 @@ func HandleChangePassword(authMgr *auth.Auth) http.HandlerFunc {
 
 		// Reload auth manager with new credentials
 		authMgr.Reload(settings.Username, []byte(settings.PasswordHash), []byte(settings.AuthSecret))
+		// Keep the current browser signed in while all prior sessions are revoked.
+		if err := authMgr.MakeSessionCookie(w, settings.Username, authMgr.SessionMaxAge()); err != nil {
+			http.Error(w, "failed to renew session", http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})

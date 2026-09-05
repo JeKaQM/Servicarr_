@@ -7,7 +7,7 @@ on:
 
 jobs:
   status:
-    name: All Checks Status
+    name: Check Configuration Summary
     runs-on: ubuntu-latest
     permissions:
       contents: read

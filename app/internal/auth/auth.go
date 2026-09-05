@@ -129,8 +129,11 @@ func (a *Auth) ParseSession(r *http.Request) (*Session, error) {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, errors.New("json")
 	}
-	if time.Now().Unix() > s.Exp {
+	if time.Now().Unix() >= s.Exp {
 		return nil, errors.New("expired")
+	}
+	if s.U == "" || s.U != a.User {
+		return nil, errors.New("invalid user")
 	}
 	return &s, nil
 }
@@ -154,6 +157,10 @@ func (a *Auth) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (a *Auth) sign(b []byte) string {
 	m := hmac.New(sha256.New, a.HmacSecret)
+	// Bind sessions to the current password hash. Changing a password revokes
+	// existing sessions without rotating the key used to encrypt stored tokens.
+	m.Write(a.Hash)
+	m.Write([]byte{0})
 	m.Write(b)
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }

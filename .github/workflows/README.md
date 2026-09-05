@@ -6,7 +6,7 @@ The repository validates every pull request before changes reach `main`, then pu
 
 ### CI (`ci.yml`)
 
-Runs Go formatting and vet checks, verifies version sources, executes Go and JavaScript tests, builds the application, and verifies a Docker container can start. It runs for pull requests and configured branch pushes, including every push to `main`.
+Runs Go formatting and vet checks, verifies version sources, executes Go and JavaScript tests, builds the application, audits npm dependencies and reachable Go vulnerabilities, and verifies a Docker container can start. The All Checks Status job requires every CI job to succeed. It runs for pull requests and configured branch pushes, including every push to `main`.
 
 ### Pull request checks (`pr-checks.yml`)
 

@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -162,6 +162,10 @@ CREATE TABLE IF NOT EXISTS maintenance_schedules (
   name TEXT NOT NULL,
   message TEXT NOT NULL,
   level TEXT NOT NULL DEFAULT 'warning',
+  schedule_type TEXT NOT NULL DEFAULT 'weekly',
+  weekdays TEXT NOT NULL DEFAULT '[]',
+  starts_at TEXT NOT NULL DEFAULT '',
+  ends_at TEXT NOT NULL DEFAULT '',
   weekday INTEGER NOT NULL,
   start_time TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
@@ -227,6 +231,10 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 		return err
 	}
 
+	if err := migrateMaintenanceSchedules(); err != nil {
+		return err
+	}
+
 	// For existing installs: add any newly introduced columns.
 	// SQLite doesn't support IF NOT EXISTS on ADD COLUMN, so we ignore the error
 	// if the column already exists.
@@ -250,6 +258,8 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	// Multi-channel notification columns
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_webhook_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_enabled INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_username TEXT NOT NULL DEFAULT '';`)
+	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_silent INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_bot_token TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_chat_id TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_enabled INTEGER NOT NULL DEFAULT 0;`)
