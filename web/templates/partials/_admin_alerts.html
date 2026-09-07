@@ -66,7 +66,8 @@
         
         <div class="form-group">
           <label for="smtpPassword">SMTP Password</label>
-          <input type="password" id="smtpPassword" placeholder="••••••••" autocomplete="off" />
+          <input type="password" id="smtpPassword" placeholder="••••••••" autocomplete="new-password" />
+          <label class="stored-secret-clear hidden"><input type="checkbox" id="clearSmtpPassword" data-secret-input="smtpPassword"> Clear saved password</label>
         </div>
         
         <div class="form-group">
@@ -104,8 +105,9 @@
         </div>
         <div class="form-group">
           <label for="discordWebhookUrl">Webhook URL</label>
-          <input type="password" autocomplete="off" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
-          <small class="help-text">Create a webhook in your Discord server: Server Settings → Integrations → Webhooks</small>
+          <input type="password" autocomplete="new-password" spellcheck="false" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+          <small class="help-text">Paste the complete URL from Discord. Its secret path token is expected and supported.</small>
+          <label class="stored-secret-clear hidden"><input type="checkbox" id="clearDiscordWebhookUrl" data-secret-input="discordWebhookUrl"> Clear saved Discord webhook</label>
         </div>
         <div class="form-group">
           <label for="discordUsername">Display name</label>
@@ -143,8 +145,9 @@
         </div>
         <div class="form-group">
           <label for="telegramBotToken">Bot Token</label>
-          <input type="password" autocomplete="off" id="telegramBotToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+          <input type="password" autocomplete="new-password" spellcheck="false" id="telegramBotToken" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
           <small class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a></small>
+          <label class="stored-secret-clear hidden"><input type="checkbox" id="clearTelegramBotToken" data-secret-input="telegramBotToken"> Clear saved bot token</label>
         </div>
         <div class="form-group">
           <label for="telegramChatId">Chat ID</label>
@@ -168,13 +171,15 @@
         </div>
         <div class="form-group">
           <label for="webhookUrl">Webhook URL</label>
-          <input type="text" id="webhookUrl" placeholder="https://your-endpoint.com/webhook">
-          <small class="help-text">Receives a JSON POST payload on status changes</small>
+          <input type="password" autocomplete="new-password" spellcheck="false" id="webhookUrl" placeholder="https://your-endpoint.com/webhook">
+          <small class="help-text">Receives a JSON POST payload on status changes. Provider keys in the path, query string, or HTTP Basic credentials are supported.</small>
+          <label class="stored-secret-clear hidden"><input type="checkbox" id="clearWebhookUrl" data-secret-input="webhookUrl"> Clear saved webhook URL</label>
         </div>
         <div class="form-group">
           <label for="webhookSecret">Signing Secret (optional)</label>
-          <input type="password" autocomplete="off" id="webhookSecret" placeholder="your-hmac-secret">
-          <small class="help-text">If set, requests include an X-Servicarr-Signature header (HMAC-SHA256)</small>
+          <input type="password" autocomplete="new-password" id="webhookSecret" placeholder="your-hmac-secret">
+          <small class="help-text">Use this only when your receiver verifies Servicarr payloads. Requests include an X-Servicarr-Signature header (HMAC-SHA256).</small>
+          <label class="stored-secret-clear hidden"><input type="checkbox" id="clearWebhookSecret" data-secret-input="webhookSecret"> Clear saved signing secret</label>
         </div>
         <div class="ops">
           <button type="button" class="btn save-alerts-btn">Save Configuration</button>

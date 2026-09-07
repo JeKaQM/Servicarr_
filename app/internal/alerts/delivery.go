@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"status/app/internal/database"
@@ -18,9 +19,17 @@ import (
 // Delivery has a deadline even when a custom transport is supplied by a test.
 // Redirects are rejected so webhook signatures and payloads stay at their configured destination.
 func (m *Manager) postNotification(endpoint string, body []byte, headers http.Header, discord bool) error {
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return errors.New("invalid notification URL; use HTTP or HTTPS without embedded credentials")
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.Fragment != "" || (u.User != nil && (discord || u.Scheme != "https")) {
+		return errors.New("invalid notification URL; use a complete HTTP or HTTPS URL")
+	}
+	var basicAuthUser, basicAuthPassword string
+	if u.User != nil {
+		basicAuthUser = u.User.Username()
+		basicAuthPassword, _ = u.User.Password()
+		// Redirects are rejected below. Move user-info to the standard header so
+		// credentials cannot leak through the request URI or transport errors.
+		u.User = nil
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	if m.httpClient != nil {
@@ -41,6 +50,9 @@ func (m *Manager) postNotification(endpoint string, body []byte, headers http.He
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", "Servicarr/1.0")
+		if basicAuthUser != "" || basicAuthPassword != "" {
+			req.SetBasicAuth(basicAuthUser, basicAuthPassword)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			// net/url errors include webhook tokens. Never return or log them.
