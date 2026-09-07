@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS alert_config (
   alert_on_up INTEGER NOT NULL DEFAULT 0,
   discord_webhook_url TEXT,
   discord_enabled INTEGER NOT NULL DEFAULT 0,
+  discord_username TEXT NOT NULL DEFAULT '',
+  discord_silent INTEGER NOT NULL DEFAULT 0,
   telegram_bot_token TEXT,
   telegram_chat_id TEXT,
   telegram_enabled INTEGER NOT NULL DEFAULT 0,

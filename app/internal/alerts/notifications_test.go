@@ -106,6 +106,41 @@ func TestNotificationDeliveryRejectsRedirectsAndRedactsNetworkErrors(t *testing.
 	}
 }
 
+func TestGenericNotificationMovesURLCredentialsToBasicAuthHeader(t *testing.T) {
+	called := false
+	m := &Manager{httpClient: &http.Client{Transport: notificationRoundTripper(func(r *http.Request) (*http.Response, error) {
+		called = true
+		if r.URL.User != nil || strings.Contains(r.URL.String(), "api-user") || strings.Contains(r.URL.String(), "p%40ssword") {
+			t.Fatalf("credentials remained in outbound request URL: %s", r.URL.Redacted())
+		}
+		user, password, ok := r.BasicAuth()
+		if !ok || user != "api-user" || password != "p@ssword" {
+			t.Fatalf("Basic Auth = (%q, %q, %v)", user, password, ok)
+		}
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}}
+	if err := m.postNotification("https://api-user:p%40ssword@hooks.example.com/events?sig=secret-token", []byte(`{}`), nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("notification request was not sent")
+	}
+}
+
+func TestGenericNotificationRejectsCredentialsOverHTTP(t *testing.T) {
+	called := false
+	m := &Manager{httpClient: &http.Client{Transport: notificationRoundTripper(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}}
+	if err := m.postNotification("http://api-user:password@hooks.example.com/events", []byte(`{}`), nil, false); err == nil {
+		t.Fatal("expected an HTTP webhook with credentials to be rejected")
+	}
+	if called {
+		t.Fatal("notification with plaintext credentials was sent")
+	}
+}
+
 func TestDiscordRetryBudget(t *testing.T) {
 	for _, value := range []string{"0", "-1", "6", "NaN", "+Inf"} {
 		if _, valid := discordRetryDelay(value, nil); valid {

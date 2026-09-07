@@ -1,9 +1,11 @@
 package database
 
 import (
-	"status/app/internal/models"
+	"database/sql"
 	"testing"
 	"time"
+
+	"status/app/internal/models"
 )
 
 func initTestDB(t *testing.T) {
@@ -29,6 +31,55 @@ func TestEnsureSchema_Idempotent(t *testing.T) {
 	// Calling EnsureSchema again should not error (CREATE IF NOT EXISTS)
 	if err := EnsureSchema(); err != nil {
 		t.Fatalf("second EnsureSchema call failed: %v", err)
+	}
+}
+
+func TestEnsureSchemaMigratesLegacyNotificationConfig(t *testing.T) {
+	var err error
+	DB, err = sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = DB.Exec(`CREATE TABLE alert_config (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		enabled INTEGER NOT NULL DEFAULT 0,
+		smtp_host TEXT, smtp_port INTEGER DEFAULT 587, smtp_user TEXT, smtp_password TEXT,
+		alert_email TEXT, from_email TEXT, status_page_url TEXT,
+		smtp_skip_verify INTEGER NOT NULL DEFAULT 0,
+		alert_on_down INTEGER NOT NULL DEFAULT 1,
+		alert_on_degraded INTEGER NOT NULL DEFAULT 1,
+		alert_on_up INTEGER NOT NULL DEFAULT 0,
+		discord_webhook_url TEXT, discord_enabled INTEGER NOT NULL DEFAULT 0,
+		telegram_bot_token TEXT, telegram_chat_id TEXT, telegram_enabled INTEGER NOT NULL DEFAULT 0,
+		webhook_url TEXT, webhook_secret TEXT, webhook_enabled INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT
+	);
+	INSERT INTO alert_config (id, enabled, smtp_port) VALUES (1, 0, 587);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(); err != nil {
+		t.Fatalf("migrate legacy schema: %v", err)
+	}
+	want := &models.AlertConfig{
+		Enabled:           true,
+		SMTPPort:          587,
+		DiscordEnabled:    true,
+		DiscordWebhookURL: "https://discord.com/api/webhooks/123/token",
+		DiscordUsername:   "Operations",
+		DiscordSilent:     true,
+		WebhookEnabled:    true,
+		WebhookURL:        "https://hooks.example.com/events",
+	}
+	if err := SaveAlertConfig(want); err != nil {
+		t.Fatalf("save migrated notification config: %v", err)
+	}
+	got, err := LoadAlertConfig()
+	if err != nil {
+		t.Fatalf("load migrated notification config: %v", err)
+	}
+	if got.DiscordWebhookURL != want.DiscordWebhookURL || got.DiscordUsername != want.DiscordUsername || !got.DiscordSilent || got.WebhookURL != want.WebhookURL {
+		t.Fatalf("migrated notification config = %+v", got)
 	}
 }
 
