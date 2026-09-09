@@ -12,9 +12,10 @@
     <div class="form-group">
       <h4>Notify me when</h4>
       <label><input type="checkbox" id="alertOnDown" checked> A service becomes unavailable</label>
+      <label><input type="checkbox" id="alertOnUp"> A service recovers from an outage</label>
       <label><input type="checkbox" id="alertOnDegraded" checked> A service becomes degraded (response time over 200 ms)</label>
-      <label><input type="checkbox" id="alertOnUp"> A service fully recovers from an outage or degraded performance</label>
-      <small class="help-text">Applies to all channels. Repeated checks in the same state do not send duplicate alerts.</small>
+      <label><input type="checkbox" id="alertOnDegradedRecovery"> A degraded service returns to healthy</label>
+      <small class="help-text">Outage recovery covers unavailable to healthy. Degraded recovery covers degraded to healthy. Repeated checks in the same state do not send duplicate alerts.</small>
     </div>
     <div class="form-group">
       <label for="statusPageUrl">Public dashboard URL</label>

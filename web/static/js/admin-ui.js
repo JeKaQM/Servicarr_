@@ -14,6 +14,7 @@
     alert_on_down: $('#alertOnDown').checked,
     alert_on_degraded: $('#alertOnDegraded').checked,
     alert_on_up: $('#alertOnUp').checked,
+    alert_on_degraded_recovery: $('#alertOnDegradedRecovery').checked,
     // Multi-channel
     discord_enabled: $('#discordEnabled') ? $('#discordEnabled').checked : false,
     discord_username: $('#discordUsername') ? $('#discordUsername').value.trim() : '',
@@ -155,7 +156,8 @@ async function loadAlertsConfig() {
       $('#smtpSkipVerify').checked = config.smtp_skip_verify || false;
       $('#alertOnDown').checked = config.alert_on_down !== false;
       $('#alertOnDegraded').checked = config.alert_on_degraded !== false;
-      $('#alertOnUp').checked = config.alert_on_up || false;
+      $('#alertOnUp').checked = config.alert_on_up === true;
+      $('#alertOnDegradedRecovery').checked = config.alert_on_degraded_recovery === true;
       // Multi-channel
       setStoredCredentialField('#discordWebhookUrl', '#clearDiscordWebhookUrl', config.discord_webhook_configured, config.discord_webhook_url, 'https://discord.com/api/webhooks/...');
       if ($('#discordEnabled')) $('#discordEnabled').checked = config.discord_enabled || false;

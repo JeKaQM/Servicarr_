@@ -54,22 +54,33 @@ func TestEnsureSchemaMigratesLegacyNotificationConfig(t *testing.T) {
 		webhook_url TEXT, webhook_secret TEXT, webhook_enabled INTEGER NOT NULL DEFAULT 0,
 		updated_at TEXT
 	);
-	INSERT INTO alert_config (id, enabled, smtp_port) VALUES (1, 0, 587);`)
+	INSERT INTO alert_config (id, enabled, smtp_port, alert_on_up) VALUES (1, 0, 587, 1);`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureSchema(); err != nil {
 		t.Fatalf("migrate legacy schema: %v", err)
 	}
+	var outageRecovery, degradedRecovery int
+	if err := DB.QueryRow(`SELECT alert_on_up, alert_on_degraded_recovery FROM alert_config WHERE id = 1`).Scan(&outageRecovery, &degradedRecovery); err != nil {
+		t.Fatalf("read migrated degraded recovery setting: %v", err)
+	}
+	if outageRecovery != 1 {
+		t.Fatal("legacy alert_on_up must remain enabled for outage recovery notifications")
+	}
+	if degradedRecovery != 0 {
+		t.Fatal("legacy alert_on_up must be decoupled from degraded recovery notifications")
+	}
 	want := &models.AlertConfig{
-		Enabled:           true,
-		SMTPPort:          587,
-		DiscordEnabled:    true,
-		DiscordWebhookURL: "https://discord.com/api/webhooks/123/token",
-		DiscordUsername:   "Operations",
-		DiscordSilent:     true,
-		WebhookEnabled:    true,
-		WebhookURL:        "https://hooks.example.com/events",
+		Enabled:                 true,
+		SMTPPort:                587,
+		AlertOnDegradedRecovery: true,
+		DiscordEnabled:          true,
+		DiscordWebhookURL:       "https://discord.com/api/webhooks/123/token",
+		DiscordUsername:         "Operations",
+		DiscordSilent:           true,
+		WebhookEnabled:          true,
+		WebhookURL:              "https://hooks.example.com/events",
 	}
 	if err := SaveAlertConfig(want); err != nil {
 		t.Fatalf("save migrated notification config: %v", err)
@@ -78,7 +89,7 @@ func TestEnsureSchemaMigratesLegacyNotificationConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load migrated notification config: %v", err)
 	}
-	if got.DiscordWebhookURL != want.DiscordWebhookURL || got.DiscordUsername != want.DiscordUsername || !got.DiscordSilent || got.WebhookURL != want.WebhookURL {
+	if !got.AlertOnDegradedRecovery || got.DiscordWebhookURL != want.DiscordWebhookURL || got.DiscordUsername != want.DiscordUsername || !got.DiscordSilent || got.WebhookURL != want.WebhookURL {
 		t.Fatalf("migrated notification config = %+v", got)
 	}
 }
@@ -651,26 +662,27 @@ func TestLoadAlertConfig_NoRow(t *testing.T) {
 func TestSaveAndLoadAlertConfig(t *testing.T) {
 	initTestDB(t)
 	cfg := &models.AlertConfig{
-		Enabled:           true,
-		SMTPHost:          "smtp.test.com",
-		SMTPPort:          465,
-		SMTPUser:          "user@test.com",
-		SMTPPassword:      "pass",
-		AlertEmail:        "alerts@test.com",
-		FromEmail:         "from@test.com",
-		StatusPageURL:     "http://status.test.com",
-		SMTPSkipVerify:    true,
-		AlertOnDown:       true,
-		AlertOnDegraded:   true,
-		AlertOnUp:         false,
-		DiscordWebhookURL: "https://discord.com/api/webhooks/123",
-		DiscordEnabled:    true,
-		TelegramBotToken:  "bot123",
-		TelegramChatID:    "456",
-		TelegramEnabled:   false,
-		WebhookURL:        "https://hooks.test.com/webhook",
-		WebhookSecret:     "secret",
-		WebhookEnabled:    true,
+		Enabled:                 true,
+		SMTPHost:                "smtp.test.com",
+		SMTPPort:                465,
+		SMTPUser:                "user@test.com",
+		SMTPPassword:            "pass",
+		AlertEmail:              "alerts@test.com",
+		FromEmail:               "from@test.com",
+		StatusPageURL:           "http://status.test.com",
+		SMTPSkipVerify:          true,
+		AlertOnDown:             true,
+		AlertOnDegraded:         true,
+		AlertOnUp:               false,
+		AlertOnDegradedRecovery: true,
+		DiscordWebhookURL:       "https://discord.com/api/webhooks/123",
+		DiscordEnabled:          true,
+		TelegramBotToken:        "bot123",
+		TelegramChatID:          "456",
+		TelegramEnabled:         false,
+		WebhookURL:              "https://hooks.test.com/webhook",
+		WebhookSecret:           "secret",
+		WebhookEnabled:          true,
 	}
 	SaveAlertConfig(cfg)
 
@@ -701,6 +713,9 @@ func TestSaveAndLoadAlertConfig(t *testing.T) {
 	}
 	if !loaded.WebhookEnabled {
 		t.Error("webhook should be enabled")
+	}
+	if !loaded.AlertOnDegradedRecovery {
+		t.Error("degraded recovery notifications should be enabled")
 	}
 	if loaded.StatusPageURL != "http://status.test.com" {
 		t.Errorf("status_page_url = %q", loaded.StatusPageURL)

@@ -38,6 +38,7 @@ afterEach(() => {
 test('notification settings are accessible for every provider with unique field IDs', () => {
   expect(document.querySelector('#alertsEnabled').closest('.notification-panel')).toBeNull();
   expect(document.querySelector('#alertOnUp').closest('.notification-panel')).toBeNull();
+  expect(document.querySelector('#alertOnDegradedRecovery').closest('.notification-panel')).toBeNull();
   const status = document.querySelector('#alertStatus');
   expect(status.closest('.notification-panel')).toBeNull();
   expect(status.getAttribute('role')).toBe('status');
@@ -77,6 +78,46 @@ test('Discord identity and silent delivery survive load and save', async () => {
   });
   expect(global.j.mock.calls[2][0]).toBe('/api/admin/alerts/config');
   expect(document.querySelector('#alertStatus').textContent).toBe('Configuration saved successfully');
+});
+
+test('outage and degraded recovery settings load and save independently', async () => {
+  global.j.mockResolvedValueOnce({
+    alert_on_up: true,
+    alert_on_degraded_recovery: false
+  });
+  await loadAlertsConfig();
+
+  expect(document.querySelector('#alertOnUp').checked).toBe(true);
+  expect(document.querySelector('#alertOnDegradedRecovery').checked).toBe(false);
+
+  document.querySelector('#alertOnUp').checked = false;
+  document.querySelector('#alertOnDegradedRecovery').checked = true;
+  global.j.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({
+    alert_on_up: false,
+    alert_on_degraded_recovery: true
+  });
+  await saveAlertsConfig({ currentTarget: document.querySelector('.save-alerts-btn') });
+
+  const saved = JSON.parse(global.j.mock.calls[1][1].body);
+  expect(saved).toMatchObject({
+    alert_on_up: false,
+    alert_on_degraded_recovery: true
+  });
+  expect(document.querySelector('#alertOnUp').checked).toBe(false);
+  expect(document.querySelector('#alertOnDegradedRecovery').checked).toBe(true);
+});
+
+test('degraded recovery defaults off when the server omits the setting', async () => {
+  expect(document.querySelector('#alertOnDegradedRecovery').checked).toBe(false);
+  global.j.mockResolvedValueOnce({});
+  await loadAlertsConfig();
+  expect(document.querySelector('#alertOnDegradedRecovery').checked).toBe(false);
+
+  global.j.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({});
+  await saveAlertsConfig({ currentTarget: document.querySelector('.save-alerts-btn') });
+
+  const saved = JSON.parse(global.j.mock.calls[1][1].body);
+  expect(saved.alert_on_degraded_recovery).toBe(false);
 });
 
 test('stored notification credentials never render into form fields', async () => {

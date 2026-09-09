@@ -420,17 +420,18 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		// Import alert config
 		if export.AlertConfig != nil {
 			alertCfg := &models.AlertConfig{
-				Enabled:         export.AlertConfig.Enabled,
-				SMTPHost:        export.AlertConfig.SMTPHost,
-				SMTPPort:        export.AlertConfig.SMTPPort,
-				SMTPUser:        export.AlertConfig.SMTPUser,
-				AlertEmail:      export.AlertConfig.AlertEmail,
-				FromEmail:       export.AlertConfig.FromEmail,
-				StatusPageURL:   export.AlertConfig.StatusPageURL,
-				SMTPSkipVerify:  export.AlertConfig.SMTPSkipVerify,
-				AlertOnDown:     export.AlertConfig.AlertOnDown,
-				AlertOnDegraded: export.AlertConfig.AlertOnDegraded,
-				AlertOnUp:       export.AlertConfig.AlertOnUp,
+				Enabled:                 export.AlertConfig.Enabled,
+				SMTPHost:                export.AlertConfig.SMTPHost,
+				SMTPPort:                export.AlertConfig.SMTPPort,
+				SMTPUser:                export.AlertConfig.SMTPUser,
+				AlertEmail:              export.AlertConfig.AlertEmail,
+				FromEmail:               export.AlertConfig.FromEmail,
+				StatusPageURL:           export.AlertConfig.StatusPageURL,
+				SMTPSkipVerify:          export.AlertConfig.SMTPSkipVerify,
+				AlertOnDown:             export.AlertConfig.AlertOnDown,
+				AlertOnDegraded:         export.AlertConfig.AlertOnDegraded,
+				AlertOnUp:               export.AlertConfig.AlertOnUp,
+				AlertOnDegradedRecovery: export.AlertConfig.AlertOnDegradedRecovery,
 			}
 			_ = database.SaveAlertConfig(alertCfg)
 		}

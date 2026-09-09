@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS alert_config (
   alert_on_down INTEGER NOT NULL DEFAULT 1,
   alert_on_degraded INTEGER NOT NULL DEFAULT 1,
   alert_on_up INTEGER NOT NULL DEFAULT 0,
+  alert_on_degraded_recovery INTEGER NOT NULL DEFAULT 0,
   discord_webhook_url TEXT,
   discord_enabled INTEGER NOT NULL DEFAULT 0,
   discord_username TEXT NOT NULL DEFAULT '',
@@ -253,6 +254,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN ups INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN status_page_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN smtp_skip_verify INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN alert_on_degraded_recovery INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
 	_, _ = DB.Exec(`ALTER TABLE app_settings ADD COLUMN app_name TEXT DEFAULT 'Service Status';`)
 	_, _ = DB.Exec(`ALTER TABLE ups_monitor_state ADD COLUMN loss_notified INTEGER NOT NULL DEFAULT 0;`)

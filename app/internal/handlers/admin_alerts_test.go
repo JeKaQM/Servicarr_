@@ -43,7 +43,7 @@ func TestNotificationTestReportsDeliveryOutcome(t *testing.T) {
 func TestNotificationConfigPersistsDiscordOptions(t *testing.T) {
 	initMaintenanceHandlerDB(t)
 	manager := alerts.NewManager("")
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/alerts/config", strings.NewReader(`{"enabled":true,"discord_enabled":true,"discord_webhook_url":"https://discord.com/api/webhooks/123/token","discord_username":"Operations","discord_silent":true,"alert_on_up":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/alerts/config", strings.NewReader(`{"enabled":true,"discord_enabled":true,"discord_webhook_url":"https://discord.com/api/webhooks/123/token","discord_username":"Operations","discord_silent":true,"alert_on_up":true,"alert_on_degraded_recovery":true}`))
 	w := httptest.NewRecorder()
 	HandleSaveAlertsConfig(manager)(w, req)
 	if w.Code != http.StatusOK {
@@ -53,7 +53,7 @@ func TestNotificationConfigPersistsDiscordOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.DiscordUsername != "Operations" || !config.DiscordSilent || !config.AlertOnUp {
+	if config.DiscordUsername != "Operations" || !config.DiscordSilent || !config.AlertOnUp || !config.AlertOnDegradedRecovery {
 		t.Fatalf("Discord options not persisted: %+v", config)
 	}
 	if manager.GetConfig().DiscordUsername != "Operations" {
@@ -106,12 +106,13 @@ func TestNotificationConfigResponseRedactsSecrets(t *testing.T) {
 	initMaintenanceHandlerDB(t)
 	manager := alerts.NewManager("")
 	manager.SetConfig(&models.AlertConfig{
-		SMTPPassword:      "smtp-password-unique",
-		DiscordWebhookURL: "https://discord.com/api/webhooks/123/discord-token-unique",
-		TelegramBotToken:  "telegram-token-unique",
-		WebhookURL:        "https://api-user:webhook-password-unique@hooks.example.com/events?sig=query-secret-unique",
-		WebhookSecret:     "signing-secret-unique",
-		StatusPageURL:     "https://status.example.com?token=dashboard-secret-unique",
+		SMTPPassword:            "smtp-password-unique",
+		DiscordWebhookURL:       "https://discord.com/api/webhooks/123/discord-token-unique",
+		TelegramBotToken:        "telegram-token-unique",
+		WebhookURL:              "https://api-user:webhook-password-unique@hooks.example.com/events?sig=query-secret-unique",
+		WebhookSecret:           "signing-secret-unique",
+		StatusPageURL:           "https://status.example.com?token=dashboard-secret-unique",
+		AlertOnDegradedRecovery: true,
 	})
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/alerts/config", nil)
 	w := httptest.NewRecorder()
@@ -141,6 +142,9 @@ func TestNotificationConfigResponseRedactsSecrets(t *testing.T) {
 		if response[field] != true {
 			t.Errorf("%s = %v, want true", field, response[field])
 		}
+	}
+	if response["alert_on_degraded_recovery"] != true {
+		t.Errorf("alert_on_degraded_recovery = %v, want true", response["alert_on_degraded_recovery"])
 	}
 }
 

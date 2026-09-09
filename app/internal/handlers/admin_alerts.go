@@ -28,6 +28,7 @@ type alertConfigResponse struct {
 	AlertOnDown              bool   `json:"alert_on_down"`
 	AlertOnDegraded          bool   `json:"alert_on_degraded"`
 	AlertOnUp                bool   `json:"alert_on_up"`
+	AlertOnDegradedRecovery  bool   `json:"alert_on_degraded_recovery"`
 	DiscordEnabled           bool   `json:"discord_enabled"`
 	DiscordUsername          string `json:"discord_username"`
 	DiscordSilent            bool   `json:"discord_silent"`
@@ -63,11 +64,12 @@ func HandleGetAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 		if config == nil {
 			// Return default config
 			config = &models.AlertConfig{
-				Enabled:         false,
-				SMTPPort:        587,
-				AlertOnDown:     true,
-				AlertOnDegraded: true,
-				AlertOnUp:       false,
+				Enabled:                 false,
+				SMTPPort:                587,
+				AlertOnDown:             true,
+				AlertOnDegraded:         true,
+				AlertOnUp:               false,
+				AlertOnDegradedRecovery: false,
 			}
 		}
 
@@ -83,6 +85,7 @@ func HandleGetAlertsConfig(alertMgr *alerts.Manager) http.HandlerFunc {
 			AlertOnDown:              config.AlertOnDown,
 			AlertOnDegraded:          config.AlertOnDegraded,
 			AlertOnUp:                config.AlertOnUp,
+			AlertOnDegradedRecovery:  config.AlertOnDegradedRecovery,
 			DiscordEnabled:           config.DiscordEnabled,
 			DiscordUsername:          config.DiscordUsername,
 			DiscordSilent:            config.DiscordSilent,
