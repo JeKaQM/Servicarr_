@@ -177,7 +177,7 @@ func TestStatusTransitionDegradedRecoveryAndPartialRecovery(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
-	m := &Manager{config: &models.AlertConfig{Enabled: true, AlertOnDown: true, AlertOnDegraded: true, AlertOnUp: true, WebhookEnabled: true, WebhookURL: srv.URL}}
+	m := &Manager{config: &models.AlertConfig{Enabled: true, AlertOnDown: true, AlertOnDegraded: true, AlertOnUp: true, AlertOnDegradedRecovery: true, WebhookEnabled: true, WebhookURL: srv.URL}}
 	for _, state := range []struct {
 		ok, degraded bool
 		expected     string
@@ -198,6 +198,64 @@ func TestStatusTransitionDegradedRecoveryAndPartialRecovery(t *testing.T) {
 		if m.CheckAndSendAlerts("service", "Service", state.ok, state.degraded) {
 			t.Error("duplicate state queued a notification")
 		}
+	}
+}
+
+func TestRecoveryNotificationFiltersAreIndependent(t *testing.T) {
+	tests := []struct {
+		name                    string
+		previousOK              bool
+		previousDegraded        bool
+		alertOnUp               bool
+		alertOnDegradedRecovery bool
+		wantQueued              bool
+	}{
+		{"outage recovery enabled", false, false, true, false, true},
+		{"outage recovery disabled", false, false, false, true, false},
+		{"degraded recovery disabled by default", true, true, true, false, false},
+		{"degraded recovery explicitly enabled", true, true, false, true, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			initTestDB(t)
+			delivered := make(chan struct{}, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				delivered <- struct{}{}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer srv.Close()
+
+			_, err := database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES (?, ?, ?, datetime('now'))`,
+				"recovery-filter", boolToInt(test.previousOK), boolToInt(test.previousDegraded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := &Manager{config: &models.AlertConfig{
+				Enabled:                 true,
+				AlertOnUp:               test.alertOnUp,
+				AlertOnDegradedRecovery: test.alertOnDegradedRecovery,
+				WebhookEnabled:          true,
+				WebhookURL:              srv.URL,
+			}}
+
+			if got := m.CheckAndSendAlerts("recovery-filter", "Recovery Filter", true, false); got != test.wantQueued {
+				t.Fatalf("queued = %v, want %v", got, test.wantQueued)
+			}
+			if test.wantQueued {
+				select {
+				case <-delivered:
+				case <-time.After(time.Second):
+					t.Fatal("queued recovery notification was not delivered")
+				}
+			} else {
+				select {
+				case <-delivered:
+					t.Fatal("disabled recovery notification was delivered")
+				case <-time.After(25 * time.Millisecond):
+				}
+			}
+		})
 	}
 }
 

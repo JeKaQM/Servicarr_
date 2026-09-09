@@ -53,17 +53,18 @@ type exportAppSettings struct {
 }
 
 type exportAlertConfig struct {
-	Enabled         bool   `json:"enabled"`
-	SMTPHost        string `json:"smtp_host"`
-	SMTPPort        int    `json:"smtp_port"`
-	SMTPUser        string `json:"smtp_user"`
-	AlertEmail      string `json:"alert_email"`
-	FromEmail       string `json:"from_email"`
-	StatusPageURL   string `json:"status_page_url"`
-	SMTPSkipVerify  bool   `json:"smtp_skip_verify"`
-	AlertOnDown     bool   `json:"alert_on_down"`
-	AlertOnDegraded bool   `json:"alert_on_degraded"`
-	AlertOnUp       bool   `json:"alert_on_up"`
+	Enabled                 bool   `json:"enabled"`
+	SMTPHost                string `json:"smtp_host"`
+	SMTPPort                int    `json:"smtp_port"`
+	SMTPUser                string `json:"smtp_user"`
+	AlertEmail              string `json:"alert_email"`
+	FromEmail               string `json:"from_email"`
+	StatusPageURL           string `json:"status_page_url"`
+	SMTPSkipVerify          bool   `json:"smtp_skip_verify"`
+	AlertOnDown             bool   `json:"alert_on_down"`
+	AlertOnDegraded         bool   `json:"alert_on_degraded"`
+	AlertOnUp               bool   `json:"alert_on_up"`
+	AlertOnDegradedRecovery bool   `json:"alert_on_degraded_recovery"`
 	// SMTP password is NOT exported for security
 }
 
@@ -143,17 +144,18 @@ func HandleExportDatabase() http.HandlerFunc {
 		// Export alert config (without SMTP password)
 		if alertCfg, err := database.LoadAlertConfig(); err == nil && alertCfg != nil {
 			export.AlertConfig = &exportAlertConfig{
-				Enabled:         alertCfg.Enabled,
-				SMTPHost:        alertCfg.SMTPHost,
-				SMTPPort:        alertCfg.SMTPPort,
-				SMTPUser:        alertCfg.SMTPUser,
-				AlertEmail:      alertCfg.AlertEmail,
-				FromEmail:       alertCfg.FromEmail,
-				StatusPageURL:   alertCfg.StatusPageURL,
-				SMTPSkipVerify:  alertCfg.SMTPSkipVerify,
-				AlertOnDown:     alertCfg.AlertOnDown,
-				AlertOnDegraded: alertCfg.AlertOnDegraded,
-				AlertOnUp:       alertCfg.AlertOnUp,
+				Enabled:                 alertCfg.Enabled,
+				SMTPHost:                alertCfg.SMTPHost,
+				SMTPPort:                alertCfg.SMTPPort,
+				SMTPUser:                alertCfg.SMTPUser,
+				AlertEmail:              alertCfg.AlertEmail,
+				FromEmail:               alertCfg.FromEmail,
+				StatusPageURL:           alertCfg.StatusPageURL,
+				SMTPSkipVerify:          alertCfg.SMTPSkipVerify,
+				AlertOnDown:             alertCfg.AlertOnDown,
+				AlertOnDegraded:         alertCfg.AlertOnDegraded,
+				AlertOnUp:               alertCfg.AlertOnUp,
+				AlertOnDegradedRecovery: alertCfg.AlertOnDegradedRecovery,
 			}
 		}
 
@@ -298,17 +300,18 @@ func HandleImportDatabase() http.HandlerFunc {
 		// Import alert config
 		if export.AlertConfig != nil {
 			alertCfg := &models.AlertConfig{
-				Enabled:         export.AlertConfig.Enabled,
-				SMTPHost:        export.AlertConfig.SMTPHost,
-				SMTPPort:        export.AlertConfig.SMTPPort,
-				SMTPUser:        export.AlertConfig.SMTPUser,
-				AlertEmail:      export.AlertConfig.AlertEmail,
-				FromEmail:       export.AlertConfig.FromEmail,
-				StatusPageURL:   export.AlertConfig.StatusPageURL,
-				SMTPSkipVerify:  export.AlertConfig.SMTPSkipVerify,
-				AlertOnDown:     export.AlertConfig.AlertOnDown,
-				AlertOnDegraded: export.AlertConfig.AlertOnDegraded,
-				AlertOnUp:       export.AlertConfig.AlertOnUp,
+				Enabled:                 export.AlertConfig.Enabled,
+				SMTPHost:                export.AlertConfig.SMTPHost,
+				SMTPPort:                export.AlertConfig.SMTPPort,
+				SMTPUser:                export.AlertConfig.SMTPUser,
+				AlertEmail:              export.AlertConfig.AlertEmail,
+				FromEmail:               export.AlertConfig.FromEmail,
+				StatusPageURL:           export.AlertConfig.StatusPageURL,
+				SMTPSkipVerify:          export.AlertConfig.SMTPSkipVerify,
+				AlertOnDown:             export.AlertConfig.AlertOnDown,
+				AlertOnDegraded:         export.AlertConfig.AlertOnDegraded,
+				AlertOnUp:               export.AlertConfig.AlertOnUp,
+				AlertOnDegradedRecovery: export.AlertConfig.AlertOnDegradedRecovery,
 			}
 			_ = database.SaveAlertConfig(alertCfg)
 		}

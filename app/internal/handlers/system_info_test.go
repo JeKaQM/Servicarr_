@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"status/app/internal/buildinfo"
 	"status/app/internal/database"
+	"status/app/internal/models"
 	"testing"
 )
 
@@ -85,5 +88,63 @@ func TestDatabaseExportIncludesSoftwareCompatibilityMetadata(t *testing.T) {
 	}
 	if export.DatabaseSchema != database.SchemaVersion {
 		t.Fatalf("database schema = %d, want %d", export.DatabaseSchema, database.SchemaVersion)
+	}
+}
+
+func TestNotificationRecoverySettingsSurviveBackupRoundTrip(t *testing.T) {
+	if err := database.Init(":memory:"); err != nil {
+		t.Fatal(err)
+	}
+	want := &models.AlertConfig{
+		SMTPPort:                587,
+		AlertOnUp:               true,
+		AlertOnDegradedRecovery: true,
+	}
+	if err := database.SaveAlertConfig(want); err != nil {
+		t.Fatal(err)
+	}
+
+	exportRecorder := httptest.NewRecorder()
+	HandleExportDatabase()(exportRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/settings/export", nil))
+	if exportRecorder.Code != http.StatusOK {
+		t.Fatalf("export status = %d, body = %s", exportRecorder.Code, exportRecorder.Body.String())
+	}
+	var exported DatabaseExport
+	if err := json.Unmarshal(exportRecorder.Body.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.AlertConfig == nil || !exported.AlertConfig.AlertOnUp || !exported.AlertConfig.AlertOnDegradedRecovery {
+		t.Fatalf("recovery settings missing from export: %+v", exported.AlertConfig)
+	}
+
+	if err := database.SaveAlertConfig(&models.AlertConfig{SMTPPort: 587}); err != nil {
+		t.Fatal(err)
+	}
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	part, err := writer.CreateFormFile("backup", "servicarr-backup.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(exportRecorder.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/settings/import", &requestBody)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	importRecorder := httptest.NewRecorder()
+	HandleImportDatabase()(importRecorder, request)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	got, err := database.LoadAlertConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || !got.AlertOnUp || !got.AlertOnDegradedRecovery {
+		t.Fatalf("recovery settings after import = %+v", got)
 	}
 }

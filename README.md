@@ -112,7 +112,7 @@ UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifica
 
 ## Notifications
 
-The master enable switch, event filters and public dashboard URL under **Admin > Notifications** apply to all configured channels. Select unavailable, degraded and fully recovered events; repeated checks in the same state do not send duplicate alerts. Recovery from degraded performance is handled as well as recovery from downtime.
+The master enable switch, event filters and public dashboard URL under **Admin > Notifications** apply to all configured channels. Unavailable, degraded, outage-recovery and degraded-recovery events can be selected independently; degraded recovery is off by default. Repeated checks in the same state do not send duplicate alerts.
 
 Discord embeds show the service, new/previous status, observation time and available check type, HTTP response code, latency and time in the previous unhealthy state. The title links to your public dashboard. Set a custom sender name or enable silent delivery, and use the scenario selector to test unavailable, degraded, recovery and test messages. Mentions are disabled; monitor URLs and raw check errors are excluded from notification details. Save configuration before testing. Failed deliveries now report an error, and Discord rate limits receive bounded retries.
 

@@ -85,7 +85,10 @@ type AlertConfig struct {
 	SMTPSkipVerify  bool   `json:"smtp_skip_verify"`
 	AlertOnDown     bool   `json:"alert_on_down"`
 	AlertOnDegraded bool   `json:"alert_on_degraded"`
-	AlertOnUp       bool   `json:"alert_on_up"`
+	// AlertOnUp is the backward-compatible outage (down -> healthy) recovery setting.
+	AlertOnUp bool `json:"alert_on_up"`
+	// AlertOnDegradedRecovery independently controls degraded -> healthy notifications.
+	AlertOnDegradedRecovery bool `json:"alert_on_degraded_recovery"`
 
 	// Multi-channel notification fields
 	DiscordWebhookURL string `json:"discord_webhook_url"`

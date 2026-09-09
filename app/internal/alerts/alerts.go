@@ -197,9 +197,12 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			if previous == "down" {
 				message += " The service is reachable again, but has not fully recovered."
 			}
-		case current == "up" && !firstStatus && config.AlertOnUp:
+		case current == "up" && !firstStatus && previous == "down" && config.AlertOnUp:
 			subject = fmt.Sprintf("✅ Service Recovered: %s", serviceName)
 			message = fmt.Sprintf("The service <strong>%s</strong> has recovered and is responding normally to health checks.", safeServiceName)
+		case current == "up" && !firstStatus && previous == "degraded" && config.AlertOnDegradedRecovery:
+			subject = fmt.Sprintf("✅ Service Performance Recovered: %s", serviceName)
+			message = fmt.Sprintf("The service <strong>%s</strong> is no longer degraded and is responding normally to health checks.", safeServiceName)
 		}
 		if subject != "" {
 			queued = m.dispatchAll(subject, current, serviceName, serviceKey, message)
