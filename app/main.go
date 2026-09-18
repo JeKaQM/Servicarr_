@@ -67,6 +67,7 @@ func main() {
 	// Create alert manager (loads config from database)
 	alertMgr := alerts.NewManager(cfg.StatusPageURL)
 	go runUPSMonitor(appCtx, alertMgr, 10*time.Second)
+	go runCrowdSecMonitor(appCtx, 30*time.Second)
 
 	// Migrate services from environment config if needed
 	migrateServicesFromEnv(cfg)
@@ -165,6 +166,56 @@ func runUPSMonitor(ctx context.Context, alertMgr *alerts.Manager, interval time.
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			poll()
+		}
+	}
+}
+
+// runCrowdSecMonitor syncs CrowdSec decisions on the configured interval.
+// The config is re-read every cycle so admin edits (URL, credentials,
+// interval, enable) apply live without a restart. Errors are deduped in
+// memory and persisted to crowdsec_state for the dashboard badge.
+func runCrowdSecMonitor(ctx context.Context, defaultInterval time.Duration) {
+	interval := defaultInterval
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastError string
+	var lastErrorLog time.Time
+	poll := func() {
+		err := monitor.PollCrowdSec(ctx)
+		if err == nil {
+			lastError = ""
+			return
+		}
+		errText := err.Error()
+		if errText != lastError || time.Since(lastErrorLog) >= 15*time.Minute {
+			log.Printf("CrowdSec monitor unavailable: %v", err)
+			lastError = errText
+			lastErrorLog = time.Now()
+		}
+	}
+
+	poll()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Re-read config so interval changes apply without restart.
+			if cfg, err := database.LoadCrowdSecConfig(); err == nil && cfg != nil && cfg.Enabled {
+				secs := cfg.PollIntervalS
+				if secs < 10 {
+					secs = 10
+				}
+				if secs > 3600 {
+					secs = 3600
+				}
+				if newInterval := time.Duration(secs) * time.Second; newInterval != interval {
+					interval = newInterval
+					ticker.Reset(interval)
+				}
+			}
 			poll()
 		}
 	}

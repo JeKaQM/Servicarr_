@@ -1,0 +1,172 @@
+{{define "admin-crowdsec"}}
+<!-- CrowdSec Tab -->
+<div id="tab-crowdsec" class="tab-content">
+  <h2>CrowdSec Integration</h2>
+  <p class="muted">Security activity mirrored from your CrowdSec Local API — active decisions, scenario detections and attack origins.</p>
+
+  <!-- Overview stats cards -->
+  <div class="crowdsec-stats-grid" id="crowdsecStatsGrid">
+    <div class="crowdsec-stat-card">
+      <div class="crowdsec-stat-value" id="csStatActive">—</div>
+      <div class="crowdsec-stat-label">Active decisions</div>
+    </div>
+    <div class="crowdsec-stat-card">
+      <div class="crowdsec-stat-value" id="csStatAlerts">—</div>
+      <div class="crowdsec-stat-label">Detections (24h)</div>
+    </div>
+    <div class="crowdsec-stat-card">
+      <div class="crowdsec-stat-value" id="csStatTopCountry">—</div>
+      <div class="crowdsec-stat-label" id="csStatTopCountryLabel">Top attack origin</div>
+    </div>
+    <div class="crowdsec-stat-card">
+      <div class="crowdsec-stat-value crowdsec-stat-wide" id="csStatTopScenario">—</div>
+      <div class="crowdsec-stat-label">Top scenario</div>
+    </div>
+  </div>
+
+  <!-- Attack map -->
+  <div class="admin-section crowdsec-map-section">
+    <div class="crowdsec-dashboard-header">
+      <h3>Attack origins map</h3>
+      <div class="crowdsec-map-legend">
+        <span class="crowdsec-legend-chip crowdsec-legend-ban">Banned</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-scan">Scan (no ban)</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-home">Your server</span>
+      </div>
+    </div>
+    <p class="muted">Geolocated detections arcing toward your server — hover a marker for details. Set your server's coordinates in Settings below.</p>
+    <div class="crowdsec-map-wrap">
+      <canvas id="crowdsecMap" aria-label="CrowdSec attack origins map" role="img"></canvas>
+      <div id="crowdsecMapTip" class="crowdsec-map-tip hidden"></div>
+    </div>
+  </div>
+
+  <div class="crowdsec-dashboard-columns">
+    <!-- Live activity feed -->
+    <div class="admin-section crowdsec-feed-section">
+      <div class="crowdsec-dashboard-header">
+        <h3>Live activity</h3>
+        <div class="crowdsec-header-actions">
+          <span id="crowdsecSyncBadge" class="crowdsec-badge muted">Not synced yet</span>
+          <button type="button" id="crowdsecSyncNow" class="btn ghost small">Sync Now</button>
+        </div>
+      </div>
+      <p class="muted">Scenario detections as they happened — including scans that produced no ban.</p>
+      <div id="crowdsecAlerts" class="crowdsec-alerts">
+        <div class="muted">No activity synced yet.</div>
+      </div>
+      <div class="crowdsec-expand hidden" id="crowdsecAlertsExpand">
+        <button type="button" class="btn ghost small" data-crowdsec-toggle="alerts">Show all 24h detections</button>
+      </div>
+    </div>
+
+    <!-- Countries + scenarios -->
+    <div class="admin-section crowdsec-breakdown-section">
+      <h3>Attack origins (24h)</h3>
+      <div id="crowdsecCountries" class="crowdsec-breakdown">
+        <div class="muted">No data yet.</div>
+      </div>
+      <h3 class="crowdsec-breakdown-title">Scenarios (24h)</h3>
+      <div id="crowdsecScenarios" class="crowdsec-breakdown">
+        <div class="muted">No data yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active decisions (collapsible) -->
+  <div class="admin-section">
+    <div class="crowdsec-dashboard-header">
+      <h3>Active decisions</h3>
+      <span class="muted" id="crowdsecDecisionsSummary"></span>
+    </div>
+    <p class="muted">Banned IPs and ranges currently mirrored from LAPI.</p>
+    <div id="crowdsecDecisions" class="crowdsec-decisions">
+      <div class="muted">No decisions synced yet.</div>
+    </div>
+    <div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand">
+      <button type="button" class="btn ghost small" data-crowdsec-toggle="decisions">Show all decisions</button>
+    </div>
+  </div>
+
+  <!-- Connection settings (collapsible) -->
+  <div class="admin-section">
+    <button type="button" class="crowdsec-collapsible-header" data-crowdsec-toggle="settings" aria-expanded="true">
+      <h3>Connection settings</h3>
+      <span class="crowdsec-chevron" aria-hidden="true">▾</span>
+    </button>
+    <div id="crowdsecSettingsBody" class="crowdsec-collapsible-body">
+      <form id="crowdsecForm">
+        <div class="form-group">
+          <label for="crowdsecEnabled">
+            <input type="checkbox" id="crowdsecEnabled"> Enable CrowdSec monitoring
+          </label>
+          <small class="help-text">When enabled, decisions and alerts are synced on the configured interval and shown here.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="crowdsecURL">LAPI URL</label>
+          <input type="text" id="crowdsecURL" placeholder="e.g., http://10.0.0.5:8080">
+          <small class="help-text">Root URL of your CrowdSec Local API. A trailing /v1 is accepted and stripped automatically.</small>
+        </div>
+
+        <h3>Credentials</h3>
+        <div class="form-group">
+          <label for="crowdsecBouncerKey">Bouncer API Key <span class="muted">(decisions)</span></label>
+          <input type="password" id="crowdsecBouncerKey" autocomplete="new-password" data-empty-placeholder="Bouncer API key" placeholder="Bouncer API key">
+          <small class="help-text">Create with <code>cscli bouncers add servicarr</code>. Required for the decisions dashboard.</small>
+          <div class="stored-secret-clear hidden">
+            <label class="checkbox-label">
+              <input type="checkbox" id="clearCrowdsecBouncerKey"> Remove saved key
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="crowdsecMachineID">Machine ID <span class="muted">(alerts feed — recommended)</span></label>
+          <input type="text" id="crowdsecMachineID" autocomplete="off" placeholder="e.g., myserver">
+          <small class="help-text">Machine credentials read the detections feed (activity, countries, scenarios). Only needed for the live-activity features.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="crowdsecMachinePassword">Machine Password <span class="muted">(alerts feed)</span></label>
+          <input type="password" id="crowdsecMachinePassword" autocomplete="new-password" data-empty-placeholder="Machine password" placeholder="Machine password">
+          <div class="stored-secret-clear hidden">
+            <label class="checkbox-label">
+              <input type="checkbox" id="clearCrowdsecMachinePassword"> Remove saved password
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="crowdsecInterval">Sync interval (seconds)</label>
+          <input type="number" id="crowdsecInterval" min="10" max="3600" value="30">
+          <small class="help-text">How often to sync from LAPI. Between 10 and 3600 seconds.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Server coordinates <span class="muted">(attack map)</span></label>
+          <div class="crowdsec-map-coords">
+            <input type="number" id="crowdsecMapLat" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Server latitude">
+            <input type="number" id="crowdsecMapLng" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Server longitude">
+          </div>
+          <small class="help-text">Where the attack arcs land on the map. Leave empty for the London default (Europe/London).</small>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="crowdsecSkipVerify"> Skip TLS certificate verification
+          </label>
+          <small class="help-text">Only for self-signed certificates on HTTPS LAPI. Not recommended — use a trusted CA when possible.</small>
+        </div>
+
+        <div class="ops">
+          <button type="button" id="testCrowdsec" class="btn ghost">Test Connection</button>
+          <button type="button" id="saveCrowdsec" class="btn">Save Settings</button>
+        </div>
+
+        <div id="crowdsecStatus" class="status-message hidden"></div>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}

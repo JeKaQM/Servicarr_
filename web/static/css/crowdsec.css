@@ -1,0 +1,403 @@
+/* CrowdSec admin tab */
+
+.crowdsec-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.crowdsec-dashboard-header h3 {
+  margin: 0;
+}
+.crowdsec-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.crowdsec-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.crowdsec-badge-error {
+  color: var(--down);
+  border-color: var(--down);
+}
+
+.crowdsec-decisions {
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.crowdsec-decision-row {
+  display: grid;
+  grid-template-columns: 90px minmax(140px, 1fr) 110px minmax(160px, 1.4fr) 90px 170px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.crowdsec-decision-row:last-child {
+  border-bottom: none;
+}
+.crowdsec-decision-header {
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.crowdsec-decision-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.crowdsec-type-ban {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--down);
+}
+.crowdsec-type-other {
+  background: rgba(217, 119, 6, 0.15);
+  color: #d97706;
+}
+.crowdsec-decision-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.crowdsec-decision-origin,
+.crowdsec-decision-scenario {
+  color: var(--muted);
+  word-break: break-all;
+}
+.crowdsec-decision-created {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Stats overview cards */
+.crowdsec-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.crowdsec-stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.crowdsec-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  word-break: break-all;
+}
+.crowdsec-stat-value.crowdsec-stat-wide {
+  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding-top: 6px;
+}
+.crowdsec-stat-label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Two-column dashboard layout */
+.crowdsec-dashboard-columns {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .crowdsec-dashboard-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Live activity feed */
+.crowdsec-alerts {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.crowdsec-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.crowdsec-flag {
+  display: inline-block;
+  min-width: 26px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #7cb0f5;
+  letter-spacing: 0.05em;
+}
+.crowdsec-alert-scenario {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.crowdsec-alert-ip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted);
+  word-break: break-all;
+}
+.crowdsec-alert-count {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.crowdsec-alert-simulated {
+  color: var(--muted);
+  font-size: 12px;
+}
+.crowdsec-alert-outcome-wrap {
+  display: inline-flex;
+}
+.crowdsec-alert-outcome {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.crowdsec-outcome-banned {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--down);
+}
+.crowdsec-outcome-scan {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+.crowdsec-alert-when {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* Country / scenario breakdown bars */
+.crowdsec-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.crowdsec-breakdown-title {
+  margin-top: 18px;
+}
+.crowdsec-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 120px) 1fr 34px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.crowdsec-breakdown-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crowdsec-breakdown-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  height: 12px;
+  overflow: hidden;
+}
+.crowdsec-breakdown-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.7), rgba(220, 38, 38, 0.45));
+  min-width: 4px;
+}
+.crowdsec-breakdown-count {
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Expand / collapse controls */
+.crowdsec-expand {
+  margin-top: 10px;
+  text-align: center;
+}
+.crowdsec-collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+.crowdsec-collapsible-header h3 {
+  margin: 0;
+}
+.crowdsec-chevron {
+  color: var(--muted);
+  font-size: 14px;
+}
+.crowdsec-collapsible-body.crowdsec-collapsed {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .crowdsec-decision-row {
+    grid-template-columns: 80px minmax(120px, 1fr) 90px;
+  }
+  .crowdsec-decision-origin,
+  .crowdsec-decision-scenario,
+  .crowdsec-decision-created {
+    display: none;
+  }
+  .crowdsec-decision-header {
+    display: none;
+  }
+  .crowdsec-alert-row {
+    flex-wrap: wrap;
+  }
+  .crowdsec-alert-when {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* Attack map */
+.crowdsec-map-section {
+  position: relative;
+}
+.crowdsec-map-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.crowdsec-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.crowdsec-legend-chip::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-dot, var(--muted));
+}
+.crowdsec-legend-ban {
+  --chip-dot: #dc2626;
+}
+.crowdsec-legend-scan {
+  --chip-dot: #d97706;
+}
+.crowdsec-legend-home {
+  --chip-dot: #3bc882;
+}
+.crowdsec-map-wrap {
+  position: relative;
+  width: 100%;
+  /* Equirectangular world = 2:1. Keep the projection aspect locked while
+     adapting to any screen width; letterboxing handles the rest. */
+  aspect-ratio: 2 / 1;
+  max-height: 420px;
+  min-height: 200px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #080e18;
+}
+.crowdsec-map-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+.crowdsec-map-tip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  background: rgba(8, 14, 24, 0.92);
+  border: 1px solid rgba(90, 130, 180, 0.45);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #dce7f5;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, -100%);
+}
+.crowdsec-map-tip.hidden {
+  display: none;
+}
+.crowdsec-tip-banned {
+  color: #f87171;
+  font-weight: 600;
+}
+.crowdsec-tip-scan {
+  color: #fbbf24;
+  font-weight: 600;
+}
+.crowdsec-map-coords {
+  display: flex;
+  gap: 10px;
+}
+.crowdsec-map-coords input {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .crowdsec-map-wrap {
+    /* Narrow screens: 2:1 gets too short to read, relax the clamp. */
+    aspect-ratio: 16 / 10;
+    max-height: none;
+  }
+  .crowdsec-map-coords {
+    flex-direction: column;
+  }
+}

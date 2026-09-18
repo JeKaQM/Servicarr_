@@ -27,6 +27,7 @@ type DatabaseExport struct {
 	Services             []exportService              `json:"services"`
 	AlertConfig          *exportAlertConfig           `json:"alert_config"`
 	Resources            *exportResourcesConfig       `json:"resources_config"`
+	CrowdSec             *exportCrowdSecConfig        `json:"crowdsec_config,omitempty"`
 	Samples              []exportSample               `json:"samples"`
 	MaintenanceSchedules []models.MaintenanceSchedule `json:"maintenance_schedules"`
 }
@@ -85,6 +86,15 @@ type exportResourcesConfig struct {
 	Processes  bool   `json:"processes"`
 	Uptime     bool   `json:"uptime"`
 	UPS        bool   `json:"ups"`
+}
+
+type exportCrowdSecConfig struct {
+	Enabled       bool   `json:"enabled"`
+	LAPIURL       string `json:"lapi_url"`
+	MachineID     string `json:"machine_id"`
+	PollIntervalS int    `json:"poll_interval_seconds"`
+	TLSSkipVerify bool   `json:"tls_skip_verify"`
+	// Secrets are NOT exported for security; re-enter after import.
 }
 
 type exportSample struct {
@@ -178,6 +188,17 @@ func HandleExportDatabase() http.HandlerFunc {
 				Processes:  resCfg.Processes,
 				Uptime:     resCfg.Uptime,
 				UPS:        resCfg.UPS,
+			}
+		}
+
+		// Export CrowdSec config (without secrets)
+		if csCfg, err := database.LoadCrowdSecConfig(); err == nil && csCfg != nil {
+			export.CrowdSec = &exportCrowdSecConfig{
+				Enabled:       csCfg.Enabled,
+				LAPIURL:       csCfg.LAPIURL,
+				MachineID:     csCfg.MachineID,
+				PollIntervalS: csCfg.PollIntervalS,
+				TLSSkipVerify: csCfg.TLSSkipVerify,
 			}
 		}
 
@@ -339,6 +360,22 @@ func HandleImportDatabase() http.HandlerFunc {
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
 
+		// Import CrowdSec config. Secrets never travel in backups, so an
+		// imported enabled config is disabled until credentials are re-entered.
+		if export.CrowdSec != nil {
+			csCfg := &models.CrowdSecConfig{
+				Enabled:       false, // secrets absent — do not enable a broken integration
+				LAPIURL:       export.CrowdSec.LAPIURL,
+				MachineID:     export.CrowdSec.MachineID,
+				PollIntervalS: export.CrowdSec.PollIntervalS,
+				TLSSkipVerify: export.CrowdSec.TLSSkipVerify,
+			}
+			if csCfg.PollIntervalS < 10 {
+				csCfg.PollIntervalS = 30
+			}
+			_ = database.SaveCrowdSecConfig(csCfg)
+		}
+
 		// Import samples
 		if len(export.Samples) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM samples`)
@@ -433,6 +470,9 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"maintenance_windows",
 			"incident_events",
 			"ups_monitor_state",
+			"crowdsec_config",
+			"crowdsec_state",
+			"crowdsec_decisions",
 			"app_metadata",
 			"software_deployments",
 		}

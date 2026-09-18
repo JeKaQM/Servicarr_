@@ -17,6 +17,7 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances), plus UPS status, automatic mains-loss warnings and transition-based email alerts via Network UPS Tools
+- **CrowdSec Integration** — Mirror active CrowdSec decisions (bans, captchas) into an admin dashboard via the Local API, with encrypted credential storage, configurable sync intervals, connection testing and a live sync badge
 - **Multi-Channel Alerts** — SMTP, webhook, Discord and Telegram notifications
 - **Status Alerts** — Manual banners, one-time windows and flexible daily/weekly maintenance schedules with automatic monitoring and uptime suppression
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
@@ -109,6 +110,22 @@ Times use the schedule's IANA timezone, independent of the browser timezone. Dur
 Outside maintenance, a confirmed service failure creates an automatic critical-outage banner. Once all affected services recover, it is replaced by a restoration banner for 24 hours while performance is monitored. The outage banner only states that an alert was sent when at least one configured notification channel was actually queued.
 
 UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifications**. One email is queued per confirmed outage; NUT connection failures and unknown UPS states do not trigger it.
+
+## CrowdSec
+
+Servicarr can mirror active decisions from a [CrowdSec](https://crowdsec.net) Local API (LAPI) into an admin-only dashboard under **Admin > CrowdSec**:
+
+1. Create a bouncer key on the CrowdSec host: `cscli bouncers add servicarr` — this grants read access to `/v1/decisions` (the dashboard).
+2. Optionally create machine credentials (`cscli machines add`-style registration) if you also want alert features: machine credentials authenticate via `POST /v1/watchers/login` for a JWT.
+3. Under **Admin > CrowdSec**, enter the LAPI URL (e.g. `http://10.0.0.5:8080`, a trailing `/v1` is stripped automatically), paste the bouncer key, set the sync interval (10–3600 s), and **Test Connection** before saving.
+
+Design notes:
+
+- **Dashboard** — overview cards (active decisions, 24h detections, top origin country, top scenario), a live activity feed of scenario detections (including scans that produced no ban — each row shows whether a ban followed), attack-origin and scenario volume bars for the last 24 hours, and the active-decisions table. Lists collapse to their five newest rows and expand on demand; the connection settings collapse too.
+- Decisions are synced by a background loop into a capped snapshot table (latest 500); the true LAPI total can be higher and is surfaced as "showing latest 500 of N". Alerts are mirrored into their own capped history (latest 2000, deduped by ID).
+- The snapshot is read from SQLite, so the dashboard keeps working while LAPI is briefly down; the sync badge shows when the last successful sync ran, and persistent failures show a distinct *auth failed* state.
+- Cloud metadata endpoints are rejected from the LAPI URL (same SSRF guard as monitored services); redirects are never followed; credentials are AES-256-GCM encrypted at rest, never returned by the API, and excluded from database backups.
+- Sync state (last success, last error) is persisted so restarts don't lose the badge context.
 
 ## Notifications
 

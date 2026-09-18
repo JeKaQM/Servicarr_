@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Admin-only modules may not be loaded for public visitors
   if (typeof initLogsTab === 'function') initLogsTab();
   if (typeof initNotificationSelector === 'function') initNotificationSelector();
+  if (typeof initCrowdsecTab === 'function') initCrowdsecTab();
 
   // Delegated click handler for dynamically-created buttons (CSP-compliant, no inline onclick)
   document.addEventListener('click', (e) => {
