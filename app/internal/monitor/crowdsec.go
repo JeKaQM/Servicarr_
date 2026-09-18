@@ -42,15 +42,15 @@ func PollCrowdSec(ctx context.Context) error {
 
 	// Alerts (scenario detections — includes scans that produced no decision)
 	// need machine credentials. Missing credentials are not an error: the
-	// decisions dashboard works on the bouncer key alone.
+	// decisions dashboard works on the bouncer key alone. A failed alerts
+	// fetch also must not block decision syncing: the decisions dashboard
+	// stays functional even when the machine login is misconfigured.
 	alertsInserted := 0
 	if client.HasMachineCredentials() {
 		alerts, alertsErr := fetchAlertsSnapshot(ctx, client)
 		if alertsErr != nil {
 			recordCrowdSecSyncFailure(alertsErr)
-			return alertsErr
-		}
-		if len(alerts) > 0 {
+		} else if len(alerts) > 0 {
 			syncedAt := time.Now().UTC()
 			alertsInserted, alertsErr = database.SyncCrowdSecAlerts(alerts, syncedAt)
 			if alertsErr != nil {
