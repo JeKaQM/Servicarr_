@@ -220,13 +220,15 @@ type ScheduleInfo struct {
 // directly into admin responses (use a response struct with *_configured
 // flags, mirroring the alert config pattern).
 type CrowdSecConfig struct {
-	Enabled         bool   `json:"enabled"`
-	LAPIURL         string `json:"lapi_url"`
-	MachineID       string `json:"machine_id"`
-	MachinePassword string `json:"machine_password"` // write-only from the UI
-	BouncerAPIKey   string `json:"bouncer_api_key"`  // write-only from the UI
-	PollIntervalS   int    `json:"poll_interval_seconds"`
-	TLSSkipVerify   bool   `json:"tls_skip_verify"`
+	Enabled         bool    `json:"enabled"`
+	LAPIURL         string  `json:"lapi_url"`
+	MachineID       string  `json:"machine_id"`
+	MachinePassword string  `json:"machine_password"` // write-only from the UI
+	BouncerAPIKey   string  `json:"bouncer_api_key"`  // write-only from the UI
+	PollIntervalS   int     `json:"poll_interval_seconds"`
+	TLSSkipVerify   bool    `json:"tls_skip_verify"`
+	MapHomeLat      float64 `json:"map_home_latitude"`  // 0 = unset (defaults to London)
+	MapHomeLng      float64 `json:"map_home_longitude"` // 0 = unset (defaults to London)
 }
 
 // CrowdSecDecision is a single active decision mirrored from LAPI into the
@@ -257,20 +259,23 @@ type CrowdSecSyncStatus struct {
 // CrowdSecAlert is a scenario detection event mirrored from LAPI into the
 // alerts snapshot. Alerts fire on detection — a decision (ban) may or may
 // not follow, which is exactly the "scan that didn't lead to a decision"
-// activity the dashboard surfaces.
+// activity the dashboard surfaces. Latitude/Longitude are LAPI's geo
+// enrichment of the source; nil when unavailable (the map skips those).
 type CrowdSecAlert struct {
-	AlertID     string `json:"alert_id"`
-	Scenario    string `json:"scenario"`
-	Message     string `json:"message"`
-	SourceValue string `json:"source_value"` // attacking IP/range
-	Country     string `json:"country"`      // ISO 3166-1 alpha-2, e.g. "US"
-	ASNumber    string `json:"as_number"`
-	ASName      string `json:"as_name"`
-	EventsCount int64  `json:"events_count"` // how many raw events tripped the scenario
-	StartAt     string `json:"start_at"`     // RFC3339
-	CreatedAt   string `json:"created_at"`   // RFC3339
-	HasDecision bool   `json:"has_decision"`
-	Simulated   bool   `json:"simulated"`
+	AlertID     string   `json:"alert_id"`
+	Scenario    string   `json:"scenario"`
+	Message     string   `json:"message"`
+	SourceValue string   `json:"source_value"` // attacking IP/range
+	Country     string   `json:"country"`      // ISO 3166-1 alpha-2, e.g. "US"
+	ASNumber    string   `json:"as_number"`
+	ASName      string   `json:"as_name"`
+	Latitude    *float64 `json:"latitude,omitempty"`
+	Longitude   *float64 `json:"longitude,omitempty"`
+	EventsCount int64    `json:"events_count"` // how many raw events tripped the scenario
+	StartAt     string   `json:"start_at"`     // RFC3339
+	CreatedAt   string   `json:"created_at"`   // RFC3339
+	HasDecision bool     `json:"has_decision"`
+	Simulated   bool     `json:"simulated"`
 }
 
 // CrowdSecStats aggregates the alert history for the dashboard overview.

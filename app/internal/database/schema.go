@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -239,6 +239,8 @@ CREATE TABLE IF NOT EXISTS crowdsec_config (
   bouncer_api_key TEXT NOT NULL DEFAULT '',
   poll_interval INTEGER NOT NULL DEFAULT 30,
   tls_skip_verify INTEGER NOT NULL DEFAULT 0,
+  map_home_lat REAL NOT NULL DEFAULT 0,
+  map_home_lng REAL NOT NULL DEFAULT 0,
   updated_at TEXT
 );
 
@@ -276,6 +278,8 @@ CREATE TABLE IF NOT EXISTS crowdsec_alerts (
   country TEXT NOT NULL DEFAULT '',
   as_number TEXT NOT NULL DEFAULT '',
   as_name TEXT NOT NULL DEFAULT '',
+  latitude REAL,
+  longitude REAL,
   events_count INTEGER NOT NULL DEFAULT 0,
   start_at TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT '',
@@ -290,6 +294,12 @@ CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_scenario ON crowdsec_alerts(scena
 	if err != nil {
 		return err
 	}
+
+	// CrowdSec map geo enrichment (v7) — idempotent for existing installs.
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN latitude REAL;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN longitude REAL;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lat REAL NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lng REAL NOT NULL DEFAULT 0;`)
 
 	if err := migrateMaintenanceSchedules(); err != nil {
 		return err

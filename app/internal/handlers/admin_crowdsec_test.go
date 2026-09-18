@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +66,51 @@ func TestSaveCrowdSecConfig_RequiresCredentialWhenEnabled(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("enable without credentials must be rejected, status = %d", recorder.Code)
 	}
+}
+
+func TestSaveCrowdSecConfig_ValidatesMapHome(t *testing.T) {
+	cases := []struct {
+		name string
+		lat  string
+		lng  string
+		want int
+	}{
+		{"valid coords", "51.5074", "-0.1278", http.StatusOK},
+		{"latitude out of range", "91", "0", http.StatusBadRequest},
+		{"latitude below range", "-90.5", "0", http.StatusBadRequest},
+		{"longitude out of range", "0", "181", http.StatusBadRequest},
+		{"longitude below range", "0", "-180.5", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			initCrowdSecHandlerDB(t)
+			body := `{"enabled":false,"lapi_url":"http://10.0.0.5:8080","bouncer_api_key":"k","poll_interval_seconds":30,"map_home_latitude":` + tc.lat + `,"map_home_longitude":` + tc.lng + `}`
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/config", strings.NewReader(body))
+			HandleSaveCrowdSecConfig().ServeHTTP(recorder, request)
+			if recorder.Code != tc.want {
+				t.Fatalf("status = %d, want %d (body %s)", recorder.Code, tc.want, recorder.Body.String())
+			}
+			if tc.want == http.StatusOK {
+				cfg, err := database.LoadCrowdSecConfig()
+				if err != nil || cfg == nil {
+					t.Fatalf("load: %v %v", cfg, err)
+				}
+				if cfg.MapHomeLat != parseTestFloat(t, tc.lat) || cfg.MapHomeLng != parseTestFloat(t, tc.lng) {
+					t.Errorf("map home roundtrip failed: (%v, %v)", cfg.MapHomeLat, cfg.MapHomeLng)
+				}
+			}
+		})
+	}
+}
+
+func parseTestFloat(t *testing.T, s string) float64 {
+	t.Helper()
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 func TestSaveCrowdSecConfig_Roundtrip_MasksSecrets(t *testing.T) {

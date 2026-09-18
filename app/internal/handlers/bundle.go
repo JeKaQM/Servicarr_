@@ -63,6 +63,7 @@ var publicJSFiles = []string{
 var adminJSFiles = []string{
 	"web/static/js/admin-ui.js",
 	"web/static/js/crowdsec-tab.js",
+	"web/static/js/crowdsec-map.js",
 	"web/static/js/service-mgmt.js",
 	"web/static/js/settings-tab.js",
 	"web/static/js/logs-tab.js",

@@ -190,6 +190,12 @@ func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models
 			alert.Country = a.Source.Country
 			alert.ASNumber = a.Source.ASNumber
 			alert.ASName = a.Source.ASName
+			if a.Source.Latitude != nil && a.Source.Longitude != nil {
+				lat := float64(*a.Source.Latitude)
+				lng := float64(*a.Source.Longitude)
+				alert.Latitude = &lat
+				alert.Longitude = &lng
+			}
 		}
 		out = append(out, alert)
 	}

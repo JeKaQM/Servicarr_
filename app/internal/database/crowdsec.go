@@ -29,10 +29,12 @@ func LoadCrowdSecConfig() (*models.CrowdSecConfig, error) {
 	var enabled, skipVerify int
 	var encPassword, encKey string
 	err := DB.QueryRow(`SELECT enabled, COALESCE(lapi_url, ''), COALESCE(lapi_machine_id, ''),
-		COALESCE(lapi_machine_password, ''), COALESCE(bouncer_api_key, ''), poll_interval, tls_skip_verify
+		COALESCE(lapi_machine_password, ''), COALESCE(bouncer_api_key, ''), poll_interval, tls_skip_verify,
+		COALESCE(map_home_lat, 0), COALESCE(map_home_lng, 0)
 		FROM crowdsec_config WHERE id = 1`).Scan(
 		&enabled, &config.LAPIURL, &config.MachineID,
-		&encPassword, &encKey, &config.PollIntervalS, &skipVerify)
+		&encPassword, &encKey, &config.PollIntervalS, &skipVerify,
+		&config.MapHomeLat, &config.MapHomeLng)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -77,13 +79,14 @@ func SaveCrowdSecConfig(config *models.CrowdSecConfig) error {
 	enabled := boolInt(config.Enabled)
 	skipVerify := boolInt(config.TLSSkipVerify)
 	_, err = DB.Exec(`INSERT INTO crowdsec_config
-		(id, enabled, lapi_url, lapi_machine_id, lapi_machine_password, bouncer_api_key, poll_interval, tls_skip_verify, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		(id, enabled, lapi_url, lapi_machine_id, lapi_machine_password, bouncer_api_key, poll_interval, tls_skip_verify, map_home_lat, map_home_lng, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 			enabled=?, lapi_url=?, lapi_machine_id=?, lapi_machine_password=?, bouncer_api_key=?,
-			poll_interval=?, tls_skip_verify=?, updated_at=datetime('now')`,
-		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify,
-		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify)
+			poll_interval=?, tls_skip_verify=?, map_home_lat=excluded.map_home_lat,
+			map_home_lng=excluded.map_home_lng, updated_at=datetime('now')`,
+		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify, config.MapHomeLat, config.MapHomeLng,
+		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify, config.MapHomeLat, config.MapHomeLng)
 	return err
 }
 
@@ -313,8 +316,8 @@ func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int,
 
 	ins, err := tx.Prepare(`INSERT INTO crowdsec_alerts
 		(alert_id, scenario, message, source_value, country, as_number, as_name,
-		 events_count, start_at, created_at, has_decision, simulated, synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 latitude, longitude, events_count, start_at, created_at, has_decision, simulated, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(alert_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
@@ -328,7 +331,8 @@ func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int,
 			continue
 		}
 		res, err := ins.Exec(a.AlertID, a.Scenario, a.Message, a.SourceValue, a.Country,
-			a.ASNumber, a.ASName, a.EventsCount, a.StartAt, a.CreatedAt,
+			a.ASNumber, a.ASName, nullableFloat(a.Latitude), nullableFloat(a.Longitude),
+			a.EventsCount, a.StartAt, a.CreatedAt,
 			boolInt(a.HasDecision), boolInt(a.Simulated), synced)
 		if err != nil {
 			return 0, err
@@ -355,7 +359,7 @@ func GetCrowdSecAlerts(limit int) ([]models.CrowdSecAlert, error) {
 		limit = 50
 	}
 	rows, err := DB.Query(`SELECT alert_id, scenario, message, source_value, country,
-		as_number, as_name, events_count, start_at, created_at, has_decision, simulated
+		as_number, as_name, latitude, longitude, events_count, start_at, created_at, has_decision, simulated
 		FROM crowdsec_alerts ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -366,16 +370,33 @@ func GetCrowdSecAlerts(limit int) ([]models.CrowdSecAlert, error) {
 	for rows.Next() {
 		var a models.CrowdSecAlert
 		var hasDecision, simulated int
+		var lat, lng sql.NullFloat64
 		if err := rows.Scan(&a.AlertID, &a.Scenario, &a.Message, &a.SourceValue, &a.Country,
-			&a.ASNumber, &a.ASName, &a.EventsCount, &a.StartAt, &a.CreatedAt,
+			&a.ASNumber, &a.ASName, &lat, &lng, &a.EventsCount, &a.StartAt, &a.CreatedAt,
 			&hasDecision, &simulated); err != nil {
 			return nil, err
+		}
+		if lat.Valid {
+			v := lat.Float64
+			a.Latitude = &v
+		}
+		if lng.Valid {
+			v := lng.Float64
+			a.Longitude = &v
 		}
 		a.HasDecision = hasDecision != 0
 		a.Simulated = simulated != 0
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// nullableFloat converts an optional coordinate to a driver value.
+func nullableFloat(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }
 
 // GetCrowdSecStats aggregates the alert snapshot for the dashboard:

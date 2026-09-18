@@ -24,6 +24,23 @@
     </div>
   </div>
 
+  <!-- Attack map -->
+  <div class="admin-section crowdsec-map-section">
+    <div class="crowdsec-dashboard-header">
+      <h3>Attack origins map</h3>
+      <div class="crowdsec-map-legend">
+        <span class="crowdsec-legend-chip crowdsec-legend-ban">Banned</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-scan">Scan (no ban)</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-home">Your server</span>
+      </div>
+    </div>
+    <p class="muted">Geolocated detections arcing toward your server — hover a marker for details. Set your server's coordinates in Settings below.</p>
+    <div class="crowdsec-map-wrap">
+      <canvas id="crowdsecMap" aria-label="CrowdSec attack origins map" role="img"></canvas>
+      <div id="crowdsecMapTip" class="crowdsec-map-tip hidden"></div>
+    </div>
+  </div>
+
   <div class="crowdsec-dashboard-columns">
     <!-- Live activity feed -->
     <div class="admin-section crowdsec-feed-section">
@@ -124,6 +141,15 @@
           <label for="crowdsecInterval">Sync interval (seconds)</label>
           <input type="number" id="crowdsecInterval" min="10" max="3600" value="30">
           <small class="help-text">How often to sync from LAPI. Between 10 and 3600 seconds.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Server coordinates <span class="muted">(attack map)</span></label>
+          <div class="crowdsec-map-coords">
+            <input type="number" id="crowdsecMapLat" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Server latitude">
+            <input type="number" id="crowdsecMapLng" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Server longitude">
+          </div>
+          <small class="help-text">Where the attack arcs land on the map. Leave empty for the London default (Europe/London).</small>
         </div>
 
         <div class="form-group">

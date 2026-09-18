@@ -28,6 +28,8 @@ func TestSaveLoadCrowdSecConfig_Roundtrip_EncryptedAtRest(t *testing.T) {
 		BouncerAPIKey:   "bouncer-key-123",
 		PollIntervalS:   45,
 		TLSSkipVerify:   false,
+		MapHomeLat:      51.5074,
+		MapHomeLng:      -0.1278,
 	}
 	if err := SaveCrowdSecConfig(cfg); err != nil {
 		t.Fatalf("SaveCrowdSecConfig: %v", err)
@@ -64,6 +66,9 @@ func TestSaveLoadCrowdSecConfig_Roundtrip_EncryptedAtRest(t *testing.T) {
 	}
 	if loaded.PollIntervalS != 45 {
 		t.Errorf("poll interval mismatch: %d", loaded.PollIntervalS)
+	}
+	if loaded.MapHomeLat != 51.5074 || loaded.MapHomeLng != -0.1278 {
+		t.Errorf("map home mismatch: (%v, %v)", loaded.MapHomeLat, loaded.MapHomeLng)
 	}
 }
 

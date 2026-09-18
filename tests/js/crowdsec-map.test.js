@@ -1,0 +1,181 @@
+/**
+ * Tests for crowdsec-map.js – projection math, strike queuing, map-home
+ * defaults, and the fresh-alert diffing that powers the animated arcs.
+ */
+const { loadSource } = require('./test-helpers');
+
+beforeAll(() => {
+  loadSource('core.js', 'utils.js', 'crowdsec-tab.js', 'crowdsec-map.js');
+});
+
+/* ── crowdsecProject ───────────────────────────────────── */
+describe('crowdsecProject', () => {
+  test('converts lat/lng to normalized map space', () => {
+    const p = crowdsecProject(0, 0);
+    expect(p.x).toBeCloseTo(0.5);
+    expect(p.y).toBeCloseTo(0.5);
+  });
+
+  test('top-left corner of the map', () => {
+    const p = crowdsecProject(90, -180);
+    expect(p.x).toBeCloseTo(0);
+    expect(p.y).toBeCloseTo(0);
+  });
+
+  test('bottom-right corner of the map', () => {
+    const p = crowdsecProject(-90, 180);
+    expect(p.x).toBeCloseTo(1);
+    expect(p.y).toBeCloseTo(1);
+  });
+
+  test('London lands in the north-east quadrant', () => {
+    const p = crowdsecProject(51.5074, -0.1278);
+    expect(p.x).toBeGreaterThan(0.45);
+    expect(p.y).toBeLessThan(0.3);
+  });
+});
+
+/* ── land tiles ────────────────────────────────────────── */
+describe('CROWDSEC_LAND_TILES', () => {
+  test('covers continents with a reasonable dot count', () => {
+    expect(CROWDSEC_LAND_TILES.length).toBeGreaterThan(150);
+    expect(CROWDSEC_LAND_TILES.length).toBeLessThan(2000);
+  });
+
+  test('every tile is within valid geo bounds', () => {
+    for (const [lat, lng] of CROWDSEC_LAND_TILES) {
+      expect(lat).toBeGreaterThanOrEqual(-90);
+      expect(lat).toBeLessThan(90);
+      expect(lng).toBeGreaterThanOrEqual(-180);
+      expect(lng).toBeLessThan(180);
+    }
+  });
+
+  test('has no duplicate tiles', () => {
+    const seen = new Set();
+    for (const [lat, lng] of CROWDSEC_LAND_TILES) {
+      const key = lat + ',' + lng;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
+  });
+});
+
+/* ── crowdsecQueueStrike ───────────────────────────────── */
+describe('crowdsecQueueStrike', () => {
+  beforeEach(() => {
+    crowdsecMapStrikes = [];
+  });
+
+  test('queues a strike for a geolocated alert', () => {
+    const strike = crowdsecQueueStrike({ latitude: 55.75, longitude: 37.61, has_decision: true }, 0);
+    expect(strike).not.toBeNull();
+    expect(crowdsecMapStrikes).toHaveLength(1);
+    expect(strike.from.x).toBeGreaterThan(0);
+    expect(strike.progress).toBe(0);
+  });
+
+  test('returns null when the alert has no coordinates', () => {
+    expect(crowdsecQueueStrike({ scenario: 'x' }, 0)).toBeNull();
+    expect(crowdsecQueueStrike({ latitude: 55.75 }, 0)).toBeNull();
+    expect(crowdsecMapStrikes).toHaveLength(0);
+  });
+
+  test('banned alerts are red, unbanned are amber', () => {
+    const banned = crowdsecQueueStrike({ latitude: 1, longitude: 1, has_decision: true }, 0);
+    const scan = crowdsecQueueStrike({ latitude: 2, longitude: 2, has_decision: false }, 0);
+    expect(banned.color).toContain('220, 38, 38');
+    expect(scan.color).toContain('217, 119, 6');
+  });
+});
+
+/* ── crowdsecMapApply ──────────────────────────────────── */
+describe('crowdsecMapApply', () => {
+  beforeEach(() => {
+    crowdsecMapStrikes = [];
+    crowdsecMapAlerts = [];
+    crowdsecMapCanvas = null;
+    crowdsecMapHome = { lat: 51.5074, lng: -0.1278 };
+  });
+
+  test('stores alerts and keeps London default home when unset', () => {
+    crowdsecMapApply([{ alert_id: 'a1', latitude: 10, longitude: 20 }]);
+    expect(crowdsecAllAlerts).toHaveLength(1);
+    expect(crowdsecMapHome.lat).toBe(51.5074);
+  });
+
+  test('applies explicit map home coordinates', () => {
+    crowdsecMapApply([], 40.4, -3.7);
+    expect(crowdsecMapHome).toEqual({ lat: 40.4, lng: -3.7 });
+  });
+
+  test('ignores zero-zero map home (unset sentinel)', () => {
+    crowdsecMapApply([], 0, 0);
+    expect(crowdsecMapHome.lat).toBe(51.5074);
+  });
+
+  test('skips alerts without geo data', () => {
+    crowdsecMapApply([{ alert_id: 'a1' }, { alert_id: 'a2', latitude: null, longitude: null }]);
+    expect(crowdsecAllAlerts).toHaveLength(2);
+    expect(crowdsecMapStrikes).toHaveLength(0);
+  });
+
+  test('with no canvas mounted, apply stages alerts without firing strikes', () => {
+    crowdsecMapApply([{ alert_id: 'a1', latitude: 10, longitude: 20 }]);
+    expect(crowdsecMapStrikes).toHaveLength(0);
+  });
+
+  test('fires strikes only for alerts newer than the previous batch head', () => {
+    crowdsecMapCanvas = { fake: true };
+    const batch1 = [
+      { alert_id: 'a1', latitude: 10, longitude: 20 },
+      { alert_id: 'a2', latitude: 30, longitude: 40 }
+    ];
+    crowdsecMapApply(batch1);
+    expect(crowdsecMapStrikes).toHaveLength(2);
+
+    // Next refresh contains one new alert at the head; only it fires.
+    crowdsecMapStrikes = [];
+    const batch2 = [
+      { alert_id: 'a3', latitude: -5, longitude: 15 },
+      { alert_id: 'a1', latitude: 10, longitude: 20 },
+      { alert_id: 'a2', latitude: 30, longitude: 40 }
+    ];
+    crowdsecMapApply(batch2);
+    expect(crowdsecMapStrikes).toHaveLength(1);
+    expect(crowdsecAllAlerts[0].alert_id).toBe('a3');
+  });
+
+  test('completely fresh batch fires strikes for all geolocated alerts', () => {
+    crowdsecMapCanvas = { fake: true };
+    crowdsecMapAlerts = [{ alert_id: 'old', latitude: 1, longitude: 1 }];
+    const fresh = [
+      { alert_id: 'n1', latitude: 10, longitude: 20 },
+      { alert_id: 'n2', latitude: 30, longitude: 40 }
+    ];
+    crowdsecMapApply(fresh);
+    expect(crowdsecMapStrikes).toHaveLength(2);
+  });
+});
+
+/* ── quad (bezier helper) ───────────────────────────────── */
+describe('quad', () => {
+  test('interpolates endpoints correctly', () => {
+    expect(quad(0, 10, 20, 0)).toBe(0);
+    expect(quad(0, 10, 20, 1)).toBe(20);
+  });
+
+  test('midpoint passes through the curve', () => {
+    const mid = quad(0, 10, 20, 0.5);
+    expect(mid).toBeCloseTo(10);
+  });
+
+  test('monotonic progression between endpoints', () => {
+    let prev = quad(0, 40, 100, 0);
+    for (let t = 0.1; t <= 1; t += 0.1) {
+      const v = quad(0, 40, 100, t);
+      expect(v).toBeGreaterThan(prev);
+      prev = v;
+    }
+  });
+});

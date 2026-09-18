@@ -16,13 +16,15 @@ import (
 // let the UI distinguish an empty setting from a saved one without placing
 // credentials back into form fields or browser caches.
 type crowdsecConfigResponse struct {
-	Enabled            bool   `json:"enabled"`
-	LAPIURL            string `json:"lapi_url"`
-	MachineID          string `json:"machine_id"`
-	PollIntervalS      int    `json:"poll_interval_seconds"`
-	TLSSkipVerify      bool   `json:"tls_skip_verify"`
-	MachinePasswordSet bool   `json:"machine_password_configured"`
-	BouncerKeySet      bool   `json:"bouncer_api_key_configured"`
+	Enabled            bool    `json:"enabled"`
+	LAPIURL            string  `json:"lapi_url"`
+	MachineID          string  `json:"machine_id"`
+	PollIntervalS      int     `json:"poll_interval_seconds"`
+	TLSSkipVerify      bool    `json:"tls_skip_verify"`
+	MapHomeLat         float64 `json:"map_home_latitude"`
+	MapHomeLng         float64 `json:"map_home_longitude"`
+	MachinePasswordSet bool    `json:"machine_password_configured"`
+	BouncerKeySet      bool    `json:"bouncer_api_key_configured"`
 }
 
 type crowdsecConfigUpdate struct {
@@ -54,6 +56,8 @@ func HandleGetCrowdSecConfig() http.HandlerFunc {
 				MachineID:          cfg.MachineID,
 				PollIntervalS:      cfg.PollIntervalS,
 				TLSSkipVerify:      cfg.TLSSkipVerify,
+				MapHomeLat:         cfg.MapHomeLat,
+				MapHomeLng:         cfg.MapHomeLng,
 				MachinePasswordSet: cfg.MachinePassword != "",
 				BouncerKeySet:      cfg.BouncerAPIKey != "",
 			}
@@ -128,6 +132,17 @@ func HandleSaveCrowdSecConfig() http.HandlerFunc {
 		}
 		if req.PollIntervalS > 3600 {
 			req.PollIntervalS = 3600
+		}
+
+		// Map home position: clamp to valid lat/lng ranges; 0,0 means
+		// unset (the UI falls back to London, matching the default TZ).
+		if req.MapHomeLat < -90 || req.MapHomeLat > 90 {
+			http.Error(w, "map home latitude must be between -90 and 90", http.StatusBadRequest)
+			return
+		}
+		if req.MapHomeLng < -180 || req.MapHomeLng > 180 {
+			http.Error(w, "map home longitude must be between -180 and 180", http.StatusBadRequest)
+			return
 		}
 
 		if err := database.SaveCrowdSecConfig(&req.CrowdSecConfig); err != nil {

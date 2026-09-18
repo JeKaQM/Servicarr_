@@ -44,6 +44,16 @@ async function loadCrowdsecConfig() {
     $('#crowdsecMachineID').value = (config && config.machine_id) || '';
     $('#crowdsecInterval').value = (config && config.poll_interval_seconds) || 30;
     $('#crowdsecSkipVerify').checked = !!(config && config.tls_skip_verify);
+    if (config && typeof config.map_home_latitude === 'number') {
+      const latInput = $('#crowdsecMapLat');
+      if (latInput) latInput.value = config.map_home_latitude || '';
+      const lngInput = $('#crowdsecMapLng');
+      if (lngInput) lngInput.value = config.map_home_longitude || '';
+      // 0,0 = unset → keep the London default on the canvas.
+      if (config.map_home_latitude || config.map_home_longitude) {
+        crowdsecMapHome = { lat: config.map_home_latitude, lng: config.map_home_longitude };
+      }
+    }
     setCrowdsecSecretField('#crowdsecBouncerKey', '#clearCrowdsecBouncerKey', !!(config && config.bouncer_api_key_configured));
     setCrowdsecSecretField('#crowdsecMachinePassword', '#clearCrowdsecMachinePassword', !!(config && config.machine_password_configured));
   } catch (err) {
@@ -62,7 +72,9 @@ async function saveCrowdsecConfig(e) {
     clear_machine_password: $('#clearCrowdsecMachinePassword').checked,
     clear_bouncer_api_key: $('#clearCrowdsecBouncerKey').checked,
     poll_interval_seconds: parseInt($('#crowdsecInterval').value, 10) || 30,
-    tls_skip_verify: $('#crowdsecSkipVerify').checked
+    tls_skip_verify: $('#crowdsecSkipVerify').checked,
+    map_home_latitude: parseFloat($('#crowdsecMapLat').value) || 0,
+    map_home_longitude: parseFloat($('#crowdsecMapLng').value) || 0
   };
 
   await handleButtonAction(
@@ -328,6 +340,9 @@ async function loadCrowdsecDecisions() {
     renderCrowdsecDecisions(decisions && decisions.decisions ? decisions.decisions : []);
     renderCrowdsecAlerts(alerts && alerts.alerts ? alerts.alerts : []);
     renderCrowdsecStats(stats);
+    if (typeof crowdsecMapApply === 'function') {
+      crowdsecMapApply(alerts && alerts.alerts ? alerts.alerts : []);
+    }
     const badge = $('#crowdsecSyncBadge');
     if (badge) {
       badge.textContent = crowdsecSyncBadgeText(status);
@@ -381,6 +396,9 @@ function initCrowdsecTab() {
   if (!$('#crowdsecForm')) return;
   loadCrowdsecConfig();
   loadCrowdsecDecisions();
+  if (typeof crowdsecMapInit === 'function') crowdsecMapInit();
+  const mapCanvas = $('#crowdsecMap');
+  if (mapCanvas) mapCanvas.addEventListener('mousemove', crowdsecMapOnMouseMove);
   const save = $('#saveCrowdsec');
   if (save) save.addEventListener('click', saveCrowdsecConfig);
   const test = $('#testCrowdsec');

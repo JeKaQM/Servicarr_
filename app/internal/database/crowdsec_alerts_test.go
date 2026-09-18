@@ -58,6 +58,40 @@ func TestSyncCrowdSecAlerts_InsertsNewAndSkipsExisting(t *testing.T) {
 	}
 }
 
+func TestSyncCrowdSecAlerts_GeoRoundtrip(t *testing.T) {
+	initCrowdSecAlertsTestDB(t)
+	now := time.Now().UTC()
+
+	lat, lng := 55.7558, 37.6173 // Moscow
+	alerts := []models.CrowdSecAlert{
+		{AlertID: "geo-1", Scenario: "crowdsecurity/ssh-bf", SourceValue: "5.6.7.8", Country: "RU", CreatedAt: now.Format(time.RFC3339), Latitude: &lat, Longitude: &lng},
+		{AlertID: "geo-2", Scenario: "crowdsecurity/http-probing", SourceValue: "9.9.9.9", Country: "US", CreatedAt: now.Format(time.RFC3339)}, // no geo
+	}
+	if _, err := SyncCrowdSecAlerts(alerts, now); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	got, err := GetCrowdSecAlerts(10)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	byID := map[string]models.CrowdSecAlert{}
+	for _, a := range got {
+		byID[a.AlertID] = a
+	}
+	geo := byID["geo-1"]
+	if geo.Latitude == nil || geo.Longitude == nil {
+		t.Fatalf("geo-1 lost coordinates: %+v", geo)
+	}
+	if *geo.Latitude != lat || *geo.Longitude != lng {
+		t.Errorf("geo-1 roundtrip = (%v, %v), want (%v, %v)", *geo.Latitude, *geo.Longitude, lat, lng)
+	}
+	plain := byID["geo-2"]
+	if plain.Latitude != nil || plain.Longitude != nil {
+		t.Errorf("geo-2 should have nil coordinates: %+v", plain)
+	}
+}
+
 func TestSyncCrowdSecAlerts_EmptyIsNoop(t *testing.T) {
 	initCrowdSecAlertsTestDB(t)
 	inserted, err := SyncCrowdSecAlerts(nil, time.Now().UTC())
