@@ -253,3 +253,46 @@ type CrowdSecSyncStatus struct {
 	DecisionCount int    `json:"decision_count"`       // true LAPI total
 	SnapshotCount int    `json:"snapshot_count"`       // rows actually stored (<= cap)
 }
+
+// CrowdSecAlert is a scenario detection event mirrored from LAPI into the
+// alerts snapshot. Alerts fire on detection — a decision (ban) may or may
+// not follow, which is exactly the "scan that didn't lead to a decision"
+// activity the dashboard surfaces.
+type CrowdSecAlert struct {
+	AlertID     string `json:"alert_id"`
+	Scenario    string `json:"scenario"`
+	Message     string `json:"message"`
+	SourceValue string `json:"source_value"` // attacking IP/range
+	Country     string `json:"country"`      // ISO 3166-1 alpha-2, e.g. "US"
+	ASNumber    string `json:"as_number"`
+	ASName      string `json:"as_name"`
+	EventsCount int64  `json:"events_count"` // how many raw events tripped the scenario
+	StartAt     string `json:"start_at"`     // RFC3339
+	CreatedAt   string `json:"created_at"`   // RFC3339
+	HasDecision bool   `json:"has_decision"`
+	Simulated   bool   `json:"simulated"`
+}
+
+// CrowdSecStats aggregates the alert history for the dashboard overview.
+type CrowdSecStats struct {
+	ActiveDecisions    int                     `json:"active_decisions"`
+	Alerts24h          int64                   `json:"alerts_24h"` // scenario detections, last 24h
+	AlertsWithDecision int64                   `json:"alerts_with_decision_24h"`
+	TopCountry         string                  `json:"top_country"`
+	TopCountryCount    int64                   `json:"top_country_count"`
+	TopScenario        string                  `json:"top_scenario"`
+	Countries          []CrowdSecCountryCount  `json:"countries"`
+	Scenarios          []CrowdSecScenarioCount `json:"scenarios"`
+}
+
+// CrowdSecCountryCount pairs an ISO country code with its alert volume.
+type CrowdSecCountryCount struct {
+	Country string `json:"country"`
+	Count   int64  `json:"count"`
+}
+
+// CrowdSecScenarioCount pairs a scenario name with its alert volume.
+type CrowdSecScenarioCount struct {
+	Scenario string `json:"scenario"`
+	Count    int64  `json:"count"`
+}

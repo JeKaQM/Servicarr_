@@ -40,6 +40,25 @@ func PollCrowdSec(ctx context.Context) error {
 		return err
 	}
 
+	// Alerts (scenario detections — includes scans that produced no decision)
+	// need machine credentials. Missing credentials are not an error: the
+	// decisions dashboard works on the bouncer key alone.
+	alertsInserted := 0
+	if client.HasMachineCredentials() {
+		alerts, alertsErr := fetchAlertsSnapshot(ctx, client)
+		if alertsErr != nil {
+			recordCrowdSecSyncFailure(alertsErr)
+			return alertsErr
+		}
+		if len(alerts) > 0 {
+			syncedAt := time.Now().UTC()
+			alertsInserted, alertsErr = database.SyncCrowdSecAlerts(alerts, syncedAt)
+			if alertsErr != nil {
+				return alertsErr
+			}
+		}
+	}
+
 	syncedAt := time.Now().UTC()
 	total := len(remote)
 	changed, syncErr := database.SyncCrowdSecDecisions(remote, total, syncedAt)
@@ -48,6 +67,10 @@ func PollCrowdSec(ctx context.Context) error {
 	}
 	if changed > 0 {
 		logCrowdSecSync(changed, total)
+	}
+	if alertsInserted > 0 {
+		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "",
+			"CrowdSec alerts synced", fmt.Sprintf("new=%d", alertsInserted))
 	}
 	return nil
 }
@@ -119,6 +142,58 @@ func fetchDecisionsSnapshot(ctx context.Context, client *crowdsec.Client) ([]mod
 func recordCrowdSecSyncFailure(err error) {
 	authFailed := errors.Is(err, crowdsec.ErrAuthFailed)
 	_ = database.SaveCrowdSecSyncError(checker.SanitizeError(err.Error()), authFailed)
+}
+
+// fetchAlertsSnapshot pulls recent scenario-detection alerts (LAPI applies
+// its own `since` sliding window server-side). Alerts are immutable, so
+// the DB merge dedups by ID. Machine credentials required.
+func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models.CrowdSecAlert, error) {
+	if client == nil {
+		return nil, fmt.Errorf("crowdsec client unavailable")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	remote, err := client.Alerts(fetchCtx, crowdsec.AlertsParams{
+		Limit: database.CrowdSecMaxAlertRows,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]models.CrowdSecAlert, 0, len(remote))
+	for _, a := range remote {
+		id := ""
+		if a.ID != nil {
+			id = fmt.Sprintf("%d", *a.ID)
+		}
+		if id == "" {
+			continue // non-persistable noise; LAPI IDs are always set
+		}
+		var events int64
+		if a.EventsCount != nil {
+			events = *a.EventsCount
+		}
+		simulated := a.Simulated != nil && *a.Simulated
+		alert := models.CrowdSecAlert{
+			AlertID:     id,
+			Scenario:    a.Scenario,
+			Message:     a.Message,
+			EventsCount: events,
+			StartAt:     a.StartAt.Format(time.RFC3339),
+			CreatedAt:   a.CreatedAt.Format(time.RFC3339),
+			Simulated:   simulated,
+			HasDecision: len(a.Decisions) > 0,
+		}
+		if a.Source != nil {
+			alert.SourceValue = a.Source.Value
+			alert.Country = a.Source.Country
+			alert.ASNumber = a.Source.ASNumber
+			alert.ASName = a.Source.ASName
+		}
+		out = append(out, alert)
+	}
+	return out, nil
 }
 
 func logCrowdSecSync(changed, total int) {

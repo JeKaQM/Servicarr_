@@ -65,6 +65,13 @@ func (c *Client) userAgent() string {
 	return "Servicarr/" + buildinfo.Current().Version
 }
 
+// HasMachineCredentials reports whether alert fetching (machine JWT realm)
+// is possible with this configuration. Lets the syncer degrade gracefully
+// to a decisions-only dashboard when only a bouncer key is configured.
+func (c *Client) HasMachineCredentials() bool {
+	return c.cfg.MachineID != "" && c.cfg.MachinePassword != ""
+}
+
 // Health checks LAPI liveness via GET /health (no /v1 prefix, no auth).
 // Useful for connection tests before credentials are configured. Any
 // transport failure wraps ErrUnreachable; any HTTP answer (even 500)

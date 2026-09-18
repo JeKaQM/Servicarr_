@@ -121,7 +121,8 @@ Servicarr can mirror active decisions from a [CrowdSec](https://crowdsec.net) Lo
 
 Design notes:
 
-- Decisions are synced by a background loop into a capped snapshot table (latest 500); the true LAPI total can be higher and is surfaced as "showing latest 500 of N".
+- **Dashboard** — overview cards (active decisions, 24h detections, top origin country, top scenario), a live activity feed of scenario detections (including scans that produced no ban — each row shows whether a ban followed), attack-origin and scenario volume bars for the last 24 hours, and the active-decisions table. Lists collapse to their five newest rows and expand on demand; the connection settings collapse too.
+- Decisions are synced by a background loop into a capped snapshot table (latest 500); the true LAPI total can be higher and is surfaced as "showing latest 500 of N". Alerts are mirrored into their own capped history (latest 2000, deduped by ID).
 - The snapshot is read from SQLite, so the dashboard keeps working while LAPI is briefly down; the sync badge shows when the last successful sync ran, and persistent failures show a distinct *auth failed* state.
 - Cloud metadata endpoints are rejected from the LAPI URL (same SSRF guard as monitored services); redirects are never followed; credentials are AES-256-GCM encrypted at rest, never returned by the API, and excluded from database backups.
 - Sync state (last success, last error) is persisted so restarts don't lose the badge context.

@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -267,6 +267,25 @@ CREATE TABLE IF NOT EXISTS crowdsec_decisions (
 CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_expires ON crowdsec_decisions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_value ON crowdsec_decisions(value);
 CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_created ON crowdsec_decisions(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS crowdsec_alerts (
+  alert_id TEXT PRIMARY KEY,
+  scenario TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  source_value TEXT NOT NULL DEFAULT '',
+  country TEXT NOT NULL DEFAULT '',
+  as_number TEXT NOT NULL DEFAULT '',
+  as_name TEXT NOT NULL DEFAULT '',
+  events_count INTEGER NOT NULL DEFAULT 0,
+  start_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  has_decision INTEGER NOT NULL DEFAULT 0,
+  simulated INTEGER NOT NULL DEFAULT 0,
+  synced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_created ON crowdsec_alerts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_country ON crowdsec_alerts(country);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_scenario ON crowdsec_alerts(scenario);
 `)
 	if err != nil {
 		return err

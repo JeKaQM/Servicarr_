@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"status/app/internal/crowdsec"
@@ -209,6 +210,56 @@ func HandleCrowdSecSyncNow() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}
+}
+
+// HandleGetCrowdSecAlerts returns the newest scenario-detection alerts for
+// the live activity feed. Reads only the local snapshot — includes scans
+// that produced no decision (that's the point).
+func HandleGetCrowdSecAlerts() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		limit := 50
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= database.CrowdSecMaxAlertRows {
+				limit = n
+			}
+		}
+		alerts, err := database.GetCrowdSecAlerts(limit)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"alerts": alerts,
+			"count":  len(alerts),
+		})
+	}
+}
+
+// HandleGetCrowdSecStats returns the dashboard overview aggregates
+// (24h counts, top country/scenario, country + scenario breakdowns).
+func HandleGetCrowdSecStats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		stats, err := database.GetCrowdSecStats()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(stats)
 	}
 }
 

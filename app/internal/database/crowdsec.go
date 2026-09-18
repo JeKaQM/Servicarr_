@@ -16,6 +16,10 @@ import (
 // shows "latest N of total".
 const CrowdSecMaxSnapshotRows = 500
 
+// CrowdSecMaxAlertRows caps the alerts snapshot table. Alerts are history —
+// append-only with dedup, newest first, pruned by age in the same pass.
+const CrowdSecMaxAlertRows = 2000
+
 // LoadCrowdSecConfig loads CrowdSec LAPI configuration. Returns (nil, nil)
 // when no row exists (first run). Secrets are decrypted; on decryption
 // failure the field is blanked (ciphertext is never surfaced) and the
@@ -290,4 +294,147 @@ func GetCrowdSecSnapshotCount() (int, error) {
 	var n int
 	err := DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_decisions`).Scan(&n)
 	return n, err
+}
+
+// SyncCrowdSecAlerts merges fetched alerts into the snapshot table.
+// Append-only: new alert IDs are inserted, existing IDs are skipped (alerts
+// are immutable events in LAPI — no updates). Runs in one short transaction
+// with the age/cap prune so the table stays bounded. Network I/O must
+// complete BEFORE this runs (MaxOpenConns(1)).
+func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int, error) {
+	if len(alerts) == 0 {
+		return 0, nil
+	}
+	tx, err := DB.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	ins, err := tx.Prepare(`INSERT INTO crowdsec_alerts
+		(alert_id, scenario, message, source_value, country, as_number, as_name,
+		 events_count, start_at, created_at, has_decision, simulated, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(alert_id) DO NOTHING`)
+	if err != nil {
+		return 0, err
+	}
+	defer ins.Close()
+
+	synced := syncedAt.UTC().Format(time.RFC3339)
+	inserted := 0
+	for _, a := range alerts {
+		if a.AlertID == "" {
+			continue
+		}
+		res, err := ins.Exec(a.AlertID, a.Scenario, a.Message, a.SourceValue, a.Country,
+			a.ASNumber, a.ASName, a.EventsCount, a.StartAt, a.CreatedAt,
+			boolInt(a.HasDecision), boolInt(a.Simulated), synced)
+		if err != nil {
+			return 0, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			inserted++
+		}
+	}
+
+	// Prune: keep the newest CrowdSecMaxAlertRows (age is covered by LAPI's
+	// sliding `since` window on subsequent syncs; the cap bounds history).
+	if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE alert_id NOT IN (
+		SELECT alert_id FROM crowdsec_alerts ORDER BY created_at DESC LIMIT ?)`,
+		CrowdSecMaxAlertRows); err != nil {
+		return 0, err
+	}
+
+	return inserted, tx.Commit()
+}
+
+// GetCrowdSecAlerts returns the newest alerts for the activity feed.
+func GetCrowdSecAlerts(limit int) ([]models.CrowdSecAlert, error) {
+	if limit <= 0 || limit > CrowdSecMaxAlertRows {
+		limit = 50
+	}
+	rows, err := DB.Query(`SELECT alert_id, scenario, message, source_value, country,
+		as_number, as_name, events_count, start_at, created_at, has_decision, simulated
+		FROM crowdsec_alerts ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []models.CrowdSecAlert{} // non-nil so handlers marshal [] not null
+	for rows.Next() {
+		var a models.CrowdSecAlert
+		var hasDecision, simulated int
+		if err := rows.Scan(&a.AlertID, &a.Scenario, &a.Message, &a.SourceValue, &a.Country,
+			&a.ASNumber, &a.ASName, &a.EventsCount, &a.StartAt, &a.CreatedAt,
+			&hasDecision, &simulated); err != nil {
+			return nil, err
+		}
+		a.HasDecision = hasDecision != 0
+		a.Simulated = simulated != 0
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// GetCrowdSecStats aggregates the alert snapshot for the dashboard:
+// 24h counts, top country/scenario, per-country and per-scenario volumes.
+// All computed in SQL — the rows are already local and bounded.
+func GetCrowdSecStats() (*models.CrowdSecStats, error) {
+	stats := &models.CrowdSecStats{}
+	now := time.Now().UTC().Format(time.RFC3339)
+	dayAgo := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+
+	if err := DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_decisions WHERE expires_at > ?`,
+		now).Scan(&stats.ActiveDecisions); err != nil {
+		return nil, err
+	}
+	if err := DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(has_decision), 0)
+		FROM crowdsec_alerts WHERE created_at > ?`, dayAgo).Scan(&stats.Alerts24h, &stats.AlertsWithDecision); err != nil {
+		return nil, err
+	}
+
+	// Countries (last 24h), ordered by volume; empty country grouped under "".
+	rows, err := DB.Query(`SELECT COALESCE(NULLIF(country, ''), '??') AS cc, COUNT(*) AS n
+		FROM crowdsec_alerts WHERE created_at > ?
+		GROUP BY cc ORDER BY n DESC LIMIT 10`, dayAgo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c models.CrowdSecCountryCount
+		if err := rows.Scan(&c.Country, &c.Count); err != nil {
+			return nil, err
+		}
+		if stats.TopCountry == "" {
+			stats.TopCountry = c.Country
+			stats.TopCountryCount = c.Count
+		}
+		stats.Countries = append(stats.Countries, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Scenarios (last 24h).
+	srows, err := DB.Query(`SELECT scenario, COUNT(*) AS n
+		FROM crowdsec_alerts WHERE created_at > ? AND scenario != ''
+		GROUP BY scenario ORDER BY n DESC LIMIT 10`, dayAgo)
+	if err != nil {
+		return nil, err
+	}
+	defer srows.Close()
+	for srows.Next() {
+		var s models.CrowdSecScenarioCount
+		if err := srows.Scan(&s.Scenario, &s.Count); err != nil {
+			return nil, err
+		}
+		if stats.TopScenario == "" {
+			stats.TopScenario = s.Scenario
+		}
+		stats.Scenarios = append(stats.Scenarios, s)
+	}
+	return stats, srows.Err()
 }

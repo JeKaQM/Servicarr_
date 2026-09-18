@@ -90,6 +90,196 @@
   white-space: nowrap;
 }
 
+/* Stats overview cards */
+.crowdsec-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.crowdsec-stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.crowdsec-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  word-break: break-all;
+}
+.crowdsec-stat-value.crowdsec-stat-wide {
+  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding-top: 6px;
+}
+.crowdsec-stat-label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Two-column dashboard layout */
+.crowdsec-dashboard-columns {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .crowdsec-dashboard-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Live activity feed */
+.crowdsec-alerts {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.crowdsec-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.crowdsec-flag {
+  display: inline-block;
+  min-width: 26px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #7cb0f5;
+  letter-spacing: 0.05em;
+}
+.crowdsec-alert-scenario {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.crowdsec-alert-ip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted);
+  word-break: break-all;
+}
+.crowdsec-alert-count {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.crowdsec-alert-simulated {
+  color: var(--muted);
+  font-size: 12px;
+}
+.crowdsec-alert-outcome-wrap {
+  display: inline-flex;
+}
+.crowdsec-alert-outcome {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.crowdsec-outcome-banned {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--down);
+}
+.crowdsec-outcome-scan {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+.crowdsec-alert-when {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* Country / scenario breakdown bars */
+.crowdsec-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.crowdsec-breakdown-title {
+  margin-top: 18px;
+}
+.crowdsec-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 120px) 1fr 34px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.crowdsec-breakdown-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crowdsec-breakdown-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  height: 12px;
+  overflow: hidden;
+}
+.crowdsec-breakdown-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.7), rgba(220, 38, 38, 0.45));
+  min-width: 4px;
+}
+.crowdsec-breakdown-count {
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Expand / collapse controls */
+.crowdsec-expand {
+  margin-top: 10px;
+  text-align: center;
+}
+.crowdsec-collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+.crowdsec-collapsible-header h3 {
+  margin: 0;
+}
+.crowdsec-chevron {
+  color: var(--muted);
+  font-size: 14px;
+}
+.crowdsec-collapsible-body.crowdsec-collapsed {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .crowdsec-decision-row {
     grid-template-columns: 80px minmax(120px, 1fr) 90px;
@@ -101,5 +291,12 @@
   }
   .crowdsec-decision-header {
     display: none;
+  }
+  .crowdsec-alert-row {
+    flex-wrap: wrap;
+  }
+  .crowdsec-alert-when {
+    margin-left: 0;
+    width: 100%;
   }
 }

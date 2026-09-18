@@ -115,6 +115,12 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	authAPI.HandleFunc("/api/admin/crowdsec/decisions", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		HandleGetCrowdSecDecisions()(w, r)
 	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/alerts", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleGetCrowdSecAlerts()(w, r)
+	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/stats", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleGetCrowdSecStats()(w, r)
+	}))
 	authAPI.HandleFunc("/api/admin/crowdsec/sync-now", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		HandleCrowdSecSyncNow()(w, r)
 	}))
