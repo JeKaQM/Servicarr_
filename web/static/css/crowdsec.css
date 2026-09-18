@@ -1,0 +1,105 @@
+/* CrowdSec admin tab */
+
+.crowdsec-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.crowdsec-dashboard-header h3 {
+  margin: 0;
+}
+.crowdsec-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.crowdsec-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.crowdsec-badge-error {
+  color: var(--down);
+  border-color: var(--down);
+}
+
+.crowdsec-decisions {
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.crowdsec-decision-row {
+  display: grid;
+  grid-template-columns: 90px minmax(140px, 1fr) 110px minmax(160px, 1.4fr) 90px 170px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.crowdsec-decision-row:last-child {
+  border-bottom: none;
+}
+.crowdsec-decision-header {
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.crowdsec-decision-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.crowdsec-type-ban {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--down);
+}
+.crowdsec-type-other {
+  background: rgba(217, 119, 6, 0.15);
+  color: #d97706;
+}
+.crowdsec-decision-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.crowdsec-decision-origin,
+.crowdsec-decision-scenario {
+  color: var(--muted);
+  word-break: break-all;
+}
+.crowdsec-decision-created {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .crowdsec-decision-row {
+    grid-template-columns: 80px minmax(120px, 1fr) 90px;
+  }
+  .crowdsec-decision-origin,
+  .crowdsec-decision-scenario,
+  .crowdsec-decision-created {
+    display: none;
+  }
+  .crowdsec-decision-header {
+    display: none;
+  }
+}

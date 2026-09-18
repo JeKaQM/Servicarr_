@@ -40,6 +40,7 @@ var adminCSSFiles = []string{
 	"web/static/css/admin-tabs.css",
 	"web/static/css/settings.css",
 	"web/static/css/logs.css",
+	"web/static/css/crowdsec.css",
 }
 
 // Public JS bundle — order matches index.html script loading order
@@ -61,6 +62,7 @@ var publicJSFiles = []string{
 // Admin JS bundle — lazy-loaded for authenticated users only
 var adminJSFiles = []string{
 	"web/static/js/admin-ui.js",
+	"web/static/js/crowdsec-tab.js",
 	"web/static/js/service-mgmt.js",
 	"web/static/js/settings-tab.js",
 	"web/static/js/logs-tab.js",

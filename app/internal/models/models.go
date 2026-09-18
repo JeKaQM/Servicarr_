@@ -214,3 +214,42 @@ type ScheduleInfo struct {
 	NextRun     string `json:"next_run"`
 	Status      string `json:"status"` // running, idle, error
 }
+
+// CrowdSecConfig stores CrowdSec Local API (LAPI) connection configuration.
+// Secrets are encrypted at rest; handlers must never serialize this struct
+// directly into admin responses (use a response struct with *_configured
+// flags, mirroring the alert config pattern).
+type CrowdSecConfig struct {
+	Enabled         bool   `json:"enabled"`
+	LAPIURL         string `json:"lapi_url"`
+	MachineID       string `json:"machine_id"`
+	MachinePassword string `json:"machine_password"` // write-only from the UI
+	BouncerAPIKey   string `json:"bouncer_api_key"`  // write-only from the UI
+	PollIntervalS   int    `json:"poll_interval_seconds"`
+	TLSSkipVerify   bool   `json:"tls_skip_verify"`
+}
+
+// CrowdSecDecision is a single active decision mirrored from LAPI into the
+// snapshot table. Expired rows are filtered at read time via expires_at.
+type CrowdSecDecision struct {
+	DecisionID string `json:"decision_id"`
+	Value      string `json:"value"` // IP or CIDR
+	Type       string `json:"type"`  // ban, captcha, ...
+	Scope      string `json:"scope"` // Ip, Range
+	Origin     string `json:"origin"`
+	Scenario   string `json:"scenario"`
+	Duration   string `json:"duration"` // remaining, e.g. "3h59m55s"
+	Simulated  bool   `json:"simulated"`
+	CreatedAt  string `json:"created_at"` // RFC3339
+	ExpiresAt  string `json:"expires_at"` // RFC3339
+	SyncedAt   string `json:"synced_at"`  // RFC3339, our ingest time
+}
+
+// CrowdSecSyncStatus is the poller-owned runtime state surfaced to the UI.
+type CrowdSecSyncStatus struct {
+	LastSync      string `json:"last_sync"`            // RFC3339; empty = never
+	LastError     string `json:"last_error,omitempty"` // sanitized error text
+	AuthFailed    bool   `json:"auth_failed"`          // credentials rejected
+	DecisionCount int    `json:"decision_count"`       // true LAPI total
+	SnapshotCount int    `json:"snapshot_count"`       // rows actually stored (<= cap)
+}

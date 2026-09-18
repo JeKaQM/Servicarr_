@@ -459,6 +459,21 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			_ = database.SaveResourcesUIConfig(resCfg)
 		}
 
+		// Import CrowdSec config (no secrets in backups; imported disabled)
+		if export.CrowdSec != nil {
+			csCfg := &models.CrowdSecConfig{
+				Enabled:       false,
+				LAPIURL:       export.CrowdSec.LAPIURL,
+				MachineID:     export.CrowdSec.MachineID,
+				PollIntervalS: export.CrowdSec.PollIntervalS,
+				TLSSkipVerify: export.CrowdSec.TLSSkipVerify,
+			}
+			if csCfg.PollIntervalS < 10 {
+				csCfg.PollIntervalS = 30
+			}
+			_ = database.SaveCrowdSecConfig(csCfg)
+		}
+
 		// Import samples
 		if len(export.Samples) > 0 {
 			_, _ = database.DB.Exec(`DELETE FROM samples`)

@@ -98,6 +98,29 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 		}
 		HandleTestResourcesConnection()(w, r)
 	}))
+	// CrowdSec integration (admin only)
+	authAPI.HandleFunc("/api/admin/crowdsec/config", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			HandleGetCrowdSecConfig()(w, r)
+		case http.MethodPost:
+			HandleSaveCrowdSecConfig()(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/status", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleGetCrowdSecStatus()(w, r)
+	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/decisions", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleGetCrowdSecDecisions()(w, r)
+	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/sync-now", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleCrowdSecSyncNow()(w, r)
+	}))
+	authAPI.HandleFunc("/api/admin/crowdsec/test", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		HandleTestCrowdSecConnection()(w, r)
+	}))
 	authAPI.HandleFunc("/api/admin/alerts/test", authMgr.RequireAuth(HandleTestEmail(alertMgr)))
 	authAPI.HandleFunc("/api/admin/alerts/test-channel", authMgr.RequireAuth(HandleTestNotification(alertMgr)))
 	authAPI.HandleFunc("/api/admin/status-alerts", authMgr.RequireAuth(func(w http.ResponseWriter, r *http.Request) {

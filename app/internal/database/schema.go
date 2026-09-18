@@ -3,7 +3,7 @@ package database
 import "strconv"
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -229,6 +229,44 @@ CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON system_logs(timestamp);
 CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level);
 CREATE INDEX IF NOT EXISTS idx_logs_category ON system_logs(category);
 CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
+
+CREATE TABLE IF NOT EXISTS crowdsec_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  lapi_url TEXT NOT NULL DEFAULT '',
+  lapi_machine_id TEXT NOT NULL DEFAULT '',
+  lapi_machine_password TEXT NOT NULL DEFAULT '',
+  bouncer_api_key TEXT NOT NULL DEFAULT '',
+  poll_interval INTEGER NOT NULL DEFAULT 30,
+  tls_skip_verify INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS crowdsec_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_sync TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  auth_failed INTEGER NOT NULL DEFAULT 0,
+  decision_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS crowdsec_decisions (
+  decision_id TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'ban',
+  scope TEXT NOT NULL DEFAULT 'Ip',
+  origin TEXT NOT NULL DEFAULT '',
+  scenario TEXT NOT NULL DEFAULT '',
+  duration TEXT NOT NULL DEFAULT '',
+  simulated INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  synced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_expires ON crowdsec_decisions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_value ON crowdsec_decisions(value);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_created ON crowdsec_decisions(created_at DESC);
 `)
 	if err != nil {
 		return err

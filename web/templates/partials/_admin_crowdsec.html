@@ -1,0 +1,87 @@
+{{define "admin-crowdsec"}}
+<!-- CrowdSec Tab -->
+<div id="tab-crowdsec" class="tab-content">
+  <h2>CrowdSec Integration</h2>
+  <p class="muted">Mirror active CrowdSec decisions into your status page's security dashboard via the Local API (LAPI).</p>
+
+  <div class="admin-section">
+    <h3>Connection</h3>
+    <form id="crowdsecForm">
+      <div class="form-group">
+        <label for="crowdsecEnabled">
+          <input type="checkbox" id="crowdsecEnabled"> Enable CrowdSec monitoring
+        </label>
+        <small class="help-text">When enabled, decisions are synced on the configured interval and shown here.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="crowdsecURL">LAPI URL</label>
+        <input type="text" id="crowdsecURL" placeholder="e.g., http://10.0.0.5:8080">
+        <small class="help-text">Root URL of your CrowdSec Local API. A trailing /v1 is accepted and stripped automatically.</small>
+      </div>
+
+      <h3>Credentials</h3>
+      <div class="form-group">
+        <label for="crowdsecBouncerKey">Bouncer API Key <span class="muted">(read decisions)</span></label>
+        <input type="password" id="crowdsecBouncerKey" autocomplete="new-password" placeholder="Bouncer API key">
+        <small class="help-text">Create with <code>cscli bouncers add servicarr</code>. Required for the decisions dashboard.</small>
+        <div class="stored-secret-clear hidden">
+          <label class="checkbox-label">
+            <input type="checkbox" id="clearCrowdsecBouncerKey"> Remove saved key
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="crowdsecMachineID">Machine ID <span class="muted">(read alerts — optional)</span></label>
+        <input type="text" id="crowdsecMachineID" autocomplete="off" placeholder="e.g., myserver">
+        <small class="help-text">Machine credentials can also read alerts. Only needed if you plan to use alert features.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="crowdsecMachinePassword">Machine Password <span class="muted">(optional)</span></label>
+        <input type="password" id="crowdsecMachinePassword" autocomplete="new-password" placeholder="Machine password">
+        <div class="stored-secret-clear hidden">
+          <label class="checkbox-label">
+            <input type="checkbox" id="clearCrowdsecMachinePassword"> Remove saved password
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="crowdsecInterval">Sync interval (seconds)</label>
+        <input type="number" id="crowdsecInterval" min="10" max="3600" value="30">
+        <small class="help-text">How often to sync decisions from LAPI. Between 10 and 3600 seconds.</small>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="crowdsecSkipVerify"> Skip TLS certificate verification
+        </label>
+        <small class="help-text">Only for self-signed certificates on HTTPS LAPI. Not recommended — use a trusted CA when possible.</small>
+      </div>
+
+      <div class="ops">
+        <button type="button" id="testCrowdsec" class="btn ghost">Test Connection</button>
+        <button type="button" id="saveCrowdsec" class="btn">Save Settings</button>
+      </div>
+
+      <div id="crowdsecStatus" class="status-message hidden"></div>
+    </form>
+  </div>
+
+  <div class="admin-section">
+    <div class="crowdsec-dashboard-header">
+      <h3>Active Decisions</h3>
+      <div class="crowdsec-header-actions">
+        <span id="crowdsecSyncBadge" class="crowdsec-badge muted">Not synced yet</span>
+        <button type="button" id="crowdsecSyncNow" class="btn ghost small">Sync Now</button>
+      </div>
+    </div>
+    <p class="muted">Banned IPs and ranges mirrored from LAPI. Shows the latest 500 decisions.</p>
+    <div id="crowdsecDecisions" class="crowdsec-decisions">
+      <div class="muted">No decisions synced yet.</div>
+    </div>
+  </div>
+</div>
+{{end}}
