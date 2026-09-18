@@ -223,7 +223,7 @@ function renderCrowdsecAlerts(alerts) {
   crowdsecAllAlerts = alerts || [];
 
   if (!crowdsecAllAlerts.length) {
-    container.innerHTML = '<div class="muted">No activity synced yet. Configure machine credentials for the detections feed.</div>';
+    container.innerHTML = '<div class="muted">No detections synced yet. This feed needs machine credentials: run <code>cscli machines add servicarr</code> on your CrowdSec host, then enter the generated password under <em>Machine Password</em> in Connection settings below. Decisions sync on the bouncer key alone.</div>';
     toggleCrowdsecExpand('#crowdsecAlertsExpand', false);
     return;
   }

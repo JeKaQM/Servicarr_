@@ -158,6 +158,49 @@ describe('crowdsecMapApply', () => {
   });
 });
 
+/* ── crowdsecMapLayout ─────────────────────────────────── */
+describe('crowdsecMapLayout', () => {
+  test('keeps the 2:1 projection aspect in a wide box', () => {
+    const l = crowdsecMapLayout(800, 400); // nearly 2:1 container
+    expect(l.w).toBeCloseTo(760);
+    expect(l.h).toBeCloseTo(l.w / 2);
+  });
+
+  test('letterboxes vertically when the box is too short', () => {
+    const l = crowdsecMapLayout(400, 500); // narrow-tall container: 2:1 fits on width
+    expect(l.w).toBeCloseTo(380);
+    expect(l.h).toBeCloseTo(190);
+    expect(l.y).toBeCloseTo((500 - 190) / 2); // centered
+  });
+
+  test('letterboxes vertically when the box is too wide (max-height clamp)', () => {
+    const l = crowdsecMapLayout(1000, 300); // ultra-wide container
+    expect(l.h).toBeCloseTo(280);
+    expect(l.w).toBeCloseTo(560);
+  });
+
+  test('centers the map area inside the canvas', () => {
+    const l = crowdsecMapLayout(400, 500);
+    expect(l.x).toBeCloseTo((400 - l.w) / 2);
+    expect(l.y).toBeCloseTo((500 - l.h) / 2);
+  });
+
+  test('dot size scales with map width and stays readable', () => {
+    const tiny = crowdsecMapLayout(300, 150);
+    const wide = crowdsecMapLayout(1000, 300);
+    expect(tiny.dot).toBeGreaterThanOrEqual(1.3);
+    expect(wide.dot).toBeLessThanOrEqual(3.2);
+    expect(wide.dot).toBeGreaterThanOrEqual(tiny.dot);
+  });
+
+  test('degenerate tiny canvas still yields a usable map', () => {
+    const l = crowdsecMapLayout(100, 40);
+    expect(l.w).toBeGreaterThan(0);
+    expect(l.h).toBeGreaterThan(0);
+    expect(l.w).toBeCloseTo(l.h * 2);
+  });
+});
+
 /* ── quad (bezier helper) ───────────────────────────────── */
 describe('quad', () => {
   test('interpolates endpoints correctly', () => {

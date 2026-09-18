@@ -154,6 +154,30 @@ function crowdsecQueueStrike(alert, delayMs) {
   return strike;
 }
 
+// crowdsecMapLayout computes the letterboxed 2:1 map area inside the canvas
+// so the equirectangular projection never distorts, whatever the container
+// size is. Returns {x, y, w, h, dot} — map origin, size, and adaptive dot size.
+function crowdsecMapLayout(w, h) {
+  const pad = 10;
+  const availW = w - pad * 2;
+  const availH = h - pad * 2;
+  // Fit the largest 2:1 box inside the available area (letterbox either way).
+  let mapW = availW;
+  let mapH = mapW / 2;
+  if (mapH > availH) {
+    mapH = availH;
+    mapW = mapH * 2;
+  }
+  return {
+    x: (w - mapW) / 2,
+    y: (h - mapH) / 2,
+    w: mapW,
+    h: mapH,
+    // Dot size scales with the map width, clamped for readability.
+    dot: Math.min(3.2, Math.max(1.3, mapW / 460))
+  };
+}
+
 // The animation loop: draw dots, home beacon, strike arcs, pins.
 function crowdsecMapLoop() {
   const canvas = $('#crowdsecMap');
@@ -167,7 +191,6 @@ function crowdsecMapLoop() {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.width / dpr;
   const h = canvas.height / dpr;
-  const pad = 8;
 
   ctx.clearRect(0, 0, w, h);
 
@@ -178,21 +201,23 @@ function crowdsecMapLoop() {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Dot-matrix land.
-  const dotSize = Math.max(1.4, w / 480);
-  const mapW = w - pad * 2;
-  const mapH = h - pad * 2;
+  // Dot-matrix land inside the letterboxed 2:1 area.
+  const layout = crowdsecMapLayout(w, h);
+  const mapW = layout.w;
+  const mapH = layout.h;
+  const ox = layout.x;
+  const oy = layout.y;
   ctx.fillStyle = 'rgba(90, 130, 180, 0.35)';
   for (const [lat, lng] of CROWDSEC_LAND_TILES) {
     const p = crowdsecProject(lat + 4, lng + 4); // tile center
     ctx.beginPath();
-    ctx.arc(pad + p.x * mapW, pad + p.y * mapH, dotSize, 0, Math.PI * 2);
+    ctx.arc(ox + p.x * mapW, oy + p.y * mapH, layout.dot, 0, Math.PI * 2);
     ctx.fill();
   }
 
   const home = crowdsecProject(crowdsecMapHome.lat, crowdsecMapHome.lng);
-  const hx = pad + home.x * mapW;
-  const hy = pad + home.y * mapH;
+  const hx = ox + home.x * mapW;
+  const hy = oy + home.y * mapH;
 
   // Home beacon: pulsing rings.
   const t = Date.now() / 1000;
@@ -219,8 +244,8 @@ function crowdsecMapLoop() {
     s.progress = Math.min(1.35, s.progress + 0.016);
 
     const from = s.from;
-    const fx = pad + from.x * mapW;
-    const fy = pad + from.y * mapH;
+    const fx = ox + from.x * mapW;
+    const fy = oy + from.y * mapH;
 
     // Attacker pin: small red dot that glows while its strike is live.
     if (s.progress < 1.1) {
@@ -234,8 +259,10 @@ function crowdsecMapLoop() {
     }
 
     // Quadratic arc from attacker to home; the comet head travels along it.
+    // The apex lifts proportionally to the arc span but stays inside the box.
     const mx = (fx + hx) / 2;
-    const my = Math.min(fy, hy) - Math.abs(hx - fx) * 0.18 - 20;
+    const apex = Math.min(fy, hy) - Math.max(14, Math.min(fy, hy) - oy);
+    const my = Math.max(oy, apex - Math.abs(hx - fx) * 0.12);
     const head = Math.min(1, s.progress);
 
     ctx.beginPath();
@@ -280,7 +307,7 @@ function crowdsecMapLoop() {
   crowdsecMapStrikes = crowdsecMapStrikes.filter(s => s.progress < 1.35);
 
   // Hover tooltip handling (cheap hit test on attacker pins).
-  crowdsecMapDrawHover(ctx, pad, mapW, mapH);
+  crowdsecMapDrawHover(ctx, layout);
 
   requestAnimationFrame(crowdsecMapLoop);
 }
@@ -296,7 +323,7 @@ function quad(p0, p1, p2, t) {
 var crowdsecMapHover = null;
 
 // crowdsecMapDrawHover renders the tooltip for the nearest attacker pin.
-function crowdsecMapDrawHover(ctx, pad, mapW, mapH) {
+function crowdsecMapDrawHover(ctx, layout) {
   const tip = $('#crowdsecMapTip');
   if (!tip) return;
   if (!crowdsecMapHover) {
@@ -312,8 +339,8 @@ function crowdsecMapDrawHover(ctx, pad, mapW, mapH) {
   tip.classList.remove('hidden');
   // Position near the pin, clamped to the canvas.
   const p = crowdsecProject(a.latitude, a.longitude);
-  const x = Math.min(Math.max(pad + p.x * mapW, 60), mapW - 20);
-  const y = Math.max(10, pad + p.y * mapH - 40);
+  const x = Math.min(Math.max(layout.x + p.x * layout.w, 60), layout.w + layout.x - 20);
+  const y = Math.max(10, layout.y + p.y * layout.h - 40);
   tip.style.left = x + 'px';
   tip.style.top = y + 'px';
 }
@@ -325,16 +352,14 @@ function crowdsecMapOnMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
-  const pad = 8;
-  const mapW = rect.width - pad * 2;
-  const mapH = rect.height - pad * 2;
+  const layout = crowdsecMapLayout(rect.width, rect.height);
   let best = null;
   let bestDist = 12;
   for (const a of crowdsecAllAlerts) {
     if (a.latitude == null || a.longitude == null) continue;
     const p = crowdsecProject(a.latitude, a.longitude);
-    const ax = pad + p.x * mapW;
-    const ay = pad + p.y * mapH;
+    const ax = layout.x + p.x * layout.w;
+    const ay = layout.y + p.y * layout.h;
     const d = Math.hypot(mx - ax, my - ay);
     if (d < bestDist) {
       bestDist = d;

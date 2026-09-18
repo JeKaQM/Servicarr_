@@ -341,7 +341,11 @@
 .crowdsec-map-wrap {
   position: relative;
   width: 100%;
-  height: 380px;
+  /* Equirectangular world = 2:1. Keep the projection aspect locked while
+     adapting to any screen width; letterboxing handles the rest. */
+  aspect-ratio: 2 / 1;
+  max-height: 420px;
+  min-height: 200px;
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -389,7 +393,9 @@
 }
 @media (max-width: 720px) {
   .crowdsec-map-wrap {
-    height: 260px;
+    /* Narrow screens: 2:1 gets too short to read, relax the clamp. */
+    aspect-ratio: 16 / 10;
+    max-height: none;
   }
   .crowdsec-map-coords {
     flex-direction: column;

@@ -176,7 +176,9 @@ describe('renderCrowdsecAlerts', () => {
 
   test('empty alerts render the credentials hint', () => {
     renderCrowdsecAlerts([]);
-    expect(document.getElementById('crowdsecAlerts').textContent).toContain('No activity synced yet');
+    const text = document.getElementById('crowdsecAlerts').textContent;
+    expect(text).toContain('No detections synced yet');
+    expect(text).toContain('cscli machines add servicarr');
   });
 
   test('alert row shows scenario, IP, country, and outcome', () => {
