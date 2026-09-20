@@ -13,6 +13,14 @@ import (
 	"status/app/internal/models"
 )
 
+// CrowdSec sync cadence and page sizes.
+const (
+	// crowdsecAlertsPageSize caps a single LAPI alerts request. Real LAPI
+	// deployments (ent pagination) fail on large single-page limits, so this
+	// stays at cscli's default page size.
+	crowdsecAlertsPageSize = 100
+)
+
 // PollCrowdSec runs one sync cycle: fetch decisions (and alerts when machine
 // credentials are configured), then converge the snapshot table. Returns
 // an error for the caller's deduped logging; sync failures are also
@@ -46,10 +54,11 @@ func PollCrowdSec(ctx context.Context) error {
 	// fetch also must not block decision syncing: the decisions dashboard
 	// stays functional even when the machine login is misconfigured.
 	alertsInserted := 0
+	alertsSyncErr := error(nil)
 	if client.HasMachineCredentials() {
 		alerts, alertsErr := fetchAlertsSnapshot(ctx, client)
 		if alertsErr != nil {
-			recordCrowdSecSyncFailure(alertsErr)
+			alertsSyncErr = alertsErr
 		} else if len(alerts) > 0 {
 			syncedAt := time.Now().UTC()
 			alertsInserted, alertsErr = database.SyncCrowdSecAlerts(alerts, syncedAt)
@@ -64,6 +73,11 @@ func PollCrowdSec(ctx context.Context) error {
 	changed, syncErr := database.SyncCrowdSecDecisions(remote, total, syncedAt)
 	if syncErr != nil {
 		return syncErr
+	}
+	// Record alerts-feed failures AFTER the decisions state save so the
+	// successful decisions sync cannot erase them (state order matters).
+	if alertsSyncErr != nil {
+		recordCrowdSecSyncFailure(alertsSyncErr)
 	}
 	if changed > 0 {
 		logCrowdSecSync(changed, total)
@@ -155,7 +169,11 @@ func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models
 	defer cancel()
 
 	remote, err := client.Alerts(fetchCtx, crowdsec.AlertsParams{
-		Limit: database.CrowdSecMaxAlertRows,
+		// 100 is the largest page real LAPI deployments serve reliably; the
+		// ent-backed pagination chokes on larger single-page limits (truncated
+		// responses → "unexpected end of JSON input"). 100 matches cscli's
+		// default page and is plenty for a live-activity feed.
+		Limit: crowdsecAlertsPageSize,
 	})
 	if err != nil {
 		return nil, err
