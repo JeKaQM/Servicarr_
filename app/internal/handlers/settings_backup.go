@@ -89,11 +89,13 @@ type exportResourcesConfig struct {
 }
 
 type exportCrowdSecConfig struct {
-	Enabled       bool   `json:"enabled"`
-	LAPIURL       string `json:"lapi_url"`
-	MachineID     string `json:"machine_id"`
-	PollIntervalS int    `json:"poll_interval_seconds"`
-	TLSSkipVerify bool   `json:"tls_skip_verify"`
+	Enabled       bool    `json:"enabled"`
+	LAPIURL       string  `json:"lapi_url"`
+	MachineID     string  `json:"machine_id"`
+	PollIntervalS int     `json:"poll_interval_seconds"`
+	TLSSkipVerify bool    `json:"tls_skip_verify"`
+	MapHomeLat    float64 `json:"map_home_latitude"`
+	MapHomeLng    float64 `json:"map_home_longitude"`
 	// Secrets are NOT exported for security; re-enter after import.
 }
 
@@ -199,6 +201,8 @@ func HandleExportDatabase() http.HandlerFunc {
 				MachineID:     csCfg.MachineID,
 				PollIntervalS: csCfg.PollIntervalS,
 				TLSSkipVerify: csCfg.TLSSkipVerify,
+				MapHomeLat:    csCfg.MapHomeLat,
+				MapHomeLng:    csCfg.MapHomeLng,
 			}
 		}
 
@@ -369,6 +373,8 @@ func HandleImportDatabase() http.HandlerFunc {
 				MachineID:     export.CrowdSec.MachineID,
 				PollIntervalS: export.CrowdSec.PollIntervalS,
 				TLSSkipVerify: export.CrowdSec.TLSSkipVerify,
+				MapHomeLat:    export.CrowdSec.MapHomeLat,
+				MapHomeLng:    export.CrowdSec.MapHomeLng,
 			}
 			if csCfg.PollIntervalS < 10 {
 				csCfg.PollIntervalS = 30
@@ -473,6 +479,7 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"crowdsec_config",
 			"crowdsec_state",
 			"crowdsec_decisions",
+			"crowdsec_alerts",
 			"app_metadata",
 			"software_deployments",
 		}

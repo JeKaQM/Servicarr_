@@ -1,72 +1,83 @@
 # Deployment Guide
 
-## Quick Start
+Run the commands in this guide from the repository root.
 
-1. Configure your `.env` file in the parent directory
-2. Run: `docker-compose up -d`
+## First deployment
 
-## Updating to Latest Version
+1. Create the environment file expected by Compose:
 
-Run the update script:
-```powershell
-.\update.ps1
-```
+   ```powershell
+   Copy-Item .env.example .env
+   ```
 
-Or manually:
-```powershell
-docker-compose pull
-docker-compose down
-docker-compose up -d
-```
+   Review the placeholders before starting the app. New installations can set their admin credentials in the setup wizard; environment-based installations use `AUTH_USER`, `AUTH_PASSWORD` (or `AUTH_PASSWORD_BCRYPT`) and an `AUTH_SECRET` of at least 32 characters.
 
-## Data Persistence
+2. Build and start Servicarr:
 
-All data is stored in the Docker volume `statusapp_data`:
-- Database: `/data/uptime.db` (uptime samples, history, alerts)
-- IP blocks for security
-- Service state (enabled/disabled)
+   ```powershell
+   docker compose -f deploy/docker-compose.yml up -d --build
+   ```
 
-**Important:** The volume persists even when you:
-- Update to a new image version
-- Run `docker-compose down`
-- Rebuild the container
+3. Verify the container and follow its startup log:
 
-The volume is only deleted if you explicitly run:
-```powershell
-docker-compose down -v  # DO NOT run this unless you want to delete all data!
-```
+   ```powershell
+   docker compose -f deploy/docker-compose.yml ps
+   docker compose -f deploy/docker-compose.yml logs -f servicarr
+   ```
 
-## Backup Your Data
+4. Open <http://localhost:4555>. The supplied Compose file publishes port 4555 on `127.0.0.1` only. Keep that binding when a reverse proxy runs on the same host. Deliberately change the port mapping and configure a firewall if direct LAN access is required.
 
-To backup the database:
-```powershell
-docker exec statusapp cp /data/uptime.db /data/uptime-backup.db
-```
+## Updating
 
-To copy it to your host:
-```powershell
-docker cp statusapp:/data/uptime.db ./uptime-backup.db
-```
-
-## Restore Data
-
-To restore from backup:
-```powershell
-docker cp ./uptime-backup.db statusapp:/data/uptime.db
-docker-compose restart
-```
-
-## View Logs
+Pull the repository changes, rebuild the local image, and let Compose replace the application container:
 
 ```powershell
-docker-compose logs -f
+git pull --ff-only
+docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+docker compose -f deploy/docker-compose.yml ps
 ```
 
-## Access
+The named data volume is not removed by these commands.
 
-- Local: http://localhost:4555
-- Network: http://YOUR_IP:4555
+## Data persistence
 
-Default credentials (change in `.env`):
-- Username: admin
-- Password: admin123
+Application data is stored in the Docker volume `servicarr_data`; the SQLite database is `/data/uptime.db` inside the `servicarr` container. The volume survives container rebuilds, replacements and `docker compose down`.
+
+Do not run the following command unless you intend to delete the stored application data:
+
+```powershell
+docker compose -f deploy/docker-compose.yml down -v
+```
+
+## Backup and restore
+
+For a portable application backup, use **Admin > Settings > Export**. CrowdSec and other integration secrets are intentionally excluded and must be re-entered after an import.
+
+For a raw SQLite backup, stop writes before copying the database:
+
+```powershell
+docker compose -f deploy/docker-compose.yml stop servicarr
+docker cp servicarr:/data/uptime.db ./uptime-backup.db
+docker compose -f deploy/docker-compose.yml start servicarr
+```
+
+To restore that raw database:
+
+```powershell
+docker compose -f deploy/docker-compose.yml stop servicarr
+docker cp ./uptime-backup.db servicarr:/data/uptime.db
+docker compose -f deploy/docker-compose.yml start servicarr
+```
+
+Confirm the application is healthy after a restore:
+
+```powershell
+docker compose -f deploy/docker-compose.yml ps
+docker compose -f deploy/docker-compose.yml logs --tail 200 servicarr
+```
+
+## CrowdSec networking
+
+The CrowdSec LAPI URL is contacted from inside the Servicarr container. `localhost` and `127.0.0.1` therefore refer to Servicarr itself, not the Docker host. Use a CrowdSec service name on a shared Docker network or a host/LAN address reachable by the container. Ensure CrowdSec's `api.server.listen_uri` is bound to that interface and allow TCP port 8080 only from the required Docker/host network.
+
+Use HTTPS if LAPI traffic crosses an untrusted network. The **Skip TLS verification** option is intended only for a self-signed certificate on a trusted network.

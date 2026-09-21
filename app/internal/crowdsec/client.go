@@ -15,9 +15,8 @@ import (
 	"status/app/internal/checker"
 )
 
-// Client is a pure CrowdSec LAPI fetcher. It performs no caching and no
-// snapshotting — the syncer owns cadence and persistence. Safe for
-// concurrent use.
+// Client is a CrowdSec LAPI fetcher. It caches only the short-lived machine
+// JWT; the syncer owns cadence and persistence. Safe for concurrent use.
 type Client struct {
 	cfg     Config
 	baseURL string
@@ -202,7 +201,8 @@ func (c *Client) login(ctx context.Context) (string, time.Time, error) {
 }
 
 // getJSON performs a GET with auth headers and returns the raw JSON body.
-// Non-2xx statuses are classified; bodies are capped at 4 MB.
+// Non-2xx statuses are classified; bodies larger than 4 MiB are rejected
+// explicitly rather than being silently truncated into misleading JSON errors.
 func (c *Client) getJSON(ctx context.Context, path string, setAuth func(*http.Request)) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
@@ -220,9 +220,13 @@ func (c *Client) getJSON(ctx context.Context, path string, setAuth func(*http.Re
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, classifyStatus(resp.StatusCode, readLAPIError(resp))
 	}
-	out, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	const maxResponseBytes = 4 << 20
+	out, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, classify(err)
+	}
+	if len(out) > maxResponseBytes {
+		return nil, fmt.Errorf("%w: response exceeds 4 MiB limit", ErrInvalidResponse)
 	}
 	return out, nil
 }

@@ -150,6 +150,26 @@ func TestCrowdSecSyncState_Roundtrip(t *testing.T) {
 	}
 }
 
+func TestSaveCrowdSecSyncError_DeduplicatesIdenticalFailure(t *testing.T) {
+	initCrowdSecTestDB(t)
+	if err := SaveCrowdSecSyncError("LAPI unreachable", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DB.Exec(`UPDATE crowdsec_state SET updated_at = '2000-01-01 00:00:00' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCrowdSecSyncError("LAPI unreachable", false); err != nil {
+		t.Fatal(err)
+	}
+	var updated string
+	if err := DB.QueryRow(`SELECT updated_at FROM crowdsec_state WHERE id = 1`).Scan(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated != "2000-01-01 00:00:00" {
+		t.Fatalf("identical error rewrote state timestamp: %q", updated)
+	}
+}
+
 // --------------- decisions snapshot ---------------
 
 func sampleDecisions(n int, now time.Time) []models.CrowdSecDecision {
@@ -199,6 +219,31 @@ func TestSyncCrowdSecDecisions_SteadyStateZeroChanges(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("snapshot count = %d, want 3", count)
+	}
+}
+
+func TestSyncCrowdSecDecisions_PreservesFirstObservedTime(t *testing.T) {
+	initCrowdSecTestDB(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	first := sampleDecisions(1, now)[0]
+	if _, err := SyncCrowdSecDecisions([]models.CrowdSecDecision{first}, 1, now); err != nil {
+		t.Fatal(err)
+	}
+	updated := first
+	updated.CreatedAt = now.Add(5 * time.Minute).Format(time.RFC3339)
+	updated.ExpiresAt = now.Add(2 * time.Hour).Format(time.RFC3339)
+	if _, err := SyncCrowdSecDecisions([]models.CrowdSecDecision{updated}, 1, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetCrowdSecDecisions(false, 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("read decisions: %+v, %v", got, err)
+	}
+	if got[0].CreatedAt != first.CreatedAt {
+		t.Fatalf("first-observed timestamp changed: got %q want %q", got[0].CreatedAt, first.CreatedAt)
+	}
+	if got[0].ExpiresAt != updated.ExpiresAt {
+		t.Fatalf("expiry was not refreshed: got %q want %q", got[0].ExpiresAt, updated.ExpiresAt)
 	}
 }
 

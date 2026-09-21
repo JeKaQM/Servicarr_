@@ -11,13 +11,13 @@ import (
 	"status/app/internal/models"
 )
 
-// CrowdSecMaxSnapshotRows caps the decisions snapshot table. The true LAPI
-// total can be much higher (community blocklists reach 15k+); the dashboard
-// shows "latest N of total".
+// CrowdSecMaxSnapshotRows caps the decisions snapshot table and each LAPI
+// fetch. DecisionCount therefore means the number returned by the capped
+// fetch, not a separate total reported by LAPI.
 const CrowdSecMaxSnapshotRows = 500
 
-// CrowdSecMaxAlertRows caps the alerts snapshot table. Alerts are history —
-// append-only with dedup, newest first, pruned by age in the same pass.
+// CrowdSecMaxAlertRows caps the alerts snapshot table. Alerts are history,
+// append-only with dedup, newest first, and limited to the last 24 hours.
 const CrowdSecMaxAlertRows = 2000
 
 // LoadCrowdSecConfig loads CrowdSec LAPI configuration. Returns (nil, nil)
@@ -86,7 +86,7 @@ func SaveCrowdSecConfig(config *models.CrowdSecConfig) error {
 			poll_interval=?, tls_skip_verify=?, map_home_lat=excluded.map_home_lat,
 			map_home_lng=excluded.map_home_lng, updated_at=datetime('now')`,
 		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify, config.MapHomeLat, config.MapHomeLng,
-		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify, config.MapHomeLat, config.MapHomeLng)
+		enabled, config.LAPIURL, config.MachineID, encPassword, encKey, config.PollIntervalS, skipVerify)
 	return err
 }
 
@@ -134,13 +134,15 @@ func saveCrowdSecSyncTx(tx *sql.Tx, lastSync time.Time, totalCount int) error {
 	return err
 }
 
-// SaveCrowdSecSyncError records a failed sync. Callers dedup in memory so a
-// persistent outage does not write every cycle (runUPSMonitor pattern).
+// SaveCrowdSecSyncError records a failed sync. The conditional upsert avoids
+// rewriting the same persistent error on every poll cycle.
 func SaveCrowdSecSyncError(errText string, authFailed bool) error {
 	_, err := DB.Exec(`INSERT INTO crowdsec_state (id, last_sync, last_error, auth_failed, decision_count, updated_at)
 		VALUES (1, NULL, ?, ?, 0, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,
-			auth_failed=excluded.auth_failed, updated_at=datetime('now')`,
+			auth_failed=excluded.auth_failed, updated_at=datetime('now')
+		WHERE crowdsec_state.last_error IS NOT excluded.last_error
+			OR crowdsec_state.auth_failed != excluded.auth_failed`,
 		errText, boolInt(authFailed))
 	return err
 }
@@ -225,7 +227,7 @@ func SyncCrowdSecDecisions(remote []models.CrowdSecDecision, totalCount int, syn
 			ON CONFLICT(decision_id) DO UPDATE SET value=excluded.value, type=excluded.type,
 				scope=excluded.scope, origin=excluded.origin, scenario=excluded.scenario,
 				duration=excluded.duration, simulated=excluded.simulated,
-				created_at=excluded.created_at, expires_at=excluded.expires_at, synced_at=excluded.synced_at`)
+				expires_at=excluded.expires_at, synced_at=excluded.synced_at`)
 		if err != nil {
 			return 0, err
 		}
@@ -302,12 +304,9 @@ func GetCrowdSecSnapshotCount() (int, error) {
 // SyncCrowdSecAlerts merges fetched alerts into the snapshot table.
 // Append-only: new alert IDs are inserted, existing IDs are skipped (alerts
 // are immutable events in LAPI — no updates). Runs in one short transaction
-// with the age/cap prune so the table stays bounded. Network I/O must
+// with the 24-hour/cap prune so the table stays bounded. Network I/O must
 // complete BEFORE this runs (MaxOpenConns(1)).
 func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int, error) {
-	if len(alerts) == 0 {
-		return 0, nil
-	}
 	tx, err := DB.Begin()
 	if err != nil {
 		return 0, err
@@ -342,25 +341,38 @@ func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int,
 		}
 	}
 
-	// Prune: keep the newest CrowdSecMaxAlertRows (age is covered by LAPI's
-	// sliding `since` window on subsequent syncs; the cap bounds history).
-	if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE alert_id NOT IN (
+	// Prune records outside the live-view window as well as excess rows. This
+	// also runs for an empty response so stale data cannot linger indefinitely.
+	cutoff := syncedAt.UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE created_at <= ? OR alert_id NOT IN (
 		SELECT alert_id FROM crowdsec_alerts ORDER BY created_at DESC LIMIT ?)`,
-		CrowdSecMaxAlertRows); err != nil {
+		cutoff, CrowdSecMaxAlertRows); err != nil {
 		return 0, err
 	}
 
 	return inserted, tx.Commit()
 }
 
-// GetCrowdSecAlerts returns the newest alerts for the activity feed.
+// ClearCrowdSecAlerts removes the cached alerts feed when machine credentials
+// are no longer configured. Without this explicit capability transition, old
+// detections would continue to look live until the 24-hour prune caught up.
+func ClearCrowdSecAlerts() (int64, error) {
+	result, err := DB.Exec(`DELETE FROM crowdsec_alerts`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// GetCrowdSecAlerts returns the newest alerts from the live 24-hour window.
 func GetCrowdSecAlerts(limit int) ([]models.CrowdSecAlert, error) {
 	if limit <= 0 || limit > CrowdSecMaxAlertRows {
 		limit = 50
 	}
 	rows, err := DB.Query(`SELECT alert_id, scenario, message, source_value, country,
 		as_number, as_name, latitude, longitude, events_count, start_at, created_at, has_decision, simulated
-		FROM crowdsec_alerts ORDER BY created_at DESC LIMIT ?`, limit)
+		FROM crowdsec_alerts WHERE created_at > ? ORDER BY created_at DESC LIMIT ?`,
+		time.Now().UTC().Add(-24*time.Hour).Format(time.RFC3339), limit)
 	if err != nil {
 		return nil, err
 	}

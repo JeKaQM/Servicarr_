@@ -41,7 +41,14 @@ A lightweight, self-hosted status page that monitors your services and displays 
    cd Servicarr_
    ```
 
-2. **Create a `.env` file** in the project root (optional — the setup wizard handles most settings):
+2. **Create a `.env` file** in the project root (Compose expects the file; the setup wizard handles most settings):
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Review the placeholders before using environment-based credentials. A minimal example is:
+
    ```env
    PORT=4555
    UNBLOCK_TOKEN=<a-secure-random-string>
@@ -83,12 +90,12 @@ All settings are stored in SQLite after the setup wizard completes. The followin
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `4555` | HTTP listen port |
-| `DB_PATH` | `data/status.db` | SQLite database path |
+| `DB_PATH` | `./uptime.db` | SQLite database path (the Docker image sets this to `/data/uptime.db`) |
 | `POLL_SECONDS` | `60` | Scheduler polling interval |
 | `ENABLE_SCHEDULER` | `true` | Run background health checks |
 | `INSECURE_DEV` | `false` | Set to `true` only for local HTTP development (disables Secure cookie flag) |
 | `UNBLOCK_TOKEN` | — | Secret token for the self-unblock endpoint |
-| `SESSION_MAX_AGE` | `86400` | Session cookie lifetime in seconds |
+| `SESSION_MAX_AGE_SECONDS` | `86400` | Session cookie lifetime in seconds |
 | `TRUSTED_PROXIES` | empty | Comma-separated IPs/CIDRs of trusted reverse proxy peers; empty ignores forwarded client IP headers |
 | `STATUS_PAGE_URL` | — | Public URL included in alert emails |
 
@@ -96,10 +103,10 @@ All settings are stored in SQLite after the setup wizard completes. The followin
 
 ## Default Credentials
 
-Set during the setup wizard. Defaults if using env-based config:
+Credentials are normally set during the setup wizard. For the environment fallback, configure:
 
-- **Username**: `admin`
-- **Password**: Set via `ADMIN_PASSWORD` env var
+- **Username**: `AUTH_USER` (the Docker image defaults to `admin`)
+- **Password**: Set via `AUTH_PASSWORD` (or provide a bcrypt hash in `AUTH_PASSWORD_BCRYPT`)
 
 ## Scheduled Maintenance
 
@@ -113,19 +120,42 @@ UPS mains-loss email uses the SMTP recipient configured under **Admin > Notifica
 
 ## CrowdSec
 
-Servicarr can mirror active decisions from a [CrowdSec](https://crowdsec.net) Local API (LAPI) into an admin-only dashboard under **Admin > CrowdSec**:
+Servicarr can mirror a [CrowdSec](https://crowdsec.net) Local API (LAPI) into the admin-only dashboard under **Admin > CrowdSec**. The two credential types unlock separate feeds:
 
-1. Create a bouncer key on the CrowdSec host: `cscli bouncers add servicarr` — this grants read access to `/v1/decisions` (the dashboard).
-2. Optionally create machine credentials (`cscli machines add`-style registration) if you also want alert features: machine credentials authenticate via `POST /v1/watchers/login` for a JWT.
-3. Under **Admin > CrowdSec**, enter the LAPI URL (e.g. `http://10.0.0.5:8080`, a trailing `/v1` is stripped automatically), paste the bouncer key, set the sync interval (10–3600 s), and **Test Connection** before saving.
+| Credential | CrowdSec capability | Servicarr panel |
+|------------|---------------------|-----------------|
+| Bouncer API key | Read `/v1/decisions` | Active bans, captchas and other decisions |
+| Machine ID and password | Log in through `/v1/watchers/login` and read `/v1/alerts` | 24-hour detection feed, map and alert statistics |
 
-Design notes:
+Configure either credential for its corresponding feed, or configure both for the complete dashboard.
 
-- **Dashboard** — overview cards (active decisions, 24h detections, top origin country, top scenario), a live activity feed of scenario detections (including scans that produced no ban — each row shows whether a ban followed), attack-origin and scenario volume bars for the last 24 hours, and the active-decisions table. Lists collapse to their five newest rows and expand on demand; the connection settings collapse too.
-- Decisions are synced by a background loop into a capped snapshot table (latest 500); the true LAPI total can be higher and is surfaced as "showing latest 500 of N". Alerts are mirrored into their own capped history (latest 2000, deduped by ID).
-- The snapshot is read from SQLite, so the dashboard keeps working while LAPI is briefly down; the sync badge shows when the last successful sync ran, and persistent failures show a distinct *auth failed* state.
-- Cloud metadata endpoints are rejected from the LAPI URL (same SSRF guard as monitored services); redirects are never followed; credentials are AES-256-GCM encrypted at rest, never returned by the API, and excluded from database backups.
-- Sync state (last success, last error) is persisted so restarts don't lose the badge context.
+1. On the CrowdSec host, create a bouncer key if you want the active-decisions panel:
+
+   ```bash
+   sudo cscli bouncers add servicarr
+   ```
+
+   Copy the generated API key when it is displayed.
+
+2. Create machine credentials if you want the live detection feed:
+
+   ```bash
+   sudo cscli machines add servicarr --auto -f -
+   ```
+
+   The `-f -` form prints the generated YAML to standard output instead of replacing CrowdSec's own `/etc/crowdsec/local_api_credentials.yaml`. Use the printed `login` as the machine ID and the printed `password` as the machine password. Because this command runs on the LAPI host with `--auto`, the machine is registered and validated immediately.
+
+3. Under **Admin > CrowdSec**, enter the LAPI root URL (for example, `http://10.0.0.5:8080`; a trailing `/v1` is accepted and stripped), add the credentials, choose a sync interval from 10 to 3600 seconds, and select **Test Connection** before saving.
+
+The LAPI URL is resolved from inside the Servicarr container. Do not use `localhost` or `127.0.0.1` unless CrowdSec runs in that same container. Put both containers on a shared Docker network and use the CrowdSec service name, or use a host/LAN address that the Servicarr container can reach. CrowdSec's LAPI commonly listens on loopback by default; configure its `api.server.listen_uri` for the intended Docker/LAN interface and restrict TCP port 8080 at the firewall to the Servicarr host or container network. Use HTTPS when the connection crosses an untrusted network. **Skip TLS verification** is only for a self-signed certificate on a trusted network and should remain off otherwise.
+
+Dashboard behaviour and limits:
+
+- The dashboard refreshes while the CrowdSec tab is visible. **Sync Now** forces an immediate server-side poll.
+- Each decision sync stores at most 500 active decisions from the page returned by LAPI. This is a capped snapshot, not a count of every decision held by LAPI.
+- Each alert sync requests at most 100 local (non-CAPI) alerts from the previous 24 hours. Alerts are deduplicated by LAPI ID, and the local history is capped at 2000 rows. On a very busy LAPI, the feed therefore represents the newest detections rather than an exhaustive event ledger.
+- The UI reads the local SQLite snapshot, so the most recently synced data remains available during a short LAPI outage. The badge records the last successful sync and distinguishes authentication failures from other errors.
+- Cloud metadata endpoints are rejected from the LAPI URL, redirects are not followed, and credentials are encrypted at rest. Secrets are never returned by the API and are excluded from database backups.
 
 ## Notifications
 
@@ -272,6 +302,18 @@ Servicarr_/
 | `DELETE` | `/api/admin/logs` | Clear all logs |
 | `GET` | `/api/admin/logs/stats` | Log statistics summary |
 
+### Admin — CrowdSec (require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/admin/crowdsec/config` | Get the masked configuration or save connection settings |
+| `GET` | `/api/admin/crowdsec/status` | Last sync, error state and local decision count |
+| `GET` | `/api/admin/crowdsec/decisions?active=true` | Read the local decision snapshot; `active=true` excludes expired rows |
+| `GET` | `/api/admin/crowdsec/alerts?limit=50` | Read recent local alerts; `limit` may be 1–2000 |
+| `GET` | `/api/admin/crowdsec/stats` | Read 24-hour detection and active-decision aggregates |
+| `POST` | `/api/admin/crowdsec/sync-now` | Run an immediate sync |
+| `POST` | `/api/admin/crowdsec/test` | Test LAPI reachability and the supplied credential realms without saving |
+
 ## Development
 
 ### Building the Docker image
@@ -307,6 +349,14 @@ The Go and JavaScript suites cover the backend packages, API handlers, resource 
 - Check that Glances API v4 is enabled (default port 61208)
 - For UPS details, ensure NUT `upsd` is reachable from the container (default port 3493)
 - Configure the NUT host:port and UPS name in **Admin → Resources**. For `upsc apc`, the UPS name is `apc`; `upsc -l` lists names exposed by `upsd`
+
+**CrowdSec live view is empty or reports an unreachable LAPI?**
+- Confirm the LAPI URL is reachable from the Servicarr container. Inside Docker, `localhost` is Servicarr, not the Docker host or another container.
+- If LAPI only listens on `127.0.0.1:8080`, change CrowdSec's `api.server.listen_uri` to an interface reachable on the intended Docker/LAN network, then restrict access with a firewall.
+- Run **Test Connection**. A bouncer key validates the decisions feed; machine credentials validate the alerts feed. The live detection view requires the latter.
+- Select **Sync Now**, then inspect `docker compose -f deploy/docker-compose.yml logs --tail 200 servicarr` if the badge still shows an error.
+- A working but empty alert feed can simply mean LAPI has no local alerts in the last 24 hours. Imported CAPI/community-blocklist alerts are deliberately omitted from this live view.
+- Keep **Skip TLS verification** disabled unless you intentionally use a self-signed certificate on a trusted network.
 
 **Login not working?**
 - Clear browser cookies and retry

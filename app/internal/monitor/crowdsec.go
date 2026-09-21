@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"status/app/internal/checker"
@@ -19,13 +20,93 @@ const (
 	// deployments (ent pagination) fail on large single-page limits, so this
 	// stays at cscli's default page size.
 	crowdsecAlertsPageSize = 100
+	crowdsecAlertsLookback = 24 * time.Hour
 )
 
-// PollCrowdSec runs one sync cycle: fetch decisions (and alerts when machine
-// credentials are configured), then converge the snapshot table. Returns
-// an error for the caller's deduped logging; sync failures are also
-// persisted to crowdsec_state so the dashboard can show WHY.
+// Polls can be triggered by both the background monitor and the admin
+// "Sync now" action. Keep them single-flight so they cannot race while
+// converging the same snapshots. The channel form lets a cancelled caller
+// stop waiting for an in-flight poll.
+var crowdsecPollGate = make(chan struct{}, 1)
+
+// crowdsecConfigChanged coalesces configuration changes until the background
+// monitor consumes them. It is intentionally buffered so saving settings never
+// blocks on monitor startup or shutdown.
+var crowdsecConfigChanged = make(chan struct{}, 1)
+
+// NotifyCrowdSecConfigChanged wakes the background monitor after CrowdSec
+// settings are saved. Repeated saves before the monitor wakes coalesce into one
+// notification.
+func NotifyCrowdSecConfigChanged() {
+	select {
+	case crowdsecConfigChanged <- struct{}{}:
+	default:
+	}
+}
+
+// CrowdSecConfigChanges exposes the config-change wake signal to the monitor
+// run loop. The channel is process-wide and intended to have one consumer.
+func CrowdSecConfigChanges() <-chan struct{} {
+	return crowdsecConfigChanged
+}
+
+type crowdsecClientConfig struct {
+	baseURL            string
+	bouncerKey         string
+	machineID          string
+	machinePassword    string
+	insecureSkipVerify bool
+}
+
+var crowdsecClientCache struct {
+	sync.Mutex
+	key    crowdsecClientConfig
+	client *crowdsec.Client
+}
+
+// cachedCrowdSecClient preserves the machine JWT and failed-login backoff
+// across poll cycles. Any connection or credential change creates a fresh
+// client immediately.
+func cachedCrowdSecClient(config *models.CrowdSecConfig) *crowdsec.Client {
+	key := crowdsecClientConfig{
+		baseURL:            config.LAPIURL,
+		bouncerKey:         config.BouncerAPIKey,
+		machineID:          config.MachineID,
+		machinePassword:    config.MachinePassword,
+		insecureSkipVerify: config.TLSSkipVerify,
+	}
+
+	crowdsecClientCache.Lock()
+	defer crowdsecClientCache.Unlock()
+	if crowdsecClientCache.client != nil && crowdsecClientCache.key == key {
+		return crowdsecClientCache.client
+	}
+
+	client := crowdsec.NewClient(crowdsec.Config{
+		BaseURL:            key.baseURL,
+		BouncerKey:         key.bouncerKey,
+		MachineID:          key.machineID,
+		MachinePassword:    key.machinePassword,
+		InsecureSkipVerify: key.insecureSkipVerify,
+	})
+	crowdsecClientCache.key = key
+	crowdsecClientCache.client = client
+	return client
+}
+
+// PollCrowdSec runs one sync cycle. Decisions and alerts use independent LAPI
+// authentication realms: a bouncer key enables decisions, while machine
+// credentials enable alerts. A failure in one feed does not discard a
+// successful update from the other, but the combined error is returned and
+// persisted so both the caller and dashboard can report partial failure.
 func PollCrowdSec(ctx context.Context) error {
+	select {
+	case crowdsecPollGate <- struct{}{}:
+		defer func() { <-crowdsecPollGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	config, err := database.LoadCrowdSecConfig()
 	if err != nil {
 		return err
@@ -34,62 +115,78 @@ func PollCrowdSec(ctx context.Context) error {
 		return nil // disabled → no writes, no state churn
 	}
 
-	client := crowdsec.NewClient(crowdsec.Config{
-		BaseURL:            config.LAPIURL,
-		BouncerKey:         config.BouncerAPIKey,
-		MachineID:          config.MachineID,
-		MachinePassword:    config.MachinePassword,
-		InsecureSkipVerify: config.TLSSkipVerify,
-	})
-
-	remote, err := fetchDecisionsSnapshot(ctx, client)
-	if err != nil {
+	client := cachedCrowdSecClient(config)
+	hasBouncer := strings.TrimSpace(config.BouncerAPIKey) != ""
+	hasMachine := client.HasMachineCredentials()
+	if !hasBouncer && !hasMachine {
+		err := fmt.Errorf("%w: configure a bouncer key or machine credentials", crowdsec.ErrNotConfigured)
 		recordCrowdSecSyncFailure(err)
 		return err
 	}
 
-	// Alerts (scenario detections — includes scans that produced no decision)
-	// need machine credentials. Missing credentials are not an error: the
-	// decisions dashboard works on the bouncer key alone. A failed alerts
-	// fetch also must not block decision syncing: the decisions dashboard
-	// stays functional even when the machine login is misconfigured.
-	alertsInserted := 0
-	alertsSyncErr := error(nil)
-	if client.HasMachineCredentials() {
-		alerts, alertsErr := fetchAlertsSnapshot(ctx, client)
-		if alertsErr != nil {
-			alertsSyncErr = alertsErr
-		} else if len(alerts) > 0 {
-			syncedAt := time.Now().UTC()
-			alertsInserted, alertsErr = database.SyncCrowdSecAlerts(alerts, syncedAt)
-			if alertsErr != nil {
-				return alertsErr
+	var syncErrors []error
+	if hasBouncer {
+		remote, fetchErr := fetchDecisionsSnapshot(ctx, client)
+		if fetchErr != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("decisions: %w", fetchErr))
+		} else {
+			total := len(remote)
+			changed, syncErr := database.SyncCrowdSecDecisions(remote, total, time.Now().UTC())
+			if syncErr != nil {
+				syncErrors = append(syncErrors, fmt.Errorf("store decisions: %w", syncErr))
+			} else if changed > 0 {
+				logCrowdSecSync(changed, total)
 			}
 		}
 	}
 
-	syncedAt := time.Now().UTC()
-	total := len(remote)
-	changed, syncErr := database.SyncCrowdSecDecisions(remote, total, syncedAt)
-	if syncErr != nil {
-		return syncErr
+	alertsSucceeded := false
+	if hasMachine {
+		alerts, fetchErr := fetchAlertsSnapshot(ctx, client)
+		if fetchErr != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("alerts: %w", fetchErr))
+		} else {
+			inserted, syncErr := database.SyncCrowdSecAlerts(alerts, time.Now().UTC())
+			if syncErr != nil {
+				syncErrors = append(syncErrors, fmt.Errorf("store alerts: %w", syncErr))
+			} else {
+				alertsSucceeded = true
+				if inserted > 0 {
+					_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "",
+						"CrowdSec alerts synced", fmt.Sprintf("new=%d", inserted))
+				}
+			}
+		}
 	}
-	// Record alerts-feed failures AFTER the decisions state save so the
-	// successful decisions sync cannot erase them (state order matters).
-	if alertsSyncErr != nil {
-		recordCrowdSecSyncFailure(alertsSyncErr)
+	if !hasBouncer && alertsSucceeded {
+		// A removed bouncer key must not leave an old decisions snapshot looking
+		// active while the machine-only alerts feed continues to sync. Clear it
+		// only after the configured alerts feed succeeds, so a failed machine-only
+		// poll cannot misleadingly advance last_sync.
+		if _, syncErr := database.SyncCrowdSecDecisions(nil, 0, time.Now().UTC()); syncErr != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("clear decisions: %w", syncErr))
+		}
 	}
-	if changed > 0 {
-		logCrowdSecSync(changed, total)
+	if !hasMachine {
+		// Machine credentials own the alerts capability. Once they are removed,
+		// cached detections must disappear immediately rather than looking like a
+		// healthy live feed for the remainder of the 24-hour retention window.
+		if _, clearErr := database.ClearCrowdSecAlerts(); clearErr != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("clear alerts: %w", clearErr))
+		}
 	}
-	if alertsInserted > 0 {
-		_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "",
-			"CrowdSec alerts synced", fmt.Sprintf("new=%d", alertsInserted))
+
+	if len(syncErrors) > 0 {
+		err := errors.Join(syncErrors...)
+		// Record only after all independent feeds have had a chance to succeed;
+		// otherwise a later successful decisions write can mask an alerts error.
+		recordCrowdSecSyncFailure(err)
+		return err
 	}
 	return nil
 }
 
-// fetchDecisionsSnapshot pulls the latest page of active decisions and
+// fetchDecisionsSnapshot pulls one capped page of active decisions and
 // converts them to the snapshot model. The LAPI list endpoint paginates
 // server-side; we deliberately keep one page (cap 500) — community
 // blocklist totals can exceed 15k entries and fetching all would be
@@ -158,9 +255,10 @@ func recordCrowdSecSyncFailure(err error) {
 	_ = database.SaveCrowdSecSyncError(checker.SanitizeError(err.Error()), authFailed)
 }
 
-// fetchAlertsSnapshot pulls recent scenario-detection alerts (LAPI applies
-// its own `since` sliding window server-side). Alerts are immutable, so
-// the DB merge dedups by ID. Machine credentials required.
+// fetchAlertsSnapshot pulls local scenario-detection alerts from the last
+// 24 hours. Community-list/CAPI alerts are excluded: they can carry very
+// large historical decision payloads and do not represent live detections
+// by this LAPI. Alerts are immutable, so the DB merge dedups by ID.
 func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models.CrowdSecAlert, error) {
 	if client == nil {
 		return nil, fmt.Errorf("crowdsec client unavailable")
@@ -168,12 +266,15 @@ func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	includeCAPI := false
 	remote, err := client.Alerts(fetchCtx, crowdsec.AlertsParams{
 		// 100 is the largest page real LAPI deployments serve reliably; the
 		// ent-backed pagination chokes on larger single-page limits (truncated
 		// responses → "unexpected end of JSON input"). 100 matches cscli's
 		// default page and is plenty for a live-activity feed.
-		Limit: crowdsecAlertsPageSize,
+		Limit:       crowdsecAlertsPageSize,
+		Since:       crowdsecAlertsLookback,
+		IncludeCAPI: &includeCAPI,
 	})
 	if err != nil {
 		return nil, err

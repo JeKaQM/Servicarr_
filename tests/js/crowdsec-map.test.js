@@ -110,8 +110,10 @@ describe('crowdsecMapApply', () => {
   });
 
   test('ignores zero-zero map home (unset sentinel)', () => {
+    crowdsecMapApply([], 40.4, -3.7);
     crowdsecMapApply([], 0, 0);
     expect(crowdsecMapHome.lat).toBe(51.5074);
+    expect(crowdsecMapHome.lng).toBe(-0.1278);
   });
 
   test('skips alerts without geo data', () => {
@@ -159,6 +161,102 @@ describe('crowdsecMapApply', () => {
 });
 
 /* ── crowdsecMapLayout ─────────────────────────────────── */
+describe('persistent map markers', () => {
+  let originalRAF;
+
+  beforeEach(() => {
+    originalRAF = global.requestAnimationFrame;
+    crowdsecAllAlerts = [];
+    crowdsecMapHover = null;
+    crowdsecMapKeyboardIndex = -1;
+    crowdsecMapCanvas = null;
+    document.body.innerHTML = `
+      <div id="tab-crowdsec" class="tab-content active"></div>
+      <canvas id="crowdsecMap"></canvas>
+      <div id="crowdsecMapState"></div>`;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  });
+
+  afterEach(() => {
+    global.requestAnimationFrame = originalRAF;
+    crowdsecMapAnim = null;
+  });
+
+  test('filters unmapped alerts and caps persistent markers', () => {
+    crowdsecAllAlerts = [
+      { alert_id: 'missing' },
+      ...Array.from({ length: 105 }, (_, i) => ({ alert_id: String(i), latitude: i % 80, longitude: i % 170 }))
+    ];
+    expect(crowdsecMapGeolocatedAlerts()).toHaveLength(100);
+    expect(crowdsecMapGeolocatedAlerts()[0].alert_id).toBe('0');
+  });
+
+  test('draws both banned and detection-only origins after arcs finish', () => {
+    const banned = { alert_id: 'b', latitude: 10, longitude: 20, has_decision: true };
+    const scan = { alert_id: 's', latitude: 30, longitude: 40, has_decision: false };
+    crowdsecAllAlerts = [banned, scan];
+    crowdsecMapHover = banned;
+    const ctx = {
+      beginPath: jest.fn(), arc: jest.fn(), fill: jest.fn(), stroke: jest.fn(),
+      fillStyle: '', strokeStyle: '', lineWidth: 0, shadowColor: '', shadowBlur: 0
+    };
+
+    crowdsecMapDrawMarkers(ctx, { x: 0, y: 0, w: 360, h: 180 });
+
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    expect(ctx.arc).toHaveBeenCalledTimes(3);
+  });
+
+  test('reports an understandable empty and populated state', () => {
+    crowdsecMapUpdateState();
+    const state = document.getElementById('crowdsecMapState');
+    expect(state.textContent).toContain('Waiting');
+    expect(state.classList.contains('is-empty')).toBe(true);
+
+    crowdsecAllAlerts = [{ alert_id: 'a', latitude: 10, longitude: 20 }, { alert_id: 'b' }];
+    crowdsecMapUpdateState();
+    expect(state.textContent).toContain('1 mapped origin');
+    expect(state.textContent).toContain('2 recent detections');
+    expect(state.classList.contains('is-empty')).toBe(false);
+  });
+
+  test('arrow keys cycle through geolocated origins for keyboard users', () => {
+    const canvas = document.getElementById('crowdsecMap');
+    crowdsecMapCanvas = canvas;
+    crowdsecAllAlerts = [
+      { alert_id: 'a', latitude: 10, longitude: 20, country: 'GB', scenario: 'crowdsecurity/ssh-bf' },
+      { alert_id: 'b', latitude: 30, longitude: 40, country: 'DE', scenario: 'crowdsecurity/http-probing' }
+    ];
+    const firstEvent = { key: 'ArrowRight', preventDefault: jest.fn() };
+    crowdsecMapOnKeyDown(firstEvent);
+    expect(crowdsecMapHover.alert_id).toBe('a');
+    expect(canvas.getAttribute('aria-label')).toContain('GB');
+    expect(firstEvent.preventDefault).toHaveBeenCalled();
+
+    crowdsecMapOnKeyDown({ key: 'ArrowRight', preventDefault: jest.fn() });
+    expect(crowdsecMapHover.alert_id).toBe('b');
+
+    crowdsecMapOnKeyDown({ key: 'Escape', preventDefault: jest.fn() });
+    expect(crowdsecMapHover).toBeNull();
+  });
+
+  test('map animation resumes only while the CrowdSec tab is visible', () => {
+    global.requestAnimationFrame = jest.fn(() => 17);
+    crowdsecMapAnim = null;
+
+    document.getElementById('tab-crowdsec').classList.remove('active');
+    crowdsecMapResume();
+    expect(global.requestAnimationFrame).not.toHaveBeenCalled();
+
+    document.getElementById('tab-crowdsec').classList.add('active');
+    crowdsecMapResume();
+    expect(global.requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(crowdsecMapAnim).toBe(17);
+
+  });
+});
+
 describe('crowdsecMapLayout', () => {
   test('keeps the 2:1 projection aspect in a wide box', () => {
     const l = crowdsecMapLayout(800, 400); // nearly 2:1 container

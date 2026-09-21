@@ -54,13 +54,18 @@ func ValidateBaseURL(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("crowdsec URL is invalid: %w", err)
+		// net/url errors can echo the original input. Keep malformed URLs out
+		// of responses because operators occasionally paste credentials here.
+		return "", errors.New("crowdsec URL is invalid")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", errors.New("crowdsec URL must use http or https")
 	}
 	if u.Host == "" {
 		return "", errors.New("crowdsec URL must include a host")
+	}
+	if u.User != nil {
+		return "", errors.New("crowdsec URL must not contain credentials")
 	}
 	switch u.Path {
 	case "", "/", "/v1":

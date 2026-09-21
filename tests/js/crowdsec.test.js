@@ -43,14 +43,15 @@ describe('crowdsecSyncBadgeText', () => {
     expect(crowdsecSyncBadgeText({ last_sync: 'garbage' })).toBe('Not synced yet');
   });
 
-  test('truncated snapshot shows latest N of total', () => {
+  test('does not imply that the fetched decision count is a true LAPI total', () => {
     const minAgo = new Date(Date.now() - 60 * 1000).toISOString();
     const text = crowdsecSyncBadgeText({
       last_sync: minAgo,
       decision_count: 15000,
       snapshot_count: 500
     });
-    expect(text).toContain('showing latest 500 of 15000');
+    expect(text).toBe('Synced 1 min ago');
+    expect(text).not.toContain('of 15000');
   });
 });
 
@@ -160,6 +161,8 @@ describe('renderCrowdsecDecisions', () => {
     renderCrowdsecDecisions([{ decision_id: '10', value: '1.1.1.1', type: 'ban', scope: 'Ip' }]);
     const header = document.querySelector('.crowdsec-decision-header');
     expect(header).not.toBeNull();
+    expect(header.textContent).toContain('First seen');
+    expect(header.textContent).not.toContain('Created');
   });
 });
 
@@ -184,7 +187,8 @@ describe('renderCrowdsecAlerts', () => {
   test('alert row shows scenario, IP, country, and outcome', () => {
     renderCrowdsecAlerts([{
       alert_id: '42', scenario: 'crowdsecurity/ssh-bf', source_value: '5.5.5.5',
-      country: 'cn', events_count: 7, has_decision: true, created_at: new Date().toISOString()
+      country: 'cn', events_count: 7, has_decision: true, created_at: new Date().toISOString(),
+      latitude: 39.9, longitude: 116.4
     }]);
     const html = document.getElementById('crowdsecAlerts').innerHTML;
     expect(html).toContain('ssh-bf');
@@ -198,6 +202,20 @@ describe('renderCrowdsecAlerts', () => {
     // …but the tooltip keeps the full name for operator clarity.
     const row = document.querySelector('.crowdsec-alert-row');
     expect(row.getAttribute('title')).toContain('crowdsecurity/ssh-bf');
+    expect(row.tabIndex).toBe(0);
+    expect(row.getAttribute('aria-label')).toContain('banned');
+  });
+
+  test('alerts without coordinates are not exposed as map controls', () => {
+    renderCrowdsecAlerts([{
+      alert_id: 'no-geo', scenario: 'crowdsecurity/http-probing', source_value: '6.6.6.6',
+      country: 'ru', has_decision: false, created_at: new Date().toISOString()
+    }]);
+    const row = document.querySelector('.crowdsec-alert-row');
+    expect(row.classList.contains('is-mappable')).toBe(false);
+    expect(row.hasAttribute('tabindex')).toBe(false);
+    expect(row.hasAttribute('role')).toBe(false);
+    expect(row.hasAttribute('aria-controls')).toBe(false);
   });
 
   test('scan without decision shows the no-ban outcome', () => {
@@ -258,6 +276,20 @@ describe('relativeTime', () => {
   test('invalid input gives empty string', () => {
     expect(relativeTime('garbage')).toBe('');
     expect(relativeTime('')).toBe('');
+  });
+});
+
+describe('crowdsecRemainingTime', () => {
+  const now = Date.parse('2026-09-21T12:00:00Z');
+
+  test('derives a live countdown from the stable expiry', () => {
+    expect(crowdsecRemainingTime('2026-09-21T15:05:30Z', 'stale', now)).toBe('3h 5m');
+    expect(crowdsecRemainingTime('2026-09-21T12:02:10Z', 'stale', now)).toBe('2m 10s');
+  });
+
+  test('marks elapsed decisions expired and falls back for invalid expiry', () => {
+    expect(crowdsecRemainingTime('2026-09-21T11:59:59Z', 'stale', now)).toBe('expired');
+    expect(crowdsecRemainingTime('', '1h')).toBe('1h');
   });
 });
 
@@ -323,6 +355,141 @@ describe('renderCrowdsecStats', () => {
     // uppercased — compare case-insensitively).
     const label = document.querySelector('#crowdsecCountries .crowdsec-breakdown-label');
     expect(label.textContent.toLowerCase()).toBe('<script>x</script>');
+  });
+});
+
+/* ── live dashboard loading ───────────────────────────────────── */
+describe('loadCrowdsecDecisions', () => {
+  let originalJ;
+
+  beforeEach(() => {
+    originalJ = global.j;
+    crowdsecDashboardPromise = null;
+    document.body.innerHTML = `
+      <span id="crowdsecSyncBadge"></span>
+      <div id="crowdsecDecisions"><div>existing decisions</div></div>
+      <span id="crowdsecDecisionsSummary"></span>
+      <div id="crowdsecDecisionsExpand" class="hidden"><button></button></div>
+      <div id="crowdsecAlerts"><div>existing activity</div></div>
+      <div id="crowdsecAlertsExpand" class="hidden"><button></button></div>
+      <div id="csStatActive"></div><div id="csStatAlerts"></div>
+      <div id="csStatTopCountry"></div><div id="csStatTopCountryLabel"></div>
+      <div id="csStatTopScenario"></div>
+      <div id="crowdsecCountries"></div><div id="crowdsecScenarios"></div>`;
+  });
+
+  afterEach(() => {
+    global.j = originalJ;
+    crowdsecDashboardPromise = null;
+    delete global.crowdsecMapApply;
+  });
+
+  test('renders successful panels when one endpoint fails', async () => {
+    const now = new Date().toISOString();
+    global.j = jest.fn(url => {
+      if (url.includes('/decisions')) return Promise.reject(new Error('decision endpoint down'));
+      if (url.includes('/status')) return Promise.resolve({ last_sync: now });
+      if (url.includes('/alerts')) return Promise.resolve({ alerts: [{
+        alert_id: 'a1', scenario: 'crowdsecurity/ssh-bf', source_value: '1.2.3.4',
+        country: 'gb', created_at: now
+      }] });
+      return Promise.resolve({
+        active_decisions: 9, alerts_24h: 1, top_country: 'gb', top_country_count: 1,
+        top_scenario: 'crowdsecurity/ssh-bf', countries: [], scenarios: []
+      });
+    });
+    global.crowdsecMapApply = jest.fn();
+
+    await loadCrowdsecDecisions();
+
+    expect(document.querySelector('.crowdsec-alert-row').textContent).toContain('ssh-bf');
+    expect(document.getElementById('csStatActive').textContent).toBe('9');
+    expect(document.getElementById('crowdsecDecisions').textContent).toContain('existing decisions');
+    expect(document.getElementById('crowdsecSyncBadge').textContent).toContain('Partial data');
+    expect(document.getElementById('crowdsecSyncBadge').title).toContain('decisions');
+    expect(global.crowdsecMapApply).toHaveBeenCalledTimes(1);
+  });
+
+  test('coalesces overlapping refreshes into one request batch', async () => {
+    const resolvers = [];
+    global.j = jest.fn(() => new Promise(resolve => resolvers.push(resolve)));
+
+    const first = loadCrowdsecDecisions();
+    const second = loadCrowdsecDecisions();
+    expect(second).toBe(first);
+    expect(global.j).toHaveBeenCalledTimes(4);
+
+    resolvers[0]({ decisions: [] });
+    resolvers[1]({ last_sync: new Date().toISOString() });
+    resolvers[2]({ alerts: [] });
+    resolvers[3]({ active_decisions: 0, alerts_24h: 0, countries: [], scenarios: [] });
+    await first;
+    expect(crowdsecDashboardPromise).toBeNull();
+  });
+});
+
+describe('CrowdSec live-view visibility', () => {
+  let originalJ;
+
+  beforeEach(() => {
+    originalJ = global.j;
+  });
+
+  afterEach(() => {
+    stopCrowdsecAutoRefresh();
+    crowdsecDashboardPromise = null;
+    crowdsecLiveRetrying = false;
+    global.j = originalJ;
+    jest.useRealTimers();
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  });
+
+  test('is active only when both the CrowdSec tab and page are visible', () => {
+    document.body.innerHTML = '<div id="tab-crowdsec" class="tab-content active"></div>';
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    expect(crowdsecDashboardVisible()).toBe(true);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    expect(crowdsecDashboardVisible()).toBe(false);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.getElementById('tab-crowdsec').classList.remove('active');
+    expect(crowdsecDashboardVisible()).toBe(false);
+  });
+
+  test('starts and stops the refresh interval with visibility', () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <div id="tab-crowdsec" class="tab-content active"></div>
+      <span id="crowdsecLiveState"></span>
+      <div id="crowdsecDecisions"></div>`;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    global.j = jest.fn(() => new Promise(() => {}));
+
+    updateCrowdsecAutoRefresh(false);
+    expect(crowdsecRefreshTimer).not.toBeNull();
+    expect(document.getElementById('crowdsecLiveState').textContent).toBe('Live view on');
+    jest.advanceTimersByTime(crowdsecRefreshIntervalMs);
+    expect(global.j).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    updateCrowdsecAutoRefresh(false);
+    expect(crowdsecRefreshTimer).toBeNull();
+    expect(document.getElementById('crowdsecLiveState').textContent).toBe('Live view paused');
+
+  });
+
+  test('distinguishes a retrying connection from a healthy live view', () => {
+    document.body.innerHTML = '<span id="crowdsecLiveState"></span>';
+    crowdsecLiveRetrying = true;
+
+    setCrowdsecLiveState(true);
+
+    const indicator = document.getElementById('crowdsecLiveState');
+    expect(indicator.textContent).toBe('Live view retrying');
+    expect(indicator.classList.contains('is-live')).toBe(false);
+    expect(indicator.classList.contains('is-retrying')).toBe(true);
+    expect(indicator.getAttribute('aria-label')).toContain('Cached data is shown');
   });
 });
 

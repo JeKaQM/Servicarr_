@@ -179,6 +179,23 @@ func runCrowdSecMonitor(ctx context.Context, defaultInterval time.Duration) {
 	interval := defaultInterval
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	refreshInterval := func() {
+		newInterval := defaultInterval
+		if cfg, err := database.LoadCrowdSecConfig(); err == nil && cfg != nil && cfg.Enabled {
+			secs := cfg.PollIntervalS
+			if secs < 10 {
+				secs = 10
+			}
+			if secs > 3600 {
+				secs = 3600
+			}
+			newInterval = time.Duration(secs) * time.Second
+		}
+		if newInterval != interval {
+			interval = newInterval
+			ticker.Reset(interval)
+		}
+	}
 
 	var lastError string
 	var lastErrorLog time.Time
@@ -201,21 +218,13 @@ func runCrowdSecMonitor(ctx context.Context, defaultInterval time.Duration) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-monitor.CrowdSecConfigChanges():
+			// Apply new credentials/enable state immediately. In particular, a
+			// change from a long interval must not wait for the old ticker to fire.
+			refreshInterval()
+			poll()
 		case <-ticker.C:
-			// Re-read config so interval changes apply without restart.
-			if cfg, err := database.LoadCrowdSecConfig(); err == nil && cfg != nil && cfg.Enabled {
-				secs := cfg.PollIntervalS
-				if secs < 10 {
-					secs = 10
-				}
-				if secs > 3600 {
-					secs = 3600
-				}
-				if newInterval := time.Duration(secs) * time.Second; newInterval != interval {
-					interval = newInterval
-					ticker.Reset(interval)
-				}
-			}
+			refreshInterval()
 			poll()
 		}
 	}

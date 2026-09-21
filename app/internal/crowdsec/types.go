@@ -117,10 +117,11 @@ func (p DecisionsParams) encode() string {
 
 // AlertsParams are the GET /v1/alerts query parameters.
 type AlertsParams struct {
-	Limit    int
-	Since    time.Duration // encoded as a Go duration string, e.g. "2h"
-	Scenario string
-	IP       string
+	Limit       int
+	Since       time.Duration // encoded as a Go duration string, e.g. "2h"
+	Scenario    string
+	IP          string
+	IncludeCAPI *bool // nil = server default; false excludes community-list alerts
 }
 
 func (p AlertsParams) encode() string {
@@ -136,6 +137,9 @@ func (p AlertsParams) encode() string {
 	}
 	if p.IP != "" {
 		q.Set("ip", p.IP)
+	}
+	if p.IncludeCAPI != nil {
+		q.Set("include_capi", strconv.FormatBool(*p.IncludeCAPI))
 	}
 	return q.Encode()
 }

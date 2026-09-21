@@ -103,6 +103,29 @@ func TestSyncCrowdSecAlerts_EmptyIsNoop(t *testing.T) {
 	}
 }
 
+func TestSyncCrowdSecAlerts_EmptyPrunesExpiredHistory(t *testing.T) {
+	initCrowdSecAlertsTestDB(t)
+	now := time.Now().UTC()
+	_, err := DB.Exec(`INSERT INTO crowdsec_alerts
+		(alert_id, scenario, message, source_value, country, as_number, as_name,
+		 events_count, start_at, created_at, has_decision, simulated, synced_at)
+		VALUES ('old', 'scenario', '', '1.2.3.4', '', '', '', 1, '', ?, 0, 0, ?)`,
+		now.Add(-25*time.Hour).Format(time.RFC3339), now.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("seed old alert: %v", err)
+	}
+	if _, err := SyncCrowdSecAlerts(nil, now); err != nil {
+		t.Fatalf("empty sync: %v", err)
+	}
+	var count int
+	if err := DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expired alerts remaining = %d, want 0", count)
+	}
+}
+
 func TestSyncCrowdSecAlerts_CapsAtMaxRows(t *testing.T) {
 	initCrowdSecAlertsTestDB(t)
 	now := time.Now().UTC()

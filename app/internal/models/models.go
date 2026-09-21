@@ -242,7 +242,7 @@ type CrowdSecDecision struct {
 	Scenario   string `json:"scenario"`
 	Duration   string `json:"duration"` // remaining, e.g. "3h59m55s"
 	Simulated  bool   `json:"simulated"`
-	CreatedAt  string `json:"created_at"` // RFC3339
+	CreatedAt  string `json:"created_at"` // RFC3339; first observed locally
 	ExpiresAt  string `json:"expires_at"` // RFC3339
 	SyncedAt   string `json:"synced_at"`  // RFC3339, our ingest time
 }
@@ -252,7 +252,7 @@ type CrowdSecSyncStatus struct {
 	LastSync      string `json:"last_sync"`            // RFC3339; empty = never
 	LastError     string `json:"last_error,omitempty"` // sanitized error text
 	AuthFailed    bool   `json:"auth_failed"`          // credentials rejected
-	DecisionCount int    `json:"decision_count"`       // true LAPI total
+	DecisionCount int    `json:"decision_count"`       // rows returned by the capped LAPI fetch
 	SnapshotCount int    `json:"snapshot_count"`       // rows actually stored (<= cap)
 }
 

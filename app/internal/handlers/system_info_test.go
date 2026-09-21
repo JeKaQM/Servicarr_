@@ -148,3 +148,59 @@ func TestNotificationRecoverySettingsSurviveBackupRoundTrip(t *testing.T) {
 		t.Fatalf("recovery settings after import = %+v", got)
 	}
 }
+
+func TestCrowdSecMapHomeSurvivesBackupRoundTrip(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	want := &models.CrowdSecConfig{
+		Enabled:       true,
+		LAPIURL:       "http://crowdsec.example:8080",
+		BouncerAPIKey: "test-key",
+		PollIntervalS: 30,
+		MapHomeLat:    53.4808,
+		MapHomeLng:    -2.2426,
+	}
+	if err := database.SaveCrowdSecConfig(want); err != nil {
+		t.Fatal(err)
+	}
+
+	exportRecorder := httptest.NewRecorder()
+	HandleExportDatabase()(exportRecorder, httptest.NewRequest(http.MethodGet, "/api/admin/settings/export", nil))
+	if exportRecorder.Code != http.StatusOK {
+		t.Fatalf("export status = %d, body = %s", exportRecorder.Code, exportRecorder.Body.String())
+	}
+	var exported DatabaseExport
+	if err := json.Unmarshal(exportRecorder.Body.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.CrowdSec == nil || exported.CrowdSec.MapHomeLat != want.MapHomeLat || exported.CrowdSec.MapHomeLng != want.MapHomeLng {
+		t.Fatalf("map home missing from export: %+v", exported.CrowdSec)
+	}
+
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	part, err := writer.CreateFormFile("backup", "servicarr-backup.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(exportRecorder.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/settings/import", &requestBody)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	importRecorder := httptest.NewRecorder()
+	HandleImportDatabase()(importRecorder, request)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	got, err := database.LoadCrowdSecConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Enabled || got.MapHomeLat != want.MapHomeLat || got.MapHomeLng != want.MapHomeLng {
+		t.Fatalf("map home after import = %+v", got)
+	}
+}

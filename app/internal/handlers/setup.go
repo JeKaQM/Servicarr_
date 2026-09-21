@@ -467,6 +467,8 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 				MachineID:     export.CrowdSec.MachineID,
 				PollIntervalS: export.CrowdSec.PollIntervalS,
 				TLSSkipVerify: export.CrowdSec.TLSSkipVerify,
+				MapHomeLat:    export.CrowdSec.MapHomeLat,
+				MapHomeLng:    export.CrowdSec.MapHomeLng,
 			}
 			if csCfg.PollIntervalS < 10 {
 				csCfg.PollIntervalS = 30

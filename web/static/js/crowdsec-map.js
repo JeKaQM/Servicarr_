@@ -94,8 +94,36 @@ var crowdsecMapCanvas = null;
 var crowdsecMapObserver = null;
 var crowdsecMapAnim = null;
 var crowdsecMapAlerts = [];
-var crowdsecMapHome = { lat: 51.5074, lng: -0.1278 }; // London default
+var CROWDSEC_DEFAULT_HOME = { lat: 51.5074, lng: -0.1278 };
+var crowdsecMapHome = { ...CROWDSEC_DEFAULT_HOME }; // London default
 var crowdsecMapStrikes = [];
+var crowdsecMapKeyboardIndex = -1;
+
+function crowdsecMapIsVisible() {
+  const tab = $('#tab-crowdsec');
+  return !!(tab && tab.classList.contains('active') && !document.hidden);
+}
+
+function crowdsecMapGeolocatedAlerts() {
+  return (crowdsecAllAlerts || [])
+    .filter(a => a.latitude != null && a.longitude != null)
+    .slice(0, 100);
+}
+
+function crowdsecMapUpdateState() {
+  const state = $('#crowdsecMapState');
+  if (!state) return;
+  const total = (crowdsecAllAlerts || []).length;
+  const geolocated = crowdsecMapGeolocatedAlerts().length;
+  state.classList.toggle('is-empty', geolocated === 0);
+  if (!total) {
+    state.textContent = 'Waiting for recent CrowdSec detections';
+  } else if (!geolocated) {
+    state.textContent = `${total} recent detection${total === 1 ? '' : 's'} · no location data`;
+  } else {
+    state.textContent = `${geolocated} mapped origin${geolocated === 1 ? '' : 's'} · ${total} recent detection${total === 1 ? '' : 's'}`;
+  }
+}
 
 // crowdsecMapInit boots the map on first tab open.
 function crowdsecMapInit() {
@@ -112,6 +140,7 @@ function crowdsecMapInit() {
     window.addEventListener('resize', crowdsecMapResize);
   }
   crowdsecMapResize();
+  crowdsecMapUpdateState();
 
   // Strike arcs fire when the feed reloads; replay recent history on boot.
   crowdsecMapStrikes = [];
@@ -121,7 +150,12 @@ function crowdsecMapInit() {
   // re-fire strikes for alerts we just animated.
   crowdsecMapAlerts = crowdsecAllAlerts;
 
-  if (typeof crowdsecMapLoop === 'function') crowdsecMapLoop();
+  crowdsecMapResume();
+}
+
+function crowdsecMapResume() {
+  if (crowdsecMapAnim != null || !crowdsecMapIsVisible()) return;
+  crowdsecMapAnim = requestAnimationFrame(crowdsecMapLoop);
 }
 
 function crowdsecMapResize() {
@@ -142,6 +176,7 @@ function crowdsecQueueStrike(alert, delayMs) {
   const lat = alert.latitude;
   const lng = alert.longitude;
   if (lat == null || lng == null) return null;
+  if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
   const strike = {
     from: crowdsecProject(lat, lng),
     color: alert.has_decision ? 'rgba(220, 38, 38, ' : 'rgba(217, 119, 6, ',
@@ -178,13 +213,45 @@ function crowdsecMapLayout(w, h) {
   };
 }
 
+// Keep recent origins visible after their animated strike has completed. The
+// newest markers are drawn last so dense locations still communicate recency.
+function crowdsecMapDrawMarkers(ctx, layout) {
+  const alerts = crowdsecMapGeolocatedAlerts();
+  for (let i = alerts.length - 1; i >= 0; i--) {
+    const alert = alerts[i];
+    const p = crowdsecProject(alert.latitude, alert.longitude);
+    const x = layout.x + p.x * layout.w;
+    const y = layout.y + p.y * layout.h;
+    const selected = crowdsecMapHover === alert;
+    const rgb = alert.has_decision ? '220, 38, 38' : '217, 119, 6';
+    const alpha = Math.max(0.38, 0.8 - i * 0.008);
+
+    if (selected) {
+      ctx.beginPath();
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${rgb}, 0.65)`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, selected ? 3.8 : 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${rgb}, ${alpha})`;
+    ctx.shadowColor = `rgba(${rgb}, 0.7)`;
+    ctx.shadowBlur = selected ? 10 : 4;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
 // The animation loop: draw dots, home beacon, strike arcs, pins.
 function crowdsecMapLoop() {
+  crowdsecMapAnim = null;
   const canvas = $('#crowdsecMap');
   if (!canvas) return;
-  // Pause rendering while the browser tab is hidden to save CPU.
-  if (document.hidden) {
-    requestAnimationFrame(crowdsecMapLoop);
+  // Pause both rendering and strike progress while this admin tab is not
+  // visible. Otherwise every arc has finished before the operator opens it.
+  if (!crowdsecMapIsVisible()) {
     return;
   }
   const ctx = canvas.getContext('2d');
@@ -214,6 +281,8 @@ function crowdsecMapLoop() {
     ctx.arc(ox + p.x * mapW, oy + p.y * mapH, layout.dot, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  crowdsecMapDrawMarkers(ctx, layout);
 
   const home = crowdsecProject(crowdsecMapHome.lat, crowdsecMapHome.lng);
   const hx = ox + home.x * mapW;
@@ -309,7 +378,7 @@ function crowdsecMapLoop() {
   // Hover tooltip handling (cheap hit test on attacker pins).
   crowdsecMapDrawHover(ctx, layout);
 
-  requestAnimationFrame(crowdsecMapLoop);
+  crowdsecMapAnim = requestAnimationFrame(crowdsecMapLoop);
 }
 
 // quad computes a point on a quadratic bezier curve at t.
@@ -366,15 +435,60 @@ function crowdsecMapOnMouseMove(e) {
       best = a;
     }
   }
-  crowdsecMapHover = best;
+  crowdsecMapHighlightAlert(best);
+}
+
+function crowdsecMapOnMouseLeave() {
+  crowdsecMapHighlightAlert(null);
+}
+
+function crowdsecMapHighlightAlert(alert) {
+  crowdsecMapHover = alert || null;
+  const alerts = crowdsecMapGeolocatedAlerts();
+  crowdsecMapKeyboardIndex = alert ? alerts.indexOf(alert) : -1;
+  const canvas = crowdsecMapCanvas || $('#crowdsecMap');
+  if (!canvas) return;
+  if (!alert) {
+    canvas.setAttribute('aria-label', 'CrowdSec attack origins map. Focus and use the arrow keys to inspect recent origins.');
+    return;
+  }
+  const outcome = alert.has_decision ? 'banned' : 'no ban';
+  canvas.setAttribute('aria-label', `${alert.country || 'Unknown country'}, ${shortScenario(alert.scenario || 'unknown scenario')}, ${alert.source_value || 'unknown source'}, ${outcome}`);
+}
+
+function crowdsecMapOnKeyDown(e) {
+  const alerts = crowdsecMapGeolocatedAlerts();
+  if (!alerts.length) return;
+  let next = crowdsecMapKeyboardIndex;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    next = (next + 1 + alerts.length) % alerts.length;
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    next = (next - 1 + alerts.length) % alerts.length;
+  } else if (e.key === 'Home') {
+    next = 0;
+  } else if (e.key === 'End') {
+    next = alerts.length - 1;
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    crowdsecMapHighlightAlert(null);
+    return;
+  } else {
+    return;
+  }
+  e.preventDefault();
+  crowdsecMapHighlightAlert(alerts[next]);
 }
 
 // crowdsecMapApply feeds new alert data to the map and fires fresh strikes.
 function crowdsecMapApply(alerts, homeLat, homeLng) {
   crowdsecAllAlerts = alerts || [];
-  if (typeof homeLat === 'number' && typeof homeLng === 'number' && (homeLat !== 0 || homeLng !== 0)) {
-    crowdsecMapHome = { lat: homeLat, lng: homeLng };
+  if (typeof homeLat === 'number' && typeof homeLng === 'number') {
+    crowdsecMapHome = (homeLat === 0 && homeLng === 0)
+      ? { ...CROWDSEC_DEFAULT_HOME }
+      : { lat: homeLat, lng: homeLng };
   }
+  crowdsecMapUpdateState();
+  if (crowdsecMapHover && !crowdsecAllAlerts.includes(crowdsecMapHover)) crowdsecMapHighlightAlert(null);
   if (!crowdsecMapCanvas) return; // map not mounted yet; init will replay
   // Fire strikes for alerts newer than the previous batch head.
   const prevHead = crowdsecMapAlerts.length ? crowdsecMapAlerts[0].alert_id : null;

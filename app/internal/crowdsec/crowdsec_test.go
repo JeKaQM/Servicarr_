@@ -80,6 +80,7 @@ func TestValidateBaseURL(t *testing.T) {
 		{"http://", "", true},
 		{"http://host:8080/path", "", true},
 		{"http://host:8080?v=1", "", true},
+		{"http://user:secret@host:8080", "", true},
 		{"http://169.254.169.254", "", true}, // cloud metadata must be rejected
 	}
 	for _, c := range cases {
@@ -97,6 +98,16 @@ func TestValidateBaseURL(t *testing.T) {
 		if got != c.want {
 			t.Errorf("ValidateBaseURL(%q) = %q, want %q", c.raw, got, c.want)
 		}
+	}
+}
+
+func TestValidateBaseURL_MalformedInputDoesNotLeakCredentials(t *testing.T) {
+	_, err := ValidateBaseURL("http://user:very-secret@[")
+	if err == nil {
+		t.Fatal("expected malformed URL error")
+	}
+	if strings.Contains(err.Error(), "very-secret") {
+		t.Fatalf("validation error leaked URL credentials: %q", err)
 	}
 }
 
@@ -122,8 +133,10 @@ func TestDecisionsParamsEncode(t *testing.T) {
 	if got := (DecisionsParams{}).encode(); got != "" {
 		t.Errorf("empty params should encode to empty string, got %q", got)
 	}
-	got = AlertsParams{Limit: 100, Since: 2 * time.Hour}.encode()
-	if !strings.Contains(got, "limit=100") || !strings.Contains(got, "since=2h0m0s") {
+	includeCAPI := false
+	got = AlertsParams{Limit: 100, Since: 2 * time.Hour, IncludeCAPI: &includeCAPI}.encode()
+	if !strings.Contains(got, "limit=100") || !strings.Contains(got, "since=2h0m0s") ||
+		!strings.Contains(got, "include_capi=false") {
 		t.Errorf("unexpected alerts encode: %q", got)
 	}
 }
@@ -193,6 +206,25 @@ func TestDecisions_NullArray_ReturnsEmpty(t *testing.T) {
 	}
 	if out == nil || len(out) != 0 {
 		t.Errorf("want non-nil empty slice, got %+v", out)
+	}
+}
+
+func TestDecisions_OversizeResponseIsExplicitlyRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// This would be valid JSON if read in full. The client must identify the
+		// size violation rather than truncating it and reporting a JSON parse error.
+		_, _ = fmt.Fprint(w, "[", strings.Repeat(" ", 4<<20), "]")
+	}))
+	defer srv.Close()
+
+	c := NewClient(Config{BaseURL: srv.URL, BouncerKey: "k"})
+	_, err := c.Decisions(context.Background(), DecisionsParams{})
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("want ErrInvalidResponse, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "exceeds 4 MiB") {
+		t.Errorf("want explicit response-size error, got %q", err)
 	}
 }
 

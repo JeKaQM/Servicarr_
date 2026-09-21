@@ -10,6 +10,7 @@ import (
 
 	"status/app/internal/crypto"
 	"status/app/internal/database"
+	"status/app/internal/models"
 )
 
 func initCrowdSecHandlerDB(t *testing.T) {
@@ -54,6 +55,35 @@ func TestSaveCrowdSecConfig_ValidatesURL(t *testing.T) {
 	HandleSaveCrowdSecConfig().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("cloud metadata URL must be rejected, status = %d", recorder.Code)
+	}
+}
+
+func TestSaveCrowdSecConfig_DisabledMayBeCleared(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	recorder := httptest.NewRecorder()
+	body := `{"enabled":false,"lapi_url":"   ","poll_interval_seconds":30}`
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/config", strings.NewReader(body))
+	HandleSaveCrowdSecConfig().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	cfg, err := database.LoadCrowdSecConfig()
+	if err != nil || cfg == nil {
+		t.Fatalf("load config: %+v, %v", cfg, err)
+	}
+	if cfg.Enabled || cfg.LAPIURL != "" {
+		t.Fatalf("unexpected cleared config: %+v", cfg)
+	}
+}
+
+func TestSaveCrowdSecConfig_RejectsWhitespaceCredentialWhenEnabled(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	recorder := httptest.NewRecorder()
+	body := `{"enabled":true,"lapi_url":"http://crowdsec.example:8080","bouncer_api_key":"   ","poll_interval_seconds":30}`
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/config", strings.NewReader(body))
+	HandleSaveCrowdSecConfig().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -220,6 +250,42 @@ func TestSaveCrowdSecConfig_ClampsInterval(t *testing.T) {
 	}
 	if cfg.PollIntervalS != 10 {
 		t.Errorf("interval not clamped to 10: %d", cfg.PollIntervalS)
+	}
+}
+
+func TestCrowdSecConnectionTestHonorsSecretClearFlags(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	credentialRequests := 0
+	lapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		default:
+			credentialRequests++
+			http.Error(w, "credentials should not have been tested", http.StatusUnauthorized)
+		}
+	}))
+	defer lapi.Close()
+
+	if err := database.SaveCrowdSecConfig(&models.CrowdSecConfig{
+		LAPIURL:         lapi.URL,
+		BouncerAPIKey:   "stored-bouncer-key",
+		MachineID:       "stored-machine",
+		MachinePassword: "stored-machine-password",
+		PollIntervalS:   30,
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	body := `{"lapi_url":` + strconv.Quote(lapi.URL) + `,"machine_id":"stored-machine","clear_machine_password":true,"clear_bouncer_api_key":true}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/test", strings.NewReader(body))
+	HandleTestCrowdSecConnection().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if credentialRequests != 0 {
+		t.Fatalf("connection test reused credentials selected for removal (%d credentialed requests)", credentialRequests)
 	}
 }
 

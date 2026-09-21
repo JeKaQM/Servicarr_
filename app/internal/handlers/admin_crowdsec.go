@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"status/app/internal/crowdsec"
@@ -107,15 +108,26 @@ func HandleSaveCrowdSecConfig() http.HandlerFunc {
 		if req.ClearBouncerAPIKey {
 			req.BouncerAPIKey = ""
 		}
+		req.LAPIURL = strings.TrimSpace(req.LAPIURL)
+		req.MachineID = strings.TrimSpace(req.MachineID)
+		req.BouncerAPIKey = strings.TrimSpace(req.BouncerAPIKey)
 
 		// Validate the LAPI URL (scheme, host, no path/query; cloud metadata
-		// targets rejected by the same SSRF guard the checker uses).
-		normalizedURL, err := crowdsec.ValidateBaseURL(req.LAPIURL)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		// targets rejected by the same SSRF guard the checker uses). A disabled
+		// integration may be saved blank so it can be cleanly reset.
+		if req.LAPIURL == "" {
+			if req.Enabled {
+				http.Error(w, "enabling requires a CrowdSec LAPI URL", http.StatusBadRequest)
+				return
+			}
+		} else {
+			normalizedURL, err := crowdsec.ValidateBaseURL(req.LAPIURL)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			req.LAPIURL = normalizedURL
 		}
-		req.LAPIURL = normalizedURL
 
 		// Enforce enable semantics: enabling requires at least one credential.
 		if req.Enabled && req.BouncerAPIKey == "" && (req.MachineID == "" || req.MachinePassword == "") {
@@ -149,6 +161,7 @@ func HandleSaveCrowdSecConfig() http.HandlerFunc {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
+		monitor.NotifyCrowdSecConfigChanged()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -307,13 +320,16 @@ func HandleTestCrowdSecConnection() http.HandlerFunc {
 		}
 
 		// Preserve-on-empty: fall back to stored secrets for blank fields so
-		// the test button works with saved credentials.
-		if req.MachinePassword == "" || req.BouncerKey == "" {
+		// the test button works with saved credentials. Explicit clear flags
+		// suppress that fallback, otherwise Test Connection could report success
+		// for credentials the same form is about to remove.
+		if (!req.ClearMachinePassword && req.MachinePassword == "") ||
+			(!req.ClearBouncerAPIKey && req.BouncerKey == "") {
 			if stored, err := database.LoadCrowdSecConfig(); err == nil && stored != nil {
-				if req.MachinePassword == "" {
+				if !req.ClearMachinePassword && req.MachinePassword == "" {
 					req.MachinePassword = stored.MachinePassword
 				}
-				if req.BouncerKey == "" {
+				if !req.ClearBouncerAPIKey && req.BouncerKey == "" {
 					req.BouncerKey = stored.BouncerAPIKey
 				}
 			}
@@ -355,11 +371,13 @@ func HandleTestCrowdSecConnection() http.HandlerFunc {
 }
 
 type crowdsecTestRequest struct {
-	LAPIURL         string `json:"lapi_url"`
-	MachineID       string `json:"machine_id"`
-	MachinePassword string `json:"machine_password"`
-	BouncerKey      string `json:"bouncer_key"`
-	TLSSkipVerify   bool   `json:"tls_skip_verify"`
+	LAPIURL              string `json:"lapi_url"`
+	MachineID            string `json:"machine_id"`
+	MachinePassword      string `json:"machine_password"`
+	BouncerKey           string `json:"bouncer_key"`
+	ClearMachinePassword bool   `json:"clear_machine_password"`
+	ClearBouncerAPIKey   bool   `json:"clear_bouncer_api_key"`
+	TLSSkipVerify        bool   `json:"tls_skip_verify"`
 }
 
 func writeCrowdSecTestError(w http.ResponseWriter, status int, code, message string) {

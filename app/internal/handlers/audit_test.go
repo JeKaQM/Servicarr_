@@ -70,6 +70,22 @@ func TestAuditAdminActionsSkipsBackgroundReadsButRecordsExplicitRefresh(t *testi
 	}
 }
 
+func TestCrowdSecMutationsHaveSpecificAuditActions(t *testing.T) {
+	tests := map[string]string{
+		"/api/admin/crowdsec/config":   "CrowdSec settings changed",
+		"/api/admin/crowdsec/test":     "CrowdSec connection tested",
+		"/api/admin/crowdsec/sync-now": "CrowdSec sync requested",
+	}
+	for path, want := range tests {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			if got := adminAuditAction(req); got != want {
+				t.Fatalf("action = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestLoginHandlerAuditsFailedAndSuccessfulAttempts(t *testing.T) {
 	initAPIOutageTest(t)
 	authMgr := testAuditAuth(t)

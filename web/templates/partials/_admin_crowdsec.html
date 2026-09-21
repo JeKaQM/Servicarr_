@@ -1,8 +1,13 @@
 {{define "admin-crowdsec"}}
 <!-- CrowdSec Tab -->
 <div id="tab-crowdsec" class="tab-content">
-  <h2>CrowdSec Integration</h2>
-  <p class="muted">Security activity mirrored from your CrowdSec Local API — active decisions, scenario detections and attack origins.</p>
+  <div class="crowdsec-page-heading">
+    <div>
+      <h2>CrowdSec Integration</h2>
+      <p class="muted">Security activity mirrored from your CrowdSec Local API — active decisions, scenario detections and attack origins.</p>
+    </div>
+    <span id="crowdsecLiveState" class="crowdsec-live-state" aria-live="polite">Live view paused</span>
+  </div>
 
   <!-- Overview stats cards -->
   <div class="crowdsec-stats-grid" id="crowdsecStatsGrid">
@@ -29,15 +34,16 @@
     <div class="crowdsec-dashboard-header">
       <h3>Attack origins map</h3>
       <div class="crowdsec-map-legend">
-        <span class="crowdsec-legend-chip crowdsec-legend-ban">Banned</span>
-        <span class="crowdsec-legend-chip crowdsec-legend-scan">Scan (no ban)</span>
-        <span class="crowdsec-legend-chip crowdsec-legend-home">Your server</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-ban">Ban decision</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-scan">Detection only</span>
+        <span class="crowdsec-legend-chip crowdsec-legend-home">Server destination</span>
       </div>
     </div>
-    <p class="muted">Geolocated detections arcing toward your server — hover a marker for details. Set your server's coordinates in Settings below.</p>
+    <p class="muted" id="crowdsecMapHelp">Each dot is a recent geolocated source; new detections animate toward your server. Hover a dot, or focus the map and use arrow keys, for details.</p>
     <div class="crowdsec-map-wrap">
-      <canvas id="crowdsecMap" aria-label="CrowdSec attack origins map" role="img"></canvas>
-      <div id="crowdsecMapTip" class="crowdsec-map-tip hidden"></div>
+      <canvas id="crowdsecMap" aria-label="CrowdSec attack origins map. Focus and use the arrow keys to inspect recent origins." aria-describedby="crowdsecMapHelp" role="img" tabindex="0"></canvas>
+      <div id="crowdsecMapState" class="crowdsec-map-state is-empty" aria-live="polite">Waiting for recent CrowdSec detections</div>
+      <div id="crowdsecMapTip" class="crowdsec-map-tip hidden" role="status" aria-live="polite"></div>
     </div>
   </div>
 
