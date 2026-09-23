@@ -1,178 +1,115 @@
 {{define "admin-crowdsec"}}
-<!-- CrowdSec Tab -->
 <div id="tab-crowdsec" class="tab-content">
   <div class="crowdsec-page-heading">
-    <div>
-      <h2>CrowdSec Integration</h2>
-      <p class="muted">Security activity mirrored from your CrowdSec Local API — active decisions, scenario detections and attack origins.</p>
+    <div class="crowdsec-heading-copy">
+      <span class="crowdsec-eyebrow">Security observability</span>
+      <h2>CrowdSec activity</h2>
+      <p class="muted">A live view of the detections mirrored locally by Servicarr. Alert statistics cover the rolling 24-hour cache; active decisions are the current mirrored snapshot.</p>
     </div>
-    <span id="crowdsecLiveState" class="crowdsec-live-state" aria-live="polite">Live view paused</span>
+    <div class="crowdsec-heading-actions">
+      <span id="crowdsecLiveState" class="crowdsec-live-state" aria-live="polite">Live view paused</span>
+      <span id="crowdsecSyncBadge" class="crowdsec-badge muted">Not synced yet</span>
+      <button type="button" id="crowdsecSyncNow" class="btn ghost small">Sync now</button>
+      <span id="crowdsecSyncFeedback" class="crowdsec-sync-feedback hidden" role="status" aria-live="polite"></span>
+    </div>
   </div>
 
-  <!-- Overview stats cards -->
+  <details id="crowdsecSyncDetails" class="crowdsec-sync-details hidden">
+    <summary>Cached data is shown — view sync issue</summary>
+    <p id="crowdsecSyncDetailsMessage"></p>
+  </details>
+
+  <div class="crowdsec-scope-note" role="note">
+    <span class="crowdsec-scope-icon" aria-hidden="true">24h</span>
+    <span><strong>Observed mirror</strong> — figures describe data retained by Servicarr, not an all-time CrowdSec ledger. On very busy installations the newest LAPI page may be a sample.</span>
+  </div>
+
   <div class="crowdsec-stats-grid" id="crowdsecStatsGrid">
-    <div class="crowdsec-stat-card">
-      <div class="crowdsec-stat-value" id="csStatActive">—</div>
-      <div class="crowdsec-stat-label">Active decisions</div>
-    </div>
-    <div class="crowdsec-stat-card">
-      <div class="crowdsec-stat-value" id="csStatAlerts">—</div>
-      <div class="crowdsec-stat-label">Detections (24h)</div>
-    </div>
-    <div class="crowdsec-stat-card">
-      <div class="crowdsec-stat-value" id="csStatTopCountry">—</div>
-      <div class="crowdsec-stat-label" id="csStatTopCountryLabel">Top attack origin</div>
-    </div>
-    <div class="crowdsec-stat-card">
-      <div class="crowdsec-stat-value crowdsec-stat-wide" id="csStatTopScenario">—</div>
-      <div class="crowdsec-stat-label">Top scenario</div>
-    </div>
+    <div class="crowdsec-stat-card" data-tone="blue"><div class="crowdsec-stat-topline"><span>Observed detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatAlerts">—</div><div class="crowdsec-stat-label">Scenario alerts · rolling 24h</div></div>
+    <div class="crowdsec-stat-card" data-tone="cyan"><div class="crowdsec-stat-topline"><span>Reported events</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatEvents">—</div><div class="crowdsec-stat-label">Raw events inside those alerts</div></div>
+    <div class="crowdsec-stat-card" data-tone="violet"><div class="crowdsec-stat-topline"><span>Unique sources</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatSources">—</div><div class="crowdsec-stat-label">Distinct reported source values</div></div>
+    <div class="crowdsec-stat-card" data-tone="red"><div class="crowdsec-stat-topline"><span>Decision attached</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActionRate">—</div><div class="crowdsec-stat-label" id="csStatActionRateLabel">Alert outcome coverage · rolling 24h</div></div>
+    <div class="crowdsec-stat-card" data-tone="green"><div class="crowdsec-stat-topline"><span>Active decisions</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActive">—</div><div class="crowdsec-stat-label">Current mirrored snapshot</div></div>
+    <div class="crowdsec-stat-card" data-tone="amber"><div class="crowdsec-stat-topline"><span>Mapped detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatGeoRate">—</div><div class="crowdsec-stat-label" id="csStatGeoRateLabel">IP geolocation coverage · rolling 24h</div></div>
   </div>
 
-  <!-- Attack map -->
-  <div class="admin-section crowdsec-map-section">
-    <div class="crowdsec-dashboard-header">
-      <h3>Attack origins map</h3>
-      <div class="crowdsec-map-legend">
-        <span class="crowdsec-legend-chip crowdsec-legend-ban">Ban decision</span>
-        <span class="crowdsec-legend-chip crowdsec-legend-scan">Detection only</span>
-        <span class="crowdsec-legend-chip crowdsec-legend-home">Server destination</span>
-      </div>
-    </div>
-    <p class="muted" id="crowdsecMapHelp">Each dot is a recent geolocated source; new detections animate toward your server. Hover a dot, or focus the map and use arrow keys, for details.</p>
-    <div class="crowdsec-map-wrap">
-      <canvas id="crowdsecMap" aria-label="CrowdSec attack origins map. Focus and use the arrow keys to inspect recent origins." aria-describedby="crowdsecMapHelp" role="img" tabindex="0"></canvas>
-      <div id="crowdsecMapState" class="crowdsec-map-state is-empty" aria-live="polite">Waiting for recent CrowdSec detections</div>
-      <div id="crowdsecMapTip" class="crowdsec-map-tip hidden" role="status" aria-live="polite"></div>
-    </div>
-  </div>
-
-  <div class="crowdsec-dashboard-columns">
-    <!-- Live activity feed -->
-    <div class="admin-section crowdsec-feed-section">
+  <div class="crowdsec-insight-grid">
+    <section class="admin-section crowdsec-panel crowdsec-timeline-panel" aria-labelledby="crowdsecTimelineTitle">
       <div class="crowdsec-dashboard-header">
-        <h3>Live activity</h3>
-        <div class="crowdsec-header-actions">
-          <span id="crowdsecSyncBadge" class="crowdsec-badge muted">Not synced yet</span>
-          <button type="button" id="crowdsecSyncNow" class="btn ghost small">Sync Now</button>
+        <div><span class="crowdsec-panel-kicker">Volume over time</span><h3 id="crowdsecTimelineTitle">Detection activity</h3></div>
+        <div class="crowdsec-segmented" aria-label="Timeline range">
+          <button type="button" data-crowdsec-range="6" aria-pressed="false">6h</button>
+          <button type="button" data-crowdsec-range="12" aria-pressed="false">12h</button>
+          <button type="button" data-crowdsec-range="24" aria-pressed="true">24h</button>
         </div>
       </div>
-      <p class="muted">Scenario detections as they happened — including scans that produced no ban.</p>
-      <div id="crowdsecAlerts" class="crowdsec-alerts">
-        <div class="muted">No activity synced yet.</div>
-      </div>
-      <div class="crowdsec-expand hidden" id="crowdsecAlertsExpand">
-        <button type="button" class="btn ghost small" data-crowdsec-toggle="alerts">Show all 24h detections</button>
-      </div>
-    </div>
-
-    <!-- Countries + scenarios -->
-    <div class="admin-section crowdsec-breakdown-section">
-      <h3>Attack origins (24h)</h3>
-      <div id="crowdsecCountries" class="crowdsec-breakdown">
-        <div class="muted">No data yet.</div>
-      </div>
-      <h3 class="crowdsec-breakdown-title">Scenarios (24h)</h3>
-      <div id="crowdsecScenarios" class="crowdsec-breakdown">
-        <div class="muted">No data yet.</div>
-      </div>
-    </div>
+      <div class="crowdsec-chart-legend" aria-hidden="true"><span class="crowdsec-key crowdsec-key-observed">Detection only</span><span class="crowdsec-key crowdsec-key-actioned">Decision attached</span><span class="crowdsec-key crowdsec-key-events">Reported events (right scale)</span></div>
+      <div id="crowdsecTimeline" class="crowdsec-chart crowdsec-timeline" aria-live="polite"><div class="crowdsec-chart-empty">Waiting for statistics</div></div>
+    </section>
+    <section class="admin-section crowdsec-panel crowdsec-outcome-panel" aria-labelledby="crowdsecOutcomeTitle">
+      <div><span class="crowdsec-panel-kicker">Alert outcomes</span><h3 id="crowdsecOutcomeTitle">Decision coverage</h3></div>
+      <p class="muted crowdsec-panel-copy">An attached decision can be a ban, captcha, or another LAPI action. It is not necessarily a ban.</p>
+      <div id="crowdsecOutcomeChart" class="crowdsec-outcome-chart"><div class="crowdsec-chart-empty">Waiting for statistics</div></div>
+      <div class="crowdsec-mini-metrics"><div><span id="csStatSimulated">—</span><small>simulated alerts</small></div><div><span id="csStatCountries">—</span><small>top country groups shown</small></div></div>
+    </section>
   </div>
 
-  <!-- Active decisions (collapsible) -->
-  <div class="admin-section">
+  <section class="admin-section crowdsec-map-section" aria-labelledby="crowdsecMapTitle">
     <div class="crowdsec-dashboard-header">
-      <h3>Active decisions</h3>
-      <span class="muted" id="crowdsecDecisionsSummary"></span>
+      <div><span class="crowdsec-panel-kicker">Retained 24h mirror · approximate IP geolocation</span><h3 id="crowdsecMapTitle">Observed source geography</h3></div>
+      <div class="crowdsec-segmented" aria-label="Map outcome filter">
+        <button type="button" data-crowdsec-map-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-crowdsec-map-filter="actioned" aria-pressed="false">Decision attached</button>
+        <button type="button" data-crowdsec-map-filter="observed" aria-pressed="false">Detection only</button>
+      </div>
     </div>
-    <p class="muted">Banned IPs and ranges currently mirrored from LAPI.</p>
-    <div id="crowdsecDecisions" class="crowdsec-decisions">
-      <div class="muted">No decisions synced yet.</div>
+    <div class="crowdsec-map-legend" aria-hidden="true"><span class="crowdsec-legend-chip crowdsec-legend-actioned">Decision attached</span><span class="crowdsec-legend-chip crowdsec-legend-observed">Detection only</span><span class="crowdsec-legend-chip crowdsec-legend-home">Configured destination</span><span class="crowdsec-map-legend-note">Bubble size = detections across the retained mirror</span></div>
+    <div class="crowdsec-map-layout">
+      <div class="crowdsec-map-wrap">
+        <img class="crowdsec-world-map" src="/static/images/crowdsec-world-map.svg" alt="" aria-hidden="true">
+        <canvas id="crowdsecMap" aria-label="CrowdSec observed source map. Focus and use arrow keys to inspect clustered locations." aria-describedby="crowdsecMapHelp" role="group" tabindex="0"></canvas>
+        <div id="crowdsecMapState" class="crowdsec-map-state is-empty" aria-live="polite">Waiting for geolocated detections</div>
+        <div id="crowdsecMapTip" class="crowdsec-map-tip hidden" role="tooltip"></div>
+      </div>
+      <aside class="crowdsec-map-inspector" aria-labelledby="crowdsecMapInspectorTitle">
+        <span class="crowdsec-panel-kicker">Selected location</span><h4 id="crowdsecMapInspectorTitle">Map details</h4>
+        <div id="crowdsecMapInspector" class="crowdsec-map-inspector-body" aria-live="polite"><p>Select a bubble or use the arrow keys on the map to inspect detections at that location.</p></div>
+        <p id="crowdsecMapHelp" class="crowdsec-map-help">Locations come from IP metadata and may be approximate. Set server coordinates in Connection settings to show destination arcs.</p>
+      </aside>
     </div>
-    <div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand">
-      <button type="button" class="btn ghost small" data-crowdsec-toggle="decisions">Show all decisions</button>
-    </div>
+  </section>
+
+  <div class="crowdsec-breakdown-grid">
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecCountriesTitle"><div class="crowdsec-panel-heading-row"><div><span class="crowdsec-panel-kicker">Geography</span><h3 id="crowdsecCountriesTitle">Top countries</h3></div><span class="crowdsec-panel-summary" id="csStatTopCountry"><span class="sr-only">Top country: </span>—</span></div><span class="sr-only" id="csStatTopCountryLabel">Top observed country</span><div id="crowdsecCountries" class="crowdsec-breakdown"><div class="muted">No data yet.</div></div></section>
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecScenariosTitle"><div class="crowdsec-panel-heading-row"><div><span class="crowdsec-panel-kicker">Detection logic</span><h3 id="crowdsecScenariosTitle">Top scenarios</h3></div><span class="crowdsec-panel-summary crowdsec-panel-summary-code" id="csStatTopScenario">—</span></div><div id="crowdsecScenarios" class="crowdsec-breakdown"><div class="muted">No data yet.</div></div></section>
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecNetworksTitle"><div><span class="crowdsec-panel-kicker">Source ownership</span><h3 id="crowdsecNetworksTitle">Top networks</h3></div><div id="crowdsecNetworks" class="crowdsec-breakdown"><div class="muted">No data yet.</div></div></section>
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecSourcesTitle"><div><span class="crowdsec-panel-kicker">Reported identities</span><h3 id="crowdsecSourcesTitle">Top sources</h3></div><div id="crowdsecSources" class="crowdsec-breakdown"><div class="muted">No data yet.</div></div></section>
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecDecisionTypesTitle"><div><span class="crowdsec-panel-kicker">Current snapshot</span><h3 id="crowdsecDecisionTypesTitle">Decision types</h3></div><div id="crowdsecDecisionTypes" class="crowdsec-breakdown"><div class="muted">No active decisions.</div></div></section>
+    <section class="admin-section crowdsec-panel" aria-labelledby="crowdsecDecisionOriginsTitle"><div><span class="crowdsec-panel-kicker">Current snapshot</span><h3 id="crowdsecDecisionOriginsTitle">Decision origins</h3></div><div id="crowdsecDecisionOrigins" class="crowdsec-breakdown"><div class="muted">No active decisions.</div></div></section>
   </div>
 
-  <!-- Connection settings (collapsible) -->
-  <div class="admin-section">
-    <button type="button" class="crowdsec-collapsible-header" data-crowdsec-toggle="settings" aria-expanded="true">
-      <h3>Connection settings</h3>
-      <span class="crowdsec-chevron" aria-hidden="true">▾</span>
-    </button>
-    <div id="crowdsecSettingsBody" class="crowdsec-collapsible-body">
+  <div class="crowdsec-dashboard-columns crowdsec-feed-grid">
+    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecActivityTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Newest mirrored alerts</span><h3 id="crowdsecActivityTitle">Recent activity</h3></div></div><p class="muted">Scenario detections can have a decision attached or remain detection-only.</p><div id="crowdsecAlerts" class="crowdsec-alerts"><div class="muted">No activity synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecAlertsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="alerts" aria-expanded="false" aria-controls="crowdsecAlerts">Show all recent detections</button></div></section>
+    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecDecisionsTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Current mirrored snapshot</span><h3 id="crowdsecDecisionsTitle">Active decisions</h3></div><span class="muted" id="crowdsecDecisionsSummary"></span></div><p class="muted">Bans, captchas, and other actions currently returned by LAPI.</p><div id="crowdsecDecisions" class="crowdsec-decisions"><div class="muted">No decisions synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="decisions" aria-expanded="false" aria-controls="crowdsecDecisions">Show all decisions</button></div></section>
+  </div>
+
+  <section class="admin-section crowdsec-settings-section">
+    <button type="button" class="crowdsec-collapsible-header" data-crowdsec-toggle="settings" aria-expanded="false" aria-controls="crowdsecSettingsBody"><span><span class="crowdsec-panel-kicker">Integration</span><span class="crowdsec-settings-title">Connection settings</span></span><span class="crowdsec-chevron" aria-hidden="true">▸</span></button>
+    <div id="crowdsecSettingsBody" class="crowdsec-collapsible-body crowdsec-collapsed">
       <form id="crowdsecForm">
-        <div class="form-group">
-          <label for="crowdsecEnabled">
-            <input type="checkbox" id="crowdsecEnabled"> Enable CrowdSec monitoring
-          </label>
-          <small class="help-text">When enabled, decisions and alerts are synced on the configured interval and shown here.</small>
-        </div>
-
-        <div class="form-group">
-          <label for="crowdsecURL">LAPI URL</label>
-          <input type="text" id="crowdsecURL" placeholder="e.g., http://10.0.0.5:8080">
-          <small class="help-text">Root URL of your CrowdSec Local API. A trailing /v1 is accepted and stripped automatically.</small>
-        </div>
-
+        <div class="form-group"><label for="crowdsecEnabled"><input type="checkbox" id="crowdsecEnabled"> Enable CrowdSec monitoring</label><small class="help-text">When enabled, decisions and alerts are synced on the configured interval and shown here.</small></div>
+        <div class="form-group"><label for="crowdsecURL">LAPI URL</label><input type="text" id="crowdsecURL" placeholder="e.g., http://10.0.0.5:8080"><small class="help-text">Root URL of your CrowdSec Local API. A trailing /v1 is accepted and stripped automatically.</small></div>
         <h3>Credentials</h3>
-        <div class="form-group">
-          <label for="crowdsecBouncerKey">Bouncer API Key <span class="muted">(decisions)</span></label>
-          <input type="password" id="crowdsecBouncerKey" autocomplete="new-password" data-empty-placeholder="Bouncer API key" placeholder="Bouncer API key">
-          <small class="help-text">Create with <code>cscli bouncers add servicarr</code>. Required for the decisions dashboard.</small>
-          <div class="stored-secret-clear hidden">
-            <label class="checkbox-label">
-              <input type="checkbox" id="clearCrowdsecBouncerKey"> Remove saved key
-            </label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="crowdsecMachineID">Machine ID <span class="muted">(alerts feed — recommended)</span></label>
-          <input type="text" id="crowdsecMachineID" autocomplete="off" placeholder="e.g., myserver">
-          <small class="help-text">Machine credentials read the detections feed (activity, countries, scenarios). Only needed for the live-activity features.</small>
-        </div>
-
-        <div class="form-group">
-          <label for="crowdsecMachinePassword">Machine Password <span class="muted">(alerts feed)</span></label>
-          <input type="password" id="crowdsecMachinePassword" autocomplete="new-password" data-empty-placeholder="Machine password" placeholder="Machine password">
-          <div class="stored-secret-clear hidden">
-            <label class="checkbox-label">
-              <input type="checkbox" id="clearCrowdsecMachinePassword"> Remove saved password
-            </label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="crowdsecInterval">Sync interval (seconds)</label>
-          <input type="number" id="crowdsecInterval" min="10" max="3600" value="30">
-          <small class="help-text">How often to sync from LAPI. Between 10 and 3600 seconds.</small>
-        </div>
-
-        <div class="form-group">
-          <label>Server coordinates <span class="muted">(attack map)</span></label>
-          <div class="crowdsec-map-coords">
-            <input type="number" id="crowdsecMapLat" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Server latitude">
-            <input type="number" id="crowdsecMapLng" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Server longitude">
-          </div>
-          <small class="help-text">Where the attack arcs land on the map. Leave empty for the London default (Europe/London).</small>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="crowdsecSkipVerify"> Skip TLS certificate verification
-          </label>
-          <small class="help-text">Only for self-signed certificates on HTTPS LAPI. Not recommended — use a trusted CA when possible.</small>
-        </div>
-
-        <div class="ops">
-          <button type="button" id="testCrowdsec" class="btn ghost">Test Connection</button>
-          <button type="button" id="saveCrowdsec" class="btn">Save Settings</button>
-        </div>
-
-        <div id="crowdsecStatus" class="status-message hidden"></div>
+        <div class="form-group"><label for="crowdsecBouncerKey">Bouncer API key <span class="muted">(decisions)</span></label><input type="password" id="crowdsecBouncerKey" autocomplete="new-password" data-empty-placeholder="Bouncer API key" placeholder="Bouncer API key"><small class="help-text">Create with <code>cscli bouncers add servicarr</code>. Required for the decisions dashboard.</small><div class="stored-secret-clear hidden"><label class="checkbox-label"><input type="checkbox" id="clearCrowdsecBouncerKey"> Remove saved key</label></div></div>
+        <div class="form-group"><label for="crowdsecMachineID">Machine ID <span class="muted">(alerts feed — recommended)</span></label><input type="text" id="crowdsecMachineID" autocomplete="off" placeholder="e.g., myserver"><small class="help-text">Machine credentials read the detections feed used by the timeline, map, and alert statistics.</small></div>
+        <div class="form-group"><label for="crowdsecMachinePassword">Machine password <span class="muted">(alerts feed)</span></label><input type="password" id="crowdsecMachinePassword" autocomplete="new-password" data-empty-placeholder="Machine password" placeholder="Machine password"><div class="stored-secret-clear hidden"><label class="checkbox-label"><input type="checkbox" id="clearCrowdsecMachinePassword"> Remove saved password</label></div></div>
+        <div class="form-group"><label for="crowdsecInterval">Sync interval (seconds)</label><input type="number" id="crowdsecInterval" min="10" max="3600" value="30"><small class="help-text">How often to sync from LAPI. Between 10 and 3600 seconds.</small></div>
+        <fieldset class="form-group crowdsec-coordinates-fieldset"><legend>Server coordinates <span class="muted">(optional map destination)</span></legend><div class="crowdsec-map-coords"><input type="number" id="crowdsecMapLat" step="any" min="-90" max="90" placeholder="Latitude" aria-label="Server latitude"><input type="number" id="crowdsecMapLng" step="any" min="-180" max="180" placeholder="Longitude" aria-label="Server longitude"></div><small class="help-text">Used only to draw destination arcs. Leave both empty to hide the destination instead of assuming a location.</small></fieldset>
+        <div class="form-group"><label class="checkbox-label"><input type="checkbox" id="crowdsecSkipVerify"> Skip TLS certificate verification</label><small class="help-text">Only for self-signed certificates on trusted HTTPS networks. Prefer a trusted CA.</small></div>
+        <div class="ops"><button type="button" id="testCrowdsec" class="btn ghost">Test connection</button><button type="button" id="saveCrowdsec" class="btn">Save settings</button></div>
+        <div id="crowdsecStatus" class="status-message hidden" role="status" aria-live="polite"></div>
       </form>
     </div>
-  </div>
+  </section>
 </div>
 {{end}}

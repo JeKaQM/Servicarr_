@@ -146,8 +146,8 @@ func HandleSaveCrowdSecConfig() http.HandlerFunc {
 			req.PollIntervalS = 3600
 		}
 
-		// Map home position: clamp to valid lat/lng ranges; 0,0 means
-		// unset (the UI falls back to London, matching the default TZ).
+		// Map destination position: clamp to valid lat/lng ranges; 0,0 means
+		// unset and the UI hides destination arcs rather than guessing a place.
 		if req.MapHomeLat < -90 || req.MapHomeLat > 90 {
 			http.Error(w, "map home latitude must be between -90 and 90", http.StatusBadRequest)
 			return
@@ -179,19 +179,35 @@ func HandleGetCrowdSecStatus() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		status := models.CrowdSecSyncStatus{SnapshotCount: 0}
-		if state, err := database.GetCrowdSecState(); err == nil && state != nil {
+		cfg, err := database.LoadCrowdSecConfig()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		status := models.CrowdSecSyncStatus{Enabled: cfg != nil && cfg.Enabled}
+		state, err := database.GetCrowdSecState()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if state != nil {
 			status.LastSync = ""
 			if !state.LastSync.IsZero() {
 				status.LastSync = state.LastSync.UTC().Format(time.RFC3339)
 			}
-			status.LastError = state.LastError
-			status.AuthFailed = state.AuthFailed
+			// A cached poll failure is not an active retry while disabled.
+			if status.Enabled {
+				status.LastError = state.LastError
+				status.AuthFailed = state.AuthFailed
+			}
 			status.DecisionCount = state.DecisionCount
 		}
-		if count, err := database.GetCrowdSecSnapshotCount(); err == nil {
-			status.SnapshotCount = count
+		count, err := database.GetCrowdSecSnapshotCount()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
 		}
+		status.SnapshotCount = count
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -232,6 +248,15 @@ func HandleCrowdSecSyncNow() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		cfg, err := database.LoadCrowdSecConfig()
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if cfg == nil || !cfg.Enabled || strings.TrimSpace(cfg.LAPIURL) == "" {
+			http.Error(w, "CrowdSec integration is disabled", http.StatusConflict)
+			return
+		}
 		if err := monitor.PollCrowdSec(r.Context()); err != nil {
 			http.Error(w, "crowdsec sync failed", http.StatusBadGateway)
 			return
@@ -239,6 +264,38 @@ func HandleCrowdSecSyncNow() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	}
+}
+
+// crowdsecCompactAlert carries the fields used by the live dashboard. The
+// default alerts response remains the full model for API compatibility.
+type crowdsecCompactAlert struct {
+	AlertID     string   `json:"alert_id"`
+	Scenario    string   `json:"scenario"`
+	SourceValue string   `json:"source_value"`
+	Country     string   `json:"country"`
+	ASNumber    string   `json:"as_number"`
+	ASName      string   `json:"as_name"`
+	Latitude    *float64 `json:"latitude,omitempty"`
+	Longitude   *float64 `json:"longitude,omitempty"`
+	EventsCount int64    `json:"events_count"`
+	CreatedAt   string   `json:"created_at"`
+	HasDecision bool     `json:"has_decision"`
+	Simulated   bool     `json:"simulated"`
+}
+
+func compactCrowdSecAlerts(alerts []models.CrowdSecAlert) []crowdsecCompactAlert {
+	out := make([]crowdsecCompactAlert, 0, len(alerts))
+	for _, alert := range alerts {
+		out = append(out, crowdsecCompactAlert{
+			AlertID: alert.AlertID, Scenario: alert.Scenario,
+			SourceValue: alert.SourceValue, Country: alert.Country,
+			ASNumber: alert.ASNumber, ASName: alert.ASName,
+			Latitude: alert.Latitude, Longitude: alert.Longitude,
+			EventsCount: alert.EventsCount, CreatedAt: alert.CreatedAt,
+			HasDecision: alert.HasDecision, Simulated: alert.Simulated,
+		})
+	}
+	return out
 }
 
 // HandleGetCrowdSecAlerts returns the newest scenario-detection alerts for
@@ -256,7 +313,14 @@ func HandleGetCrowdSecAlerts() http.HandlerFunc {
 				limit = n
 			}
 		}
-		alerts, err := database.GetCrowdSecAlerts(limit)
+		compact := r.URL.Query().Get("compact") == "true"
+		var alerts []models.CrowdSecAlert
+		var err error
+		if compact {
+			alerts, err = database.GetCrowdSecCompactAlerts(limit)
+		} else {
+			alerts, err = database.GetCrowdSecAlerts(limit)
+		}
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -264,15 +328,19 @@ func HandleGetCrowdSecAlerts() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"alerts": alerts,
-			"count":  len(alerts),
-		})
+		if compact {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"alerts": compactCrowdSecAlerts(alerts),
+				"count":  len(alerts),
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"alerts": alerts, "count": len(alerts)})
 	}
 }
 
-// HandleGetCrowdSecStats returns the dashboard overview aggregates
-// (24h counts, top country/scenario, country + scenario breakdowns).
+// HandleGetCrowdSecStats returns rolling 24-hour observed-alert aggregates,
+// an hourly series, ranked dimensions, and the active-decision composition.
 func HandleGetCrowdSecStats() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

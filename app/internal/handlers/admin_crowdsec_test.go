@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"status/app/internal/crypto"
 	"status/app/internal/database"
@@ -212,6 +213,92 @@ func TestSaveCrowdSecConfig_PreservesEmptySecrets(t *testing.T) {
 	}
 	if cfg.PollIntervalS != 60 {
 		t.Errorf("interval not updated: %d", cfg.PollIntervalS)
+	}
+}
+
+func TestSaveCrowdSecConfig_DecryptFailurePreservesCiphertext(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	if err := database.SaveCrowdSecConfig(&models.CrowdSecConfig{
+		Enabled: true, LAPIURL: "http://10.0.0.5:8080",
+		BouncerAPIKey: "original-secret", PollIntervalS: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var originalCiphertext string
+	if err := database.DB.QueryRow(`SELECT bouncer_api_key FROM crowdsec_config WHERE id = 1`).Scan(&originalCiphertext); err != nil {
+		t.Fatal(err)
+	}
+	crypto.SetKey([]byte("wrong-key"))
+	defer crypto.SetKey([]byte("test-encryption-key-for-crowdsec"))
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/config", strings.NewReader(
+		`{"enabled":false,"lapi_url":"http://10.0.0.5:8080","poll_interval_seconds":60}`))
+	recorder := httptest.NewRecorder()
+	HandleSaveCrowdSecConfig().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("unreadable secret save status = %d, want 500", recorder.Code)
+	}
+	var afterCiphertext string
+	var pollInterval int
+	if err := database.DB.QueryRow(`SELECT bouncer_api_key, poll_interval FROM crowdsec_config WHERE id = 1`).
+		Scan(&afterCiphertext, &pollInterval); err != nil {
+		t.Fatal(err)
+	}
+	if afterCiphertext != originalCiphertext || pollInterval != 30 {
+		t.Fatal("unrelated save overwrote unreadable credentials or other settings")
+	}
+	if strings.Contains(recorder.Body.String(), originalCiphertext) || strings.Contains(recorder.Body.String(), "original-secret") {
+		t.Fatal("error response leaked a secret")
+	}
+}
+
+func TestGetCrowdSecStatus_DisabledMasksStalePollError(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	if err := database.SaveCrowdSecConfig(&models.CrowdSecConfig{
+		Enabled: true, LAPIURL: "http://10.0.0.5:8080", BouncerAPIKey: "key", PollIntervalS: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SyncCrowdSecDecisions(nil, 0, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveCrowdSecSyncError("old connection failure", true); err != nil {
+		t.Fatal(err)
+	}
+	readStatus := func() models.CrowdSecSyncStatus {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		HandleGetCrowdSecStatus().ServeHTTP(recorder,
+			httptest.NewRequest(http.MethodGet, "/api/admin/crowdsec/status", nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+		}
+		var status models.CrowdSecSyncStatus
+		if err := json.NewDecoder(recorder.Body).Decode(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+	active := readStatus()
+	if !active.Enabled || active.LastError == "" || !active.AuthFailed || active.LastSync == "" {
+		t.Fatalf("active status omitted current error or previous sync: %+v", active)
+	}
+	if err := database.SaveCrowdSecConfig(&models.CrowdSecConfig{PollIntervalS: 30}); err != nil {
+		t.Fatal(err)
+	}
+	disabled := readStatus()
+	if disabled.Enabled || disabled.LastError != "" || disabled.AuthFailed || disabled.LastSync != active.LastSync {
+		t.Fatalf("disabled status appears to be retrying or lost cache age: %+v", disabled)
+	}
+}
+
+func TestCrowdSecSyncNow_DisabledDoesNotReportSuccess(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	recorder := httptest.NewRecorder()
+	HandleCrowdSecSyncNow().ServeHTTP(recorder,
+		httptest.NewRequest(http.MethodPost, "/api/admin/crowdsec/sync", nil))
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "disabled") {
+		t.Fatalf("disabled sync response = %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

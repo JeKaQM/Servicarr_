@@ -83,6 +83,34 @@ func TestLoadCrowdSecConfig_NoRow_ReturnsNilNil(t *testing.T) {
 	}
 }
 
+func TestLoadCrowdSecConfig_DecryptFailureDoesNotReturnBlankSecrets(t *testing.T) {
+	initCrowdSecTestDB(t)
+	if err := SaveCrowdSecConfig(&models.CrowdSecConfig{
+		MachinePassword: "machine-secret", BouncerAPIKey: "bouncer-secret", PollIntervalS: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var beforePassword, beforeKey string
+	if err := DB.QueryRow(`SELECT lapi_machine_password, bouncer_api_key FROM crowdsec_config WHERE id = 1`).
+		Scan(&beforePassword, &beforeKey); err != nil {
+		t.Fatal(err)
+	}
+	crypto.SetKey([]byte("different-crowdsec-key"))
+	defer crypto.SetKey([]byte("test-encryption-key-for-crowdsec"))
+	loaded, err := LoadCrowdSecConfig()
+	if err == nil || loaded != nil {
+		t.Fatalf("unreadable credentials must fail closed: config=%+v err=%v", loaded, err)
+	}
+	var afterPassword, afterKey string
+	if err := DB.QueryRow(`SELECT lapi_machine_password, bouncer_api_key FROM crowdsec_config WHERE id = 1`).
+		Scan(&afterPassword, &afterKey); err != nil {
+		t.Fatal(err)
+	}
+	if afterPassword != beforePassword || afterKey != beforeKey {
+		t.Fatal("failed load changed stored ciphertext")
+	}
+}
+
 func TestSaveCrowdSecConfig_EncryptUnavailable_RejectsPlaintext(t *testing.T) {
 	initCrowdSecTestDB(t)
 	// Re-init WITHOUT setting a crypto key: package-level key stays from

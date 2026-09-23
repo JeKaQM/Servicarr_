@@ -84,6 +84,7 @@ func TestPollCrowdSec_AlertsFailureSurfacesInState(t *testing.T) {
 
 func TestPollCrowdSec_DecisionsFailureStillStoresAlerts(t *testing.T) {
 	initCrowdSecMonitorDB(t)
+	createdAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/watchers/login", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"token":"test-token","expire":"2099-01-01T00:00:00Z"}`)
@@ -92,7 +93,7 @@ func TestPollCrowdSec_DecisionsFailureStillStoresAlerts(t *testing.T) {
 		http.Error(w, `{"message":"temporary failure"}`, http.StatusInternalServerError)
 	})
 	mux.HandleFunc("/v1/alerts", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `[{"id":2501,"created_at":"2026-09-20T10:00:00Z","scenario":"crowdsecurity/http-probing","source":{"value":"2.5.0.1"}}]`)
+		fmt.Fprintf(w, `[{"id":2501,"created_at":%q,"scenario":"crowdsecurity/http-probing","source":{"value":"2.5.0.1"}}]`, createdAt)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -118,6 +119,7 @@ func TestPollCrowdSec_DecisionsFailureStillStoresAlerts(t *testing.T) {
 
 func TestPollCrowdSec_AlertsSuccessStoresFeed(t *testing.T) {
 	initCrowdSecMonitorDB(t)
+	createdAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	srv := newLAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("limit") != "100" {
 			// Guard: the production page size must stay at the LAPI-safe 100.
@@ -130,9 +132,9 @@ func TestPollCrowdSec_AlertsSuccessStoresFeed(t *testing.T) {
 			t.Errorf("alerts include_capi = %q, want false", r.URL.Query().Get("include_capi"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `[{"id":1001,"created_at":"2026-09-20T10:00:00Z","scenario":"crowdsecurity/ssh-bf",`+
+		fmt.Fprintf(w, `[{"id":1001,"created_at":%q,"scenario":"crowdsecurity/ssh-bf",`+
 			`"message":"ssh-bf from 1.2.3.4","events_count":7,"source":{"scope":"Ip","value":"1.2.3.4","cn":"CN","latitude":32.06,"longitude":118.78},`+
-			`"decisions":[{"duration":"3h","id":5001,"origin":"crowdsec","scenario":"crowdsecurity/ssh-bf","scope":"Ip","type":"ban","value":"1.2.3.4"}]}]`)
+			`"decisions":[{"duration":"3h","id":5001,"origin":"crowdsec","scenario":"crowdsecurity/ssh-bf","scope":"Ip","type":"ban","value":"1.2.3.4"}]}]`, createdAt)
 	})
 
 	if err := database.SaveCrowdSecConfig(testCrowdSecConfig(srv.URL)); err != nil {
@@ -173,6 +175,7 @@ func TestPollCrowdSec_AlertsSuccessStoresFeed(t *testing.T) {
 
 func TestPollCrowdSec_MachineOnlySyncsAlertsAndReusesJWT(t *testing.T) {
 	initCrowdSecMonitorDB(t)
+	createdAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	var loginCalls atomic.Int64
 	var decisionsCalls atomic.Int64
 
@@ -189,7 +192,7 @@ func TestPollCrowdSec_MachineOnlySyncsAlertsAndReusesJWT(t *testing.T) {
 		if r.URL.Query().Get("since") != "24h0m0s" || r.URL.Query().Get("include_capi") != "false" {
 			t.Errorf("unexpected alerts query: %s", r.URL.RawQuery)
 		}
-		fmt.Fprint(w, `[{"id":2001,"created_at":"2026-09-20T10:00:00Z","scenario":"crowdsecurity/http-probing","source":{"value":"2.3.4.5"}}]`)
+		fmt.Fprintf(w, `[{"id":2001,"created_at":%q,"scenario":"crowdsecurity/http-probing","source":{"value":"2.3.4.5"}}]`, createdAt)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

@@ -62,6 +62,7 @@ var publicJSFiles = []string{
 // Admin JS bundle — lazy-loaded for authenticated users only
 var adminJSFiles = []string{
 	"web/static/js/admin-ui.js",
+	"web/static/js/crowdsec-charts.js",
 	"web/static/js/crowdsec-tab.js",
 	"web/static/js/crowdsec-map.js",
 	"web/static/js/service-mgmt.js",

@@ -17,7 +17,7 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances), plus UPS status, automatic mains-loss warnings and transition-based email alerts via Network UPS Tools
-- **CrowdSec Integration** — Mirror active CrowdSec decisions (bans, captchas) into an admin dashboard via the Local API, with encrypted credential storage, configurable sync intervals, connection testing and a live sync badge
+- **CrowdSec Integration** — Mirror recent detections and active decisions into an admin security dashboard with a 24-hour activity chart, outcome coverage, source-geography map, ranked dimensions, encrypted credentials and live sync health
 - **Multi-Channel Alerts** — SMTP, webhook, Discord and Telegram notifications
 - **Status Alerts** — Manual banners, one-time windows and flexible daily/weekly maintenance schedules with automatic monitoring and uptime suppression
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
@@ -153,8 +153,11 @@ Dashboard behaviour and limits:
 
 - The dashboard refreshes while the CrowdSec tab is visible. **Sync Now** forces an immediate server-side poll.
 - Each decision sync stores at most 500 active decisions from the page returned by LAPI. This is a capped snapshot, not a count of every decision held by LAPI.
-- Each alert sync requests at most 100 local (non-CAPI) alerts from the previous 24 hours. Alerts are deduplicated by LAPI ID, and the local history is capped at 2000 rows. On a very busy LAPI, the feed therefore represents the newest detections rather than an exhaustive event ledger.
-- The UI reads the local SQLite snapshot, so the most recently synced data remains available during a short LAPI outage. The badge records the last successful sync and distinguishes authentication failures from other errors.
+- Each alert sync requests at most 100 local (non-CAPI) alerts from the previous 24 hours. Alerts are deduplicated by LAPI ID, future-dated rows are excluded, and the local history is capped at 2000 rows. On a very busy LAPI, the feed therefore represents the newest detections rather than an exhaustive event ledger.
+- Headline metrics and graphs aggregate that bounded rolling 24-hour alert mirror. They include zero-filled hourly detection and reported-event buckets, unique reported sources, simulated and geolocated detections, top countries/scenarios/networks/sources, and an explicit **Other** count outside each top-ten list. Decision type and origin charts describe the current active snapshot.
+- **Decision attached** means the alert included at least one LAPI decision. It does not necessarily mean a ban; the decision may be a captcha or another action. The active-decision breakdown shows the actual current decision types separately.
+- Map bubbles aggregate every geolocated alert in the retained 24-hour mirror (up to 2000 rows), cluster nearby coordinates, and can be filtered by outcome. IP geolocation is approximate. Server coordinates are optional; leave both fields empty to hide destination arcs instead of assuming a server location.
+- The UI reads the local SQLite snapshot, so the most recently synced data remains available during a short LAPI outage. The badge records the last successful sync and distinguishes authentication failures from other errors. Disabling the integration stops server-side polling and labels any retained dashboard data as cached.
 - Cloud metadata endpoints are rejected from the LAPI URL, redirects are not followed, and credentials are encrypted at rest. Secrets are never returned by the API and are excluded from database backups.
 
 ## Notifications
@@ -309,8 +312,8 @@ Servicarr_/
 | `GET/POST` | `/api/admin/crowdsec/config` | Get the masked configuration or save connection settings |
 | `GET` | `/api/admin/crowdsec/status` | Last sync, error state and local decision count |
 | `GET` | `/api/admin/crowdsec/decisions?active=true` | Read the local decision snapshot; `active=true` excludes expired rows |
-| `GET` | `/api/admin/crowdsec/alerts?limit=50` | Read recent local alerts; `limit` may be 1–2000 |
-| `GET` | `/api/admin/crowdsec/stats` | Read 24-hour detection and active-decision aggregates |
+| `GET` | `/api/admin/crowdsec/alerts?limit=50` | Read recent local alerts; `limit` may be 1–2000. Add `compact=true` for the dashboard field projection, omitting unused message and start-time fields. |
+| `GET` | `/api/admin/crowdsec/stats` | Read the bounded rolling 24-hour timeline, alert dimensions and current active-decision composition |
 | `POST` | `/api/admin/crowdsec/sync-now` | Run an immediate sync |
 | `POST` | `/api/admin/crowdsec/test` | Test LAPI reachability and the supplied credential realms without saving |
 

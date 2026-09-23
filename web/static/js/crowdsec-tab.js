@@ -14,6 +14,14 @@ function setCrowdsecStatus(message, type, hideAfterMs = 0) {
   }
 }
 
+function setCrowdsecSyncFeedback(message, type) {
+  const feedback = $('#crowdsecSyncFeedback');
+  if (!feedback) return;
+  feedback.textContent = message || '';
+  feedback.className = `crowdsec-sync-feedback${message ? ` is-${type}` : ' hidden'}`;
+  feedback.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+}
+
 function crowdsecErrorMessage(err, fallback) {
   if (typeof err?.body === 'string' && err.body.trim()) return err.body.trim();
   if (err?.body && typeof err.body === 'object') {
@@ -44,18 +52,18 @@ async function loadCrowdsecConfig() {
     $('#crowdsecMachineID').value = (config && config.machine_id) || '';
     $('#crowdsecInterval').value = (config && config.poll_interval_seconds) || 30;
     $('#crowdsecSkipVerify').checked = !!(config && config.tls_skip_verify);
-    // Clearing saved coordinates must also reset the in-memory map. Without
-    // this reset the old location survives until the whole page is reloaded.
-    if (typeof crowdsecMapHome !== 'undefined') {
-      crowdsecMapHome = { lat: 51.5074, lng: -0.1278 };
-    }
+    // Coordinates are optional. Never invent a destination when they are
+    // unset; the map hides arcs until the operator supplies both values.
+    if (typeof crowdsecMapHome !== 'undefined') crowdsecMapHome = null;
     if (config && typeof config.map_home_latitude === 'number') {
+      const hasHome = config.map_home_latitude !== 0 || config.map_home_longitude !== 0;
       const latInput = $('#crowdsecMapLat');
-      if (latInput) latInput.value = config.map_home_latitude || '';
+      if (latInput) latInput.value = hasHome ? String(config.map_home_latitude) : '';
       const lngInput = $('#crowdsecMapLng');
-      if (lngInput) lngInput.value = config.map_home_longitude || '';
-      // 0,0 = unset → keep the London default on the canvas.
-      if (config.map_home_latitude || config.map_home_longitude) {
+      if (lngInput) lngInput.value = hasHome ? String(config.map_home_longitude) : '';
+      if (typeof crowdsecMapApply === 'function') {
+        crowdsecMapApply(crowdsecAllAlerts || [], config.map_home_latitude, config.map_home_longitude);
+      } else if (hasHome && typeof crowdsecMapHome !== 'undefined') {
         crowdsecMapHome = { lat: config.map_home_latitude, lng: config.map_home_longitude };
       }
     }
@@ -68,6 +76,19 @@ async function loadCrowdsecConfig() {
 
 async function saveCrowdsecConfig(e) {
   const btn = (e && e.currentTarget) ? e.currentTarget : $('#saveCrowdsec');
+  const mapLatValue = $('#crowdsecMapLat').value.trim();
+  const mapLngValue = $('#crowdsecMapLng').value.trim();
+  if ((mapLatValue === '') !== (mapLngValue === '')) {
+    setCrowdsecStatus('Enter both server coordinates, or leave both empty', 'error');
+    return;
+  }
+  const parsedMapLat = mapLatValue === '' ? 0 : Number(mapLatValue);
+  const parsedMapLng = mapLngValue === '' ? 0 : Number(mapLngValue);
+  if (!Number.isFinite(parsedMapLat) || parsedMapLat < -90 || parsedMapLat > 90 ||
+      !Number.isFinite(parsedMapLng) || parsedMapLng < -180 || parsedMapLng > 180) {
+    setCrowdsecStatus('Server coordinates must be valid latitude and longitude values', 'error');
+    return;
+  }
   const config = {
     enabled: $('#crowdsecEnabled').checked,
     lapi_url: $('#crowdsecURL').value.trim(),
@@ -78,8 +99,8 @@ async function saveCrowdsecConfig(e) {
     clear_bouncer_api_key: $('#clearCrowdsecBouncerKey').checked,
     poll_interval_seconds: parseInt($('#crowdsecInterval').value, 10) || 30,
     tls_skip_verify: $('#crowdsecSkipVerify').checked,
-    map_home_latitude: parseFloat($('#crowdsecMapLat').value) || 0,
-    map_home_longitude: parseFloat($('#crowdsecMapLng').value) || 0
+    map_home_latitude: parsedMapLat,
+    map_home_longitude: parsedMapLng
   };
 
   await handleButtonAction(
@@ -94,6 +115,8 @@ async function saveCrowdsecConfig(e) {
         body: JSON.stringify(config)
       });
       await loadCrowdsecConfig();
+      if (crowdsecDashboardPromise) await crowdsecDashboardPromise;
+      await loadCrowdsecDecisions();
       setCrowdsecStatus('Configuration saved successfully', 'success', 3000);
     },
     'Configuration saved',
@@ -136,8 +159,12 @@ async function testCrowdsecConnection(e) {
 
 function crowdsecSyncBadgeText(status) {
   if (!status) return 'Not synced yet';
+  if (status.enabled === false) return status.last_sync ? 'Integration disabled · cached data' : 'Integration disabled';
   if (status.last_error) {
-    return status.auth_failed ? 'Auth failed — check credentials' : 'Sync error: ' + status.last_error;
+    if (status.auth_failed) return 'Authentication failed';
+    return String(status.last_error).toLowerCase().includes('unreachable')
+      ? 'LAPI unreachable · cached data'
+      : 'Sync issue · cached data';
   }
   if (!status.last_sync) return 'Not synced yet';
   const when = new Date(status.last_sync);
@@ -147,25 +174,35 @@ function crowdsecSyncBadgeText(status) {
   return `Synced ${ago}`;
 }
 
+function setCrowdsecSyncDetails(message) {
+  const details = $('#crowdsecSyncDetails');
+  const body = $('#crowdsecSyncDetailsMessage');
+  if (!details || !body) return;
+  const text = String(message || '').trim();
+  details.classList.toggle('hidden', !text);
+  body.textContent = text;
+  if (!text) details.open = false;
+}
+
 // Collapsed row counts for the expandable lists.
 var crowdsecCollapsedRows = 5;
 var crowdsecAlertsExpanded = false;
 var crowdsecDecisionsExpanded = false;
 var crowdsecAllAlerts = [];
 var crowdsecAllDecisions = [];
+var crowdsecRenderSignatures = new WeakMap();
 
 function renderCrowdsecDecisions(decisions) {
   const container = $('#crowdsecDecisions');
   if (!container) return;
   crowdsecAllDecisions = decisions || [];
 
-  const summary = $('#crowdsecDecisionsSummary');
-  if (summary) {
-    summary.textContent = crowdsecAllDecisions.length
-      ? `${crowdsecAllDecisions.length} shown` : '';
-  }
-
   if (!crowdsecAllDecisions.length) {
+    const summary = $('#crowdsecDecisionsSummary');
+    if (summary) summary.textContent = '';
+    container.removeAttribute('role');
+    container.removeAttribute('aria-label');
+    crowdsecRenderSignatures.delete(container);
     container.innerHTML = '<div class="muted">No decisions synced yet.</div>';
     toggleCrowdsecExpand('#crowdsecDecisionsExpand', false);
     return;
@@ -174,6 +211,8 @@ function renderCrowdsecDecisions(decisions) {
   const visible = crowdsecDecisionsExpanded
     ? crowdsecAllDecisions
     : crowdsecAllDecisions.slice(0, crowdsecCollapsedRows);
+  const summary = $('#crowdsecDecisionsSummary');
+  if (summary) summary.textContent = `Showing ${visible.length} of ${crowdsecAllDecisions.length}`;
 
   const rows = visible.map(d => {
     // escapeHtml escapes <, >, &, " and ' — safe for both text nodes and
@@ -187,19 +226,25 @@ function renderCrowdsecDecisions(decisions) {
     const created = escapeHtml((d.created_at || '').replace('T', ' ').slice(0, 19));
     const attrTitle = escapeHtml(`${d.scope || 'Ip'}: ${d.value || ''}`);
     const attrID = escapeHtml(d.decision_id || '');
-    return `<div class="crowdsec-decision-row" data-decision-id="${attrID}">
-      <span class="crowdsec-decision-type ${type === 'ban' ? 'crowdsec-type-ban' : 'crowdsec-type-other'}">${type}</span>
-      <span class="crowdsec-decision-value" title="${attrTitle}">${value}</span>
-      <span class="crowdsec-decision-origin">${origin}</span>
-      <span class="crowdsec-decision-scenario">${scenario}</span>
-      <span class="crowdsec-decision-duration">${duration}</span>
-      <span class="crowdsec-decision-created">${created}</span>
+    return `<div class="crowdsec-decision-row" role="row" data-decision-id="${attrID}">
+      <span role="cell" class="crowdsec-decision-type ${type === 'ban' ? 'crowdsec-type-ban' : 'crowdsec-type-other'}">${type}</span>
+      <span role="cell" class="crowdsec-decision-value" title="${attrTitle}">${value}</span>
+      <span role="cell" class="crowdsec-decision-origin">${origin}</span>
+      <span role="cell" class="crowdsec-decision-scenario">${scenario}</span>
+      <span role="cell" class="crowdsec-decision-duration">${duration}</span>
+      <span role="cell" class="crowdsec-decision-created">${created}</span>
     </div>`;
   }).join('');
 
-  container.innerHTML = `<div class="crowdsec-decision-row crowdsec-decision-header">
-      <span>Type</span><span>Value</span><span>Origin</span><span>Scenario</span><span>Remaining</span><span>First seen</span>
+  container.setAttribute('role', 'table');
+  container.setAttribute('aria-label', 'Active CrowdSec decisions');
+  const tableHTML = `<div class="crowdsec-decision-row crowdsec-decision-header" role="row">
+      <span role="columnheader">Type</span><span role="columnheader">Value</span><span role="columnheader">Origin</span><span role="columnheader">Scenario</span><span role="columnheader">Remaining</span><span role="columnheader">First seen</span>
     </div>${rows}`;
+  if (crowdsecRenderSignatures.get(container) !== tableHTML) {
+    container.innerHTML = tableHTML;
+    crowdsecRenderSignatures.set(container, tableHTML);
+  }
 
   const hasMore = crowdsecAllDecisions.length > crowdsecCollapsedRows;
   toggleCrowdsecExpand('#crowdsecDecisionsExpand', hasMore);
@@ -220,16 +265,18 @@ function updateCrowdsecToggleLabel(kind, total) {
   if (!btn) return;
   const expanded = kind === 'decisions' ? crowdsecDecisionsExpanded : crowdsecAlertsExpanded;
   btn.textContent = expanded ? `Show fewer (top ${crowdsecCollapsedRows})` : `Show all ${total}`;
+  btn.setAttribute('aria-expanded', String(expanded));
 }
 
 // renderCrowdsecAlerts draws the live activity feed. Each row shows the
-// scenario, source IP, country flag-style code, and whether a ban followed.
+// scenario, source IP, country code, and whether any LAPI decision was attached.
 function renderCrowdsecAlerts(alerts) {
   const container = $('#crowdsecAlerts');
   if (!container) return;
   crowdsecAllAlerts = alerts || [];
 
   if (!crowdsecAllAlerts.length) {
+    crowdsecRenderSignatures.delete(container);
     container.innerHTML = '<div class="muted">No detections synced yet. This feed needs machine credentials: run <code>cscli machines add servicarr</code> on your CrowdSec host, then enter the generated password under <em>Machine Password</em> in Connection settings below. Decisions sync on the bouncer key alone.</div>';
     toggleCrowdsecExpand('#crowdsecAlertsExpand', false);
     return;
@@ -245,30 +292,47 @@ function renderCrowdsecAlerts(alerts) {
     const countryName = (a.country || '??').toUpperCase();
     const country = escapeHtml(countryName);
     const when = escapeHtml(relativeTime(a.created_at));
-    const count = a.events_count > 1 ? `<span class="crowdsec-alert-count" title="raw events">${a.events_count}×</span>` : '';
+    const eventCount = Math.max(0, Number(a.events_count) || 0);
+    const count = eventCount > 1 ? `<span class="crowdsec-alert-count" title="raw events">${crowdsecDisplayNumber(eventCount)}×</span>` : '';
     const flag = `<span class="crowdsec-flag" title="${escapeHtml(country)}">${country}</span>`;
     const decision = a.has_decision
-      ? '<span class="crowdsec-alert-outcome crowdsec-outcome-banned">banned</span>'
-      : '<span class="crowdsec-alert-outcome crowdsec-outcome-scan">no ban</span>';
+      ? '<span class="crowdsec-alert-outcome crowdsec-outcome-banned">decision attached</span>'
+      : '<span class="crowdsec-alert-outcome crowdsec-outcome-scan">detection only</span>';
     const simulated = a.simulated ? '<span class="crowdsec-alert-simulated" title="simulated">⏻</span>' : '';
     const attrID = escapeHtml(a.alert_id || '');
     const attrTitle = escapeHtml(`${a.scenario || ''} from ${a.source_value || ''}${a.as_name ? ' — ' + a.as_name : ''}`);
-    const ariaLabel = escapeHtml(`${a.scenario || 'Unknown scenario'}, ${a.source_value || 'unknown source'}, ${countryName}, ${a.has_decision ? 'banned' : 'no ban'}, ${relativeTime(a.created_at)}`);
+    const ariaLabel = escapeHtml([
+      a.scenario || 'Unknown scenario', a.source_value || 'unknown source', countryName,
+      a.has_decision ? 'decision attached' : 'detection only',
+      `${eventCount} raw ${eventCount === 1 ? 'event' : 'events'}`,
+      a.simulated ? 'simulated detection' : '', relativeTime(a.created_at)
+    ].filter(Boolean).join(', '));
     const mappable = a.latitude != null && a.longitude != null;
     const mapAttrs = mappable
-      ? ` tabindex="0" role="button" aria-controls="crowdsecMap" aria-label="${ariaLabel}"`
-      : '';
+      ? ` tabindex="0" role="button" aria-pressed="false" aria-controls="crowdsecMap" aria-label="${ariaLabel}"`
+      : ` role="group" aria-label="${ariaLabel}"`;
     return `<div class="crowdsec-alert-row${mappable ? ' is-mappable' : ''}" data-alert-id="${attrID}" title="${attrTitle}"${mapAttrs}>
       ${flag}
       <span class="crowdsec-alert-scenario">${scenario}</span>
       <span class="crowdsec-alert-ip">${ip}</span>
-      ${count}${simulated}
+      <span class="crowdsec-alert-meta">${count}${simulated}</span>
       <span class="crowdsec-alert-outcome-wrap">${decision}</span>
       <span class="crowdsec-alert-when">${when}</span>
     </div>`;
   }).join('');
 
-  container.innerHTML = rows;
+  if (crowdsecRenderSignatures.get(container) !== rows) {
+    const focusedRow = container.contains(document.activeElement)
+      ? document.activeElement.closest('.crowdsec-alert-row') : null;
+    const focusedID = focusedRow ? focusedRow.dataset.alertId : null;
+    container.innerHTML = rows;
+    crowdsecRenderSignatures.set(container, rows);
+    if (focusedID !== null) {
+      const replacement = Array.from(container.querySelectorAll('.crowdsec-alert-row'))
+        .find(row => row.dataset.alertId === focusedID);
+      if (replacement) replacement.focus({ preventScroll: true });
+    }
+  }
 
   const hasMore = crowdsecAllAlerts.length > crowdsecCollapsedRows;
   toggleCrowdsecExpand('#crowdsecAlertsExpand', hasMore);
@@ -312,53 +376,101 @@ function crowdsecRemainingTime(expiresAt, fallback, nowMs = Date.now()) {
   return `${seconds}s`;
 }
 
-// renderCrowdsecStats fills the overview cards and the country/scenario bars.
+function crowdsecDisplayNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : '—';
+}
+
+// Fill the overview, charts, and aggregate panels. These figures come from
+// the bounded local mirror and are never presented as exhaustive totals.
 function renderCrowdsecStats(stats) {
   if (!stats) return;
+  if (typeof crowdsecLastStats !== 'undefined') crowdsecLastStats = stats;
+  const alerts24h = Math.max(0, Number(stats.alerts_24h) || 0);
+  const actioned = Math.max(0, Number(stats.alerts_with_decision_24h) || 0);
+  const geolocated = Math.max(0, Number(stats.geolocated_alerts_24h) || 0);
+  const actionRate = Number.isFinite(Number(stats.decision_action_rate_percent))
+    ? Number(stats.decision_action_rate_percent)
+    : (alerts24h ? (actioned / alerts24h) * 100 : 0);
+  const geoRate = alerts24h ? (geolocated / alerts24h) * 100 : 0;
+
   const active = $('#csStatActive');
-  if (active) active.textContent = stats.active_decisions != null ? String(stats.active_decisions) : '—';
+  if (active) active.textContent = crowdsecDisplayNumber(stats.active_decisions);
   const alerts = $('#csStatAlerts');
-  if (alerts) alerts.textContent = stats.alerts_24h != null ? String(stats.alerts_24h) : '—';
+  if (alerts) alerts.textContent = crowdsecDisplayNumber(stats.alerts_24h);
+  const events = $('#csStatEvents');
+  if (events) events.textContent = crowdsecDisplayNumber(stats.reported_events_24h);
+  const sources = $('#csStatSources');
+  if (sources) sources.textContent = crowdsecDisplayNumber(stats.unique_sources_24h);
+  const rate = $('#csStatActionRate');
+  if (rate) rate.textContent = `${actionRate.toFixed(actionRate % 1 ? 1 : 0)}%`;
+  const rateLabel = $('#csStatActionRateLabel');
+  if (rateLabel) rateLabel.textContent = `${crowdsecDisplayNumber(actioned)} of ${crowdsecDisplayNumber(alerts24h)} observed alerts`;
+  const geo = $('#csStatGeoRate');
+  if (geo) geo.textContent = `${geoRate.toFixed(geoRate % 1 ? 1 : 0)}%`;
+  const geoLabel = $('#csStatGeoRateLabel');
+  if (geoLabel) geoLabel.textContent = `${crowdsecDisplayNumber(geolocated)} of ${crowdsecDisplayNumber(alerts24h)} detections mapped`;
+  const simulated = $('#csStatSimulated');
+  if (simulated) simulated.textContent = crowdsecDisplayNumber(stats.simulated_alerts_24h);
+  const countryGroups = $('#csStatCountries');
+  if (countryGroups) {
+    const shown = Array.isArray(stats.countries) ? stats.countries.length : 0;
+    countryGroups.textContent = `${shown}${Number(stats.countries_other_count) > 0 ? '+' : ''}`;
+  }
 
   const topCountry = $('#csStatTopCountry');
   const topCountryLabel = $('#csStatTopCountryLabel');
-  if (topCountry) {
-    topCountry.textContent = stats.top_country ? String(stats.top_country).toUpperCase() : '—';
-  }
+  if (topCountry) topCountry.textContent = stats.top_country ? String(stats.top_country).toUpperCase() : '—';
   if (topCountryLabel) {
+    const topCountryCount = Number(stats.top_country_count) || 0;
     topCountryLabel.textContent = stats.top_country
-      ? `Top attack origin (${stats.top_country_count} detections)`
-      : 'Top attack origin';
+      ? `Top observed country (${crowdsecDisplayNumber(topCountryCount)} ${topCountryCount === 1 ? 'detection' : 'detections'})`
+      : 'Top observed country';
   }
-
   const topScenario = $('#csStatTopScenario');
   if (topScenario) {
     topScenario.textContent = stats.top_scenario ? shortScenario(stats.top_scenario) : '—';
     topScenario.title = stats.top_scenario || '';
   }
 
-  renderCrowdsecBreakdown('#crowdsecCountries', stats.countries, c => String(c.country || '??').toUpperCase());
-  renderCrowdsecBreakdown('#crowdsecScenarios', stats.scenarios, s => shortScenario(s.scenario));
+  renderCrowdsecBreakdown('#crowdsecCountries', stats.countries, item => String(item.country || '??').toUpperCase(), { otherCount: stats.countries_other_count, tone: 'blue' });
+  renderCrowdsecBreakdown('#crowdsecScenarios', stats.scenarios, item => shortScenario(item.scenario), { otherCount: stats.scenarios_other_count, tone: 'amber' });
+  renderCrowdsecBreakdown('#crowdsecNetworks', stats.networks, item => {
+    const number = String(item.as_number || '').trim();
+    const name = String(item.as_name || '').trim();
+    return [number, name].filter((part, index, values) => part && values.indexOf(part) === index).join(' · ') || 'unknown';
+  }, { otherCount: stats.networks_other_count, tone: 'violet' });
+  renderCrowdsecBreakdown('#crowdsecSources', stats.sources, item => item.source || 'unknown', { otherCount: stats.sources_other_count, tone: 'blue' });
+  renderCrowdsecBreakdown('#crowdsecDecisionTypes', stats.active_decision_types, item => item.type || 'unknown', { tone: 'red', emptyText: 'No active decisions.' });
+  renderCrowdsecBreakdown('#crowdsecDecisionOrigins', stats.active_decision_origins, item => item.origin || 'unknown', { tone: 'violet', emptyText: 'No active decisions.' });
+  if (typeof renderCrowdsecTimeline === 'function') renderCrowdsecTimeline(stats, crowdsecTimelineHours);
+  if (typeof renderCrowdsecOutcomeChart === 'function') renderCrowdsecOutcomeChart(stats);
 }
 
-// renderCrowdsecBreakdown draws horizontal volume bars for countries or
-// scenarios, scaled to the largest count.
-function renderCrowdsecBreakdown(selector, items, labelFn) {
+// Draw ranked bars with an explicit Other row when the API had more
+// categories than the top-ten response.
+function renderCrowdsecBreakdown(selector, items, labelFn, options = {}) {
   const container = $(selector);
   if (!container) return;
   if (!items || !items.length) {
-    container.innerHTML = '<div class="muted">No data yet.</div>';
+    container.innerHTML = `<div class="muted">${escapeHtml(options.emptyText || 'No data yet.')}</div>`;
     return;
   }
-  const max = Math.max(...items.map(i => i.count), 1);
-  container.innerHTML = items.map(i => {
-    const label = escapeHtml(labelFn(i));
-    const pct = Math.max(4, Math.round((i.count / max) * 100));
-    const attrTitle = escapeHtml(`${label}: ${i.count}`);
-    return `<div class="crowdsec-breakdown-row" title="${attrTitle}">
+  const rows = items.slice();
+  const otherCount = Math.max(0, Number(options.otherCount) || 0);
+  if (otherCount) rows.push({ count: otherCount, _crowdsecOther: true });
+  const max = Math.max(...rows.map(item => Number(item.count) || 0), 1);
+  container.dataset.tone = options.tone || 'blue';
+  container.innerHTML = rows.map(item => {
+    const rawLabel = item._crowdsecOther ? 'Other' : String(labelFn(item));
+    const label = escapeHtml(rawLabel);
+    const count = Math.max(0, Number(item.count) || 0);
+    const pct = count ? Math.max(3, Math.round((count / max) * 100)) : 0;
+    const attrTitle = escapeHtml(`${rawLabel}: ${count.toLocaleString()}`);
+    return `<div class="crowdsec-breakdown-row${item._crowdsecOther ? ' is-other' : ''}" title="${attrTitle}" aria-label="${attrTitle}">
       <span class="crowdsec-breakdown-label">${label}</span>
       <div class="crowdsec-breakdown-track"><div class="crowdsec-breakdown-bar" style="width:${pct}%"></div></div>
-      <span class="crowdsec-breakdown-count">${escapeHtml(String(i.count))}</span>
+      <span class="crowdsec-breakdown-count">${escapeHtml(count.toLocaleString())}</span>
     </div>`;
   }).join('');
 }
@@ -368,6 +480,7 @@ var crowdsecRefreshTimer = null;
 var crowdsecRefreshIntervalMs = 15000;
 var crowdsecTabObserver = null;
 var crowdsecLiveRetrying = false;
+var crowdsecIntegrationEnabled = null;
 
 // The dashboard only polls while the operator can actually see it. This keeps
 // inactive admin tabs quiet and also gives map animations a stable pause point.
@@ -379,6 +492,12 @@ function crowdsecDashboardVisible() {
 function setCrowdsecLiveState(active) {
   const indicator = $('#crowdsecLiveState');
   if (!indicator) return;
+  if (crowdsecIntegrationEnabled === false) {
+    indicator.classList.remove('is-live', 'is-retrying');
+    indicator.textContent = 'Integration disabled';
+    indicator.setAttribute('aria-label', 'CrowdSec integration disabled. Previously synced data remains visible.');
+    return;
+  }
   const retrying = active && crowdsecLiveRetrying;
   indicator.classList.toggle('is-live', active && !retrying);
   indicator.classList.toggle('is-retrying', retrying);
@@ -399,7 +518,7 @@ function loadCrowdsecDecisions() {
   const requests = [
     j('/api/admin/crowdsec/decisions?active=true'),
     j('/api/admin/crowdsec/status'),
-    j('/api/admin/crowdsec/alerts?limit=100'),
+    j('/api/admin/crowdsec/alerts?limit=2000&compact=true'),
     j('/api/admin/crowdsec/stats')
   ];
 
@@ -432,17 +551,23 @@ function loadCrowdsecDecisions() {
     const badge = $('#crowdsecSyncBadge');
     if (statusResult.status === 'fulfilled') {
       const status = statusResult.value;
-      crowdsecLiveRetrying = !!(status && status.last_error);
+      crowdsecIntegrationEnabled = status && typeof status.enabled === 'boolean' ? status.enabled : null;
+      const syncError = crowdsecIntegrationEnabled === false ? '' : (status && status.last_error);
+      crowdsecLiveRetrying = !!syncError;
+      const refreshIssue = failures.length ? `Could not refresh: ${failures.join(', ')}.` : '';
+      setCrowdsecSyncDetails([syncError, refreshIssue].filter(Boolean).join(' '));
       if (badge) {
         const badgeText = crowdsecSyncBadgeText(status);
         badge.textContent = failures.length ? `Partial data — ${badgeText}` : badgeText;
-        badge.className = 'crowdsec-badge' + (status && status.last_error
+        badge.className = 'crowdsec-badge' + (syncError
           ? ' crowdsec-badge-error'
-          : (failures.length ? ' crowdsec-badge-warning' : (status && status.last_sync ? '' : ' muted')));
+          : (failures.length ? ' crowdsec-badge-warning' : (crowdsecIntegrationEnabled === false || !(status && status.last_sync) ? ' muted' : '')));
       }
     } else {
       failures.push('sync status');
+      crowdsecIntegrationEnabled = null;
       crowdsecLiveRetrying = true;
+      setCrowdsecSyncDetails(`The CrowdSec sync status endpoint could not be refreshed. Cached dashboard data is still shown. Could not refresh: ${failures.join(', ')}.`);
       if (badge) {
         badge.textContent = 'Sync status unavailable';
         badge.className = 'crowdsec-badge crowdsec-badge-error';
@@ -491,17 +616,36 @@ function highlightCrowdsecAlertRow(row) {
     clearCrowdsecAlertHighlight();
     return;
   }
-  if (alert && typeof crowdsecMapHighlightAlert === 'function') crowdsecMapHighlightAlert(alert);
-  $$('.crowdsec-alert-row').forEach(item => item.classList.toggle('is-selected', item === row));
+  let shown = true;
+  if (typeof crowdsecMapPreviewAlert === 'function') shown = crowdsecMapPreviewAlert(alert) !== false;
+  else if (typeof crowdsecMapHighlightAlert === 'function') shown = crowdsecMapHighlightAlert(alert) !== false;
+  $$('.crowdsec-alert-row').forEach(item => item.classList.toggle('is-preview', shown && item === row));
+}
+
+function selectCrowdsecAlertRow(row) {
+  if (!row) return;
+  const alert = crowdsecAllAlerts.find(item => String(item.alert_id || '') === row.dataset.alertId);
+  if (!alert || alert.latitude == null || alert.longitude == null) return;
+  if (typeof crowdsecMapSelectAlert === 'function') {
+    crowdsecMapSelectAlert(alert);
+    return;
+  }
+  $$('.crowdsec-alert-row').forEach(item => {
+    const selected = item === row;
+    item.classList.toggle('is-selected', selected);
+    item.setAttribute('aria-pressed', String(selected));
+  });
 }
 
 function clearCrowdsecAlertHighlight() {
-  $$('.crowdsec-alert-row').forEach(item => item.classList.remove('is-selected'));
-  if (typeof crowdsecMapHighlightAlert === 'function') crowdsecMapHighlightAlert(null);
+  $$('.crowdsec-alert-row').forEach(item => item.classList.remove('is-preview'));
+  if (typeof crowdsecMapClearPreview === 'function') crowdsecMapClearPreview();
+  else if (typeof crowdsecMapHighlightAlert === 'function') crowdsecMapHighlightAlert(null);
 }
 
 async function crowdsecSyncNow(e) {
   const btn = (e && e.currentTarget) ? e.currentTarget : $('#crowdsecSyncNow');
+  setCrowdsecSyncFeedback('Syncing CrowdSec…', 'pending');
   await handleButtonAction(
     btn,
     async () => {
@@ -514,9 +658,15 @@ async function crowdsecSyncNow(e) {
       if (crowdsecDashboardPromise) await crowdsecDashboardPromise;
       await loadCrowdsecDecisions();
       setCrowdsecStatus('Sync completed', 'success', 3000);
+      setCrowdsecSyncFeedback('Sync completed', 'success');
     },
-    'Syncing',
-    (err) => setCrowdsecStatus(crowdsecErrorMessage(err, 'Sync failed'), 'error')
+    'Sync completed',
+    (err) => {
+      const message = crowdsecErrorMessage(err, 'Sync failed');
+      setCrowdsecStatus(message, 'error');
+      setCrowdsecSyncFeedback(message, 'error');
+      return loadCrowdsecDecisions();
+    }
   );
 }
 
@@ -547,15 +697,6 @@ function initCrowdsecTab() {
   form.dataset.crowdsecInitialized = 'true';
   loadCrowdsecConfig();
   if (typeof crowdsecMapInit === 'function') crowdsecMapInit();
-  const mapCanvas = $('#crowdsecMap');
-  if (mapCanvas && typeof crowdsecMapOnMouseMove === 'function') {
-    mapCanvas.addEventListener('mousemove', crowdsecMapOnMouseMove);
-    if (typeof crowdsecMapOnMouseLeave === 'function') {
-      mapCanvas.addEventListener('mouseleave', crowdsecMapOnMouseLeave);
-      mapCanvas.addEventListener('blur', crowdsecMapOnMouseLeave);
-    }
-    if (typeof crowdsecMapOnKeyDown === 'function') mapCanvas.addEventListener('keydown', crowdsecMapOnKeyDown);
-  }
   const save = $('#saveCrowdsec');
   if (save) save.addEventListener('click', saveCrowdsecConfig);
   const test = $('#testCrowdsec');
@@ -567,18 +708,24 @@ function initCrowdsecTab() {
   if (alerts) {
     alerts.addEventListener('mouseover', e => highlightCrowdsecAlertRow(e.target.closest('.crowdsec-alert-row')));
     alerts.addEventListener('focusin', e => highlightCrowdsecAlertRow(e.target.closest('.crowdsec-alert-row')));
-    alerts.addEventListener('click', e => highlightCrowdsecAlertRow(e.target.closest('.crowdsec-alert-row')));
+    alerts.addEventListener('click', e => selectCrowdsecAlertRow(e.target.closest('.crowdsec-alert-row')));
     alerts.addEventListener('keydown', e => {
       const row = e.target.closest('.crowdsec-alert-row');
       if (!row || (e.key !== 'Enter' && e.key !== ' ')) return;
       e.preventDefault();
-      highlightCrowdsecAlertRow(row);
+      selectCrowdsecAlertRow(row);
     });
     alerts.addEventListener('mouseleave', clearCrowdsecAlertHighlight);
     alerts.addEventListener('focusout', e => {
       if (!alerts.contains(e.relatedTarget)) clearCrowdsecAlertHighlight();
     });
   }
+
+  $$('[data-crowdsec-range]').forEach(button => {
+    button.addEventListener('click', () => {
+      if (typeof setCrowdsecTimelineRange === 'function') setCrowdsecTimelineRange(button.dataset.crowdsecRange);
+    });
+  });
 
   const crowdsecTab = $('#tab-crowdsec');
   if (crowdsecTab && typeof MutationObserver === 'function') {
