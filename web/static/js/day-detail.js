@@ -300,7 +300,10 @@ async function submitLogin() {
 
 async function logout() {
   try {
-    await j('/api/logout', { method: 'POST' });
+    await j('/api/logout', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': getCsrf() }
+    });
   } catch (_) { }
   // Reload page to remove server-rendered admin elements
   window.location.reload();
