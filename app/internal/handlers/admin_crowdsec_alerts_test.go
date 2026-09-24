@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -169,6 +170,75 @@ func TestGetCrowdSecStats_EmptyIsZeroValued(t *testing.T) {
 	for _, field := range []string{"hourly", "countries", "scenarios", "networks", "sources", "active_decision_types", "active_decision_origins"} {
 		if strings.Contains(body, `"`+field+`":null`) {
 			t.Errorf("%s must marshal as an array, got: %s", field, body)
+		}
+	}
+}
+
+func TestCrowdSecHistoryRanges_StatsAndFeedShareWindowWithoutCappingTotals(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	now := time.Now().UTC()
+	alerts := []models.CrowdSecAlert{
+		{AlertID: "recent", CreatedAt: now.Add(-time.Hour).Format(time.RFC3339), EventsCount: 2},
+		{AlertID: "yesterday", CreatedAt: now.Add(-30 * time.Hour).Format(time.RFC3339), EventsCount: 3},
+		{AlertID: "last-month", CreatedAt: now.Add(-30 * 24 * time.Hour).Format(time.RFC3339), EventsCount: 5},
+	}
+	if _, err := database.SyncCrowdSecAlerts(alerts, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query                string
+		total, events, hours int64
+	}{{"", 1, 2, 24}, {"hours=48", 2, 5, 48}, {"range=all", 3, 10, 0}} {
+		for _, compact := range []string{"false", "true"} {
+			recorder := httptest.NewRecorder()
+			HandleGetCrowdSecAlerts().ServeHTTP(recorder, httptest.NewRequest("GET", "/api/admin/crowdsec/alerts?limit=1&compact="+compact+"&"+tc.query, nil))
+			var feed struct {
+				Count  int                    `json:"count"`
+				Total  int64                  `json:"total"`
+				Alerts []models.CrowdSecAlert `json:"alerts"`
+			}
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("%s feed: %d %s", tc.query, recorder.Code, recorder.Body.String())
+			}
+			if err := json.NewDecoder(recorder.Body).Decode(&feed); err != nil {
+				t.Fatal(err)
+			}
+			if feed.Count != 1 || len(feed.Alerts) != 1 || feed.Total != tc.total {
+				t.Fatalf("%s compact=%s: feed limit incorrectly caps total: %+v", tc.query, compact, feed)
+			}
+		}
+		recorder := httptest.NewRecorder()
+		HandleGetCrowdSecStats().ServeHTTP(recorder, httptest.NewRequest("GET", "/api/admin/crowdsec/stats?"+tc.query, nil))
+		var stats models.CrowdSecStats
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s stats: %d %s", tc.query, recorder.Code, recorder.Body.String())
+		}
+		if err := json.NewDecoder(recorder.Body).Decode(&stats); err != nil {
+			t.Fatal(err)
+		}
+		if stats.Alerts24h != tc.total || stats.ReportedEvents24h != tc.events || int64(stats.WindowHours) != tc.hours {
+			t.Fatalf("%s stats do not match full feed range: %+v", tc.query, stats)
+		}
+		var detections, events int64
+		for _, bucket := range stats.Hourly {
+			detections += bucket.Detections
+			events += bucket.ReportedEvents
+		}
+		if detections != tc.total || events != tc.events {
+			t.Fatalf("%s chart lost events: %d detections/%d events", tc.query, detections, events)
+		}
+	}
+}
+
+func TestCrowdSecHistoryRanges_RejectInvalidRanges(t *testing.T) {
+	initCrowdSecHandlerDB(t)
+	for _, handler := range []http.HandlerFunc{HandleGetCrowdSecAlerts(), HandleGetCrowdSecStats()} {
+		for _, query := range []string{"hours=0", "hours=-1", "hours=8761", "hours=1.5", "hours=bad", "range=forever"} {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest("GET", "/?"+query, nil))
+			if recorder.Code != http.StatusBadRequest {
+				t.Errorf("%s: status %d, want 400", query, recorder.Code)
+			}
 		}
 	}
 }

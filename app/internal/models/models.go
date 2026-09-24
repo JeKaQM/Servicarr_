@@ -286,8 +286,15 @@ type CrowdSecStats struct {
 	WindowStart               string                        `json:"window_start"`
 	WindowEnd                 string                        `json:"window_end"`
 	WindowHours               int                           `json:"window_hours"`
+	BucketUnit                string                        `json:"bucket_unit"`
+	BucketSeconds             int64                         `json:"bucket_seconds"`
+	HistoryOldest             string                        `json:"history_oldest"`
+	HistoryComplete           bool                          `json:"history_complete"`
+	HistoryTruncated          bool                          `json:"history_truncated"`
+	DecisionTruncated         bool                          `json:"decision_truncated"`
+	TotalAlertsInWindow       int64                         `json:"total_alerts_in_window"`
 	ActiveDecisions           int                           `json:"active_decisions"`
-	Alerts24h                 int64                         `json:"alerts_24h"` // scenario detections, rolling 24h
+	Alerts24h                 int64                         `json:"alerts_24h"` // selected window; legacy JSON field name
 	AlertsWithDecision        int64                         `json:"alerts_with_decision_24h"`
 	DecisionActionRatePercent float64                       `json:"decision_action_rate_percent"`
 	ReportedEvents24h         int64                         `json:"reported_events_24h"`

@@ -182,6 +182,17 @@ describe('crowdsecMapApply', () => {
     expect(document.getElementById('crowdsecMapInspector').dataset.clusterKey).toBe('10.0,20.0');
   });
 
+  test('clears an old cluster when the dashboard range changes', () => {
+    crowdsecHistoryRange = { mode: 'hours', hours: 24, unit: 'hours' };
+    crowdsecMapApply([{ alert_id: 'old', latitude: 10, longitude: 20, country: 'GB' }]);
+    crowdsecMapSelectCluster(crowdsecMapClusters()[0]);
+    expect(crowdsecMapSelectedKey).toBe('10.0,20.0');
+    setCrowdsecHistoryRange('hours', 168, 'days');
+    expect(crowdsecMapSelectedKey).toBe('');
+    expect(crowdsecAllAlerts).toHaveLength(0);
+    expect(document.getElementById('crowdsecMapInspector').textContent).not.toContain('United Kingdom');
+  });
+
   test('with no canvas mounted, apply stages alerts without firing arcs', () => {
     crowdsecMapApply([{ alert_id: 'a1', latitude: 10, longitude: 20 }], 40, -3);
     expect(crowdsecAllAlerts).toHaveLength(1);

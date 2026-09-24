@@ -4,7 +4,7 @@
     <div class="crowdsec-heading-copy">
       <span class="crowdsec-eyebrow">Security observability</span>
       <h2>CrowdSec activity</h2>
-      <p class="muted">A live view of the detections mirrored locally by Servicarr. Alert statistics cover the rolling 24-hour cache; active decisions are the current mirrored snapshot.</p>
+      <p class="muted">Explore detections mirrored from CrowdSec LAPI. Choose a time range for every alert statistic, chart, map, and activity feed. Active decisions always show the current snapshot.</p>
     </div>
     <div class="crowdsec-heading-actions">
       <span id="crowdsecLiveState" class="crowdsec-live-state" aria-live="polite">Live view paused</span>
@@ -19,30 +19,43 @@
     <p id="crowdsecSyncDetailsMessage"></p>
   </details>
 
+  <section class="crowdsec-history-toolbar" aria-labelledby="crowdsecHistoryTitle">
+    <div class="crowdsec-history-heading"><div><span class="crowdsec-panel-kicker">Time range</span><h3 id="crowdsecHistoryTitle">Explore mirrored history</h3></div><span id="crowdsecRangeStatus" class="crowdsec-history-status" role="status" aria-live="polite">Last 24 hours</span></div>
+    <div class="crowdsec-history-controls">
+      <div class="crowdsec-segmented crowdsec-history-presets" role="group" aria-label="Choose a time range">
+        <button type="button" data-crowdsec-period="6" aria-pressed="false">6h</button>
+        <button type="button" data-crowdsec-period="24" aria-pressed="true">24h</button>
+        <button type="button" data-crowdsec-period="168" aria-pressed="false">7d</button>
+        <button type="button" data-crowdsec-period="720" aria-pressed="false">30d</button>
+        <button type="button" data-crowdsec-period="all" aria-pressed="false">All retained</button>
+      </div>
+      <form id="crowdsecCustomRange" class="crowdsec-custom-range">
+        <label for="crowdsecRangeAmount">Last</label>
+        <input id="crowdsecRangeAmount" type="number" min="1" max="365" step="1" value="1" required inputmode="numeric" aria-describedby="crowdsecRangeHelp">
+        <select id="crowdsecRangeUnit" aria-label="Custom range unit"><option value="days">days</option><option value="hours">hours</option></select>
+        <button type="submit" class="btn ghost small">Apply</button>
+      </form>
+    </div>
+    <p id="crowdsecRangeHelp" class="crowdsec-history-help">Custom range: 1–365 days or 1–8,760 hours. All retained means up to 1 year or 100,000 saved alerts; older events may already have been removed by LAPI.</p>
+  </section>
+
   <div class="crowdsec-scope-note" role="note">
-    <span class="crowdsec-scope-icon" aria-hidden="true">24h</span>
-    <span><strong>Observed mirror</strong> — figures describe data retained by Servicarr, not an all-time CrowdSec ledger. On very busy installations the newest LAPI page may be a sample.</span>
+    <span class="crowdsec-scope-icon" aria-hidden="true">LAPI</span>
+    <span><strong id="crowdsecScopeTitle">Observed mirror</strong> <span id="crowdsecScopeDetail">Loading history coverage…</span></span>
   </div>
 
   <div class="crowdsec-stats-grid" id="crowdsecStatsGrid">
-    <div class="crowdsec-stat-card" data-tone="blue"><div class="crowdsec-stat-topline"><span>Observed detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatAlerts">—</div><div class="crowdsec-stat-label">Scenario alerts · rolling 24h</div></div>
+    <div class="crowdsec-stat-card" data-tone="blue"><div class="crowdsec-stat-topline"><span>Observed detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatAlerts">—</div><div class="crowdsec-stat-label">Scenario alerts in selected period</div></div>
     <div class="crowdsec-stat-card" data-tone="cyan"><div class="crowdsec-stat-topline"><span>Reported events</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatEvents">—</div><div class="crowdsec-stat-label">Raw events inside those alerts</div></div>
     <div class="crowdsec-stat-card" data-tone="violet"><div class="crowdsec-stat-topline"><span>Unique sources</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatSources">—</div><div class="crowdsec-stat-label">Distinct reported source values</div></div>
-    <div class="crowdsec-stat-card" data-tone="red"><div class="crowdsec-stat-topline"><span>Decision attached</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActionRate">—</div><div class="crowdsec-stat-label" id="csStatActionRateLabel">Alert outcome coverage · rolling 24h</div></div>
-    <div class="crowdsec-stat-card" data-tone="green"><div class="crowdsec-stat-topline"><span>Active decisions</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActive">—</div><div class="crowdsec-stat-label">Current mirrored snapshot</div></div>
-    <div class="crowdsec-stat-card" data-tone="amber"><div class="crowdsec-stat-topline"><span>Mapped detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatGeoRate">—</div><div class="crowdsec-stat-label" id="csStatGeoRateLabel">IP geolocation coverage · rolling 24h</div></div>
+    <div class="crowdsec-stat-card" data-tone="red"><div class="crowdsec-stat-topline"><span>Decision attached</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActionRate">—</div><div class="crowdsec-stat-label" id="csStatActionRateLabel">Alert outcome coverage in selected period</div></div>
+    <div class="crowdsec-stat-card" data-tone="green"><div class="crowdsec-stat-topline"><span>Active decisions</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatActive">—</div><div class="crowdsec-stat-label" id="csStatDecisionCoverage">Current snapshot · unaffected by time range</div></div>
+    <div class="crowdsec-stat-card" data-tone="amber"><div class="crowdsec-stat-topline"><span>Mapped detections</span><span class="crowdsec-stat-dot" aria-hidden="true"></span></div><div class="crowdsec-stat-value" id="csStatGeoRate">—</div><div class="crowdsec-stat-label" id="csStatGeoRateLabel">IP geolocation coverage in selected period</div></div>
   </div>
 
   <div class="crowdsec-insight-grid">
     <section class="admin-section crowdsec-panel crowdsec-timeline-panel" aria-labelledby="crowdsecTimelineTitle">
-      <div class="crowdsec-dashboard-header">
-        <div><span class="crowdsec-panel-kicker">Volume over time</span><h3 id="crowdsecTimelineTitle">Detection activity</h3></div>
-        <div class="crowdsec-segmented" aria-label="Timeline range">
-          <button type="button" data-crowdsec-range="6" aria-pressed="false">6h</button>
-          <button type="button" data-crowdsec-range="12" aria-pressed="false">12h</button>
-          <button type="button" data-crowdsec-range="24" aria-pressed="true">24h</button>
-        </div>
-      </div>
+      <div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Volume over selected period</span><h3 id="crowdsecTimelineTitle">Detection activity</h3></div></div>
       <div class="crowdsec-chart-legend" aria-hidden="true"><span class="crowdsec-key crowdsec-key-observed">Detection only</span><span class="crowdsec-key crowdsec-key-actioned">Decision attached</span><span class="crowdsec-key crowdsec-key-events">Reported events (right scale)</span></div>
       <div id="crowdsecTimeline" class="crowdsec-chart crowdsec-timeline" aria-live="polite"><div class="crowdsec-chart-empty">Waiting for statistics</div></div>
     </section>
@@ -56,14 +69,15 @@
 
   <section class="admin-section crowdsec-map-section" aria-labelledby="crowdsecMapTitle">
     <div class="crowdsec-dashboard-header">
-      <div><span class="crowdsec-panel-kicker">Retained 24h mirror · approximate IP geolocation</span><h3 id="crowdsecMapTitle">Observed source geography</h3></div>
+      <div><span class="crowdsec-panel-kicker">Selected period · approximate IP geolocation</span><h3 id="crowdsecMapTitle">Observed source geography</h3></div>
       <div class="crowdsec-segmented" aria-label="Map outcome filter">
         <button type="button" data-crowdsec-map-filter="all" aria-pressed="true">All</button>
         <button type="button" data-crowdsec-map-filter="actioned" aria-pressed="false">Decision attached</button>
         <button type="button" data-crowdsec-map-filter="observed" aria-pressed="false">Detection only</button>
       </div>
     </div>
-    <div class="crowdsec-map-legend" aria-hidden="true"><span class="crowdsec-legend-chip crowdsec-legend-actioned">Decision attached</span><span class="crowdsec-legend-chip crowdsec-legend-observed">Detection only</span><span class="crowdsec-legend-chip crowdsec-legend-home">Configured destination</span><span class="crowdsec-map-legend-note">Bubble size = detections across the retained mirror</span></div>
+    <div class="crowdsec-map-legend" aria-hidden="true"><span class="crowdsec-legend-chip crowdsec-legend-actioned">Decision attached</span><span class="crowdsec-legend-chip crowdsec-legend-observed">Detection only</span><span class="crowdsec-legend-chip crowdsec-legend-home">Configured destination</span><span class="crowdsec-map-legend-note">Bubble size = detections shown on map</span></div>
+    <p id="crowdsecMapCoverage" class="crowdsec-coverage-note">Waiting for selected-period alerts.</p>
     <div class="crowdsec-map-layout">
       <div class="crowdsec-map-wrap">
         <img class="crowdsec-world-map" src="/static/images/crowdsec-world-map.svg" alt="" aria-hidden="true">
@@ -89,8 +103,8 @@
   </div>
 
   <div class="crowdsec-dashboard-columns crowdsec-feed-grid">
-    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecActivityTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Newest mirrored alerts</span><h3 id="crowdsecActivityTitle">Recent activity</h3></div></div><p class="muted">Scenario detections can have a decision attached or remain detection-only.</p><div id="crowdsecAlerts" class="crowdsec-alerts"><div class="muted">No activity synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecAlertsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="alerts" aria-expanded="false" aria-controls="crowdsecAlerts">Show all recent detections</button></div></section>
-    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecDecisionsTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Current mirrored snapshot</span><h3 id="crowdsecDecisionsTitle">Active decisions</h3></div><span class="muted" id="crowdsecDecisionsSummary"></span></div><p class="muted">Bans, captchas, and other actions currently returned by LAPI.</p><div id="crowdsecDecisions" class="crowdsec-decisions"><div class="muted">No decisions synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="decisions" aria-expanded="false" aria-controls="crowdsecDecisions">Show all decisions</button></div></section>
+    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecActivityTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Newest alerts in selected period</span><h3 id="crowdsecActivityTitle">Activity feed</h3></div></div><p class="muted">Scenario detections can have a decision attached or remain detection-only.</p><p id="crowdsecActivityCoverage" class="crowdsec-coverage-note">Waiting for selected-period alerts.</p><div id="crowdsecAlerts" class="crowdsec-alerts"><div class="muted">No activity synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecAlertsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="alerts" aria-expanded="false" aria-controls="crowdsecAlerts">Show all loaded detections</button></div></section>
+    <section class="admin-section crowdsec-feed-section" aria-labelledby="crowdsecDecisionsTitle"><div class="crowdsec-dashboard-header"><div><span class="crowdsec-panel-kicker">Current snapshot · unaffected by time range</span><h3 id="crowdsecDecisionsTitle">Active decisions</h3></div><span class="muted" id="crowdsecDecisionsSummary"></span></div><p class="muted">Bans, captchas, and other actions currently returned by LAPI.</p><p id="crowdsecDecisionCoverage" class="crowdsec-coverage-note"></p><div id="crowdsecDecisions" class="crowdsec-decisions"><div class="muted">No decisions synced yet.</div></div><div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand"><button type="button" class="btn ghost small" data-crowdsec-toggle="decisions" aria-expanded="false" aria-controls="crowdsecDecisions">Show all decisions</button></div></section>
   </div>
 
   <section class="admin-section crowdsec-settings-section">

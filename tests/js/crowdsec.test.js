@@ -65,9 +65,12 @@ describe('crowdsecSyncBadgeText', () => {
 describe('renderCrowdsecDecisions', () => {
   beforeEach(() => {
     crowdsecDecisionsExpanded = false;
+    crowdsecDecisionListMetadata = null;
+    crowdsecDecisionSnapshotIncomplete = false;
     document.body.innerHTML = `
       <div id="crowdsecDecisions"></div>
       <span id="crowdsecDecisionsSummary"></span>
+      <p id="crowdsecDecisionCoverage"></p>
       <div class="crowdsec-expand hidden" id="crowdsecDecisionsExpand">
         <button type="button" data-crowdsec-toggle="decisions"></button>
       </div>`;
@@ -76,6 +79,22 @@ describe('renderCrowdsecDecisions', () => {
   test('empty decisions render placeholder', () => {
     renderCrowdsecDecisions([]);
     expect(document.getElementById('crowdsecDecisions').textContent).toContain('No decisions synced yet');
+  });
+
+  test('distinguishes the capped decision list from the complete saved snapshot', () => {
+    const rows = Array.from({ length: 7 }, (_, index) => ({ decision_id: String(index), value: `192.0.2.${index}` }));
+    renderCrowdsecDecisions(rows, { total: 12500, truncated: true });
+    renderCrowdsecStats({ active_decisions: 12500, decision_truncated: false });
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).toContain('newest 7 of 12,500 current decisions');
+    expect(document.querySelector('#crowdsecDecisionsExpand button').textContent).toBe('Show newest 7');
+    toggleCrowdsecSection('decisions');
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).toContain('newest 7 of 12,500');
+    expect(document.querySelectorAll('[data-decision-id]')).toHaveLength(7);
+    renderCrowdsecStats({ active_decisions: 12500, decision_truncated: true });
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).toContain('incomplete snapshot');
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).not.toContain('safety limit');
+    renderCrowdsecDecisions([], { total: 0, truncated: false });
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).toContain('all 0');
   });
 
   test('null decisions render placeholder', () => {
@@ -187,11 +206,11 @@ describe('renderCrowdsecAlerts', () => {
       </div>`;
   });
 
-  test('empty alerts render the credentials hint', () => {
+  test('empty alerts explain the selected period without implying an auth failure', () => {
     renderCrowdsecAlerts([]);
     const text = document.getElementById('crowdsecAlerts').textContent;
-    expect(text).toContain('No detections synced yet');
-    expect(text).toContain('cscli machines add servicarr');
+    expect(text).toContain('No detections in the selected period');
+    expect(text).toContain('machine credentials');
   });
 
   test('alert row shows scenario, IP, country, and outcome', () => {
@@ -442,6 +461,14 @@ describe('renderCrowdsecStats', () => {
     expect(rows[1].classList.contains('is-other')).toBe(true);
   });
 
+  test('marks the current decision count as a lower bound when LAPI pagination is capped', () => {
+    document.body.insertAdjacentHTML('beforeend', '<div id="csStatDecisionCoverage"></div><div id="crowdsecDecisionCoverage"></div>');
+    renderCrowdsecStats({ active_decisions: 1250, decision_truncated: true, alerts_24h: 0, hourly: [] });
+    expect(document.getElementById('csStatActive').textContent).toBe('1,250+');
+    expect(document.getElementById('csStatDecisionCoverage').textContent).toContain('At least 1,250');
+    expect(document.getElementById('crowdsecDecisionCoverage').textContent).toContain('current');
+  });
+
   test('null countries/scenarios show the empty placeholder', () => {
     renderCrowdsecStats({ active_decisions: 0, alerts_24h: 0, countries: null, scenarios: null });
     expect(document.getElementById('crowdsecCountries').textContent).toContain('No data yet');
@@ -466,6 +493,58 @@ describe('renderCrowdsecStats', () => {
   });
 });
 
+describe('CrowdSec history range and coverage', () => {
+  beforeEach(() => {
+    crowdsecHistoryRange = { mode: 'hours', hours: 24, unit: 'hours' };
+    document.body.innerHTML = `
+      <div id="tab-crowdsec"></div>
+      <span id="crowdsecRangeStatus"></span>
+      <button data-crowdsec-period="6" aria-pressed="false"></button>
+      <button data-crowdsec-period="24" aria-pressed="true"></button>
+      <button data-crowdsec-period="all" aria-pressed="false"></button>
+      <span id="crowdsecScopeTitle"></span><span id="crowdsecScopeDetail"></span>
+      <p id="crowdsecMapCoverage"></p><p id="crowdsecActivityCoverage"></p>`;
+  });
+
+  test('validates custom hour/day ranges and exposes an honest all-retained selection', () => {
+    expect(setCrowdsecHistoryRange('hours', 0)).toBe(false);
+    expect(setCrowdsecHistoryRange('hours', 8761)).toBe(false);
+    expect(setCrowdsecHistoryRange('hours', 48, 'days')).toBe(true);
+    expect(crowdsecHistoryQuery()).toBe('hours=48');
+    expect(crowdsecHistoryLabel()).toBe('Last 2 days');
+    expect(setCrowdsecHistoryRange('all')).toBe(true);
+    expect(crowdsecHistoryQuery()).toBe('range=all');
+    expect(document.querySelector('[data-crowdsec-period="all"]').getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('crowdsecScopeTitle').textContent).toBe('All retained history');
+  });
+
+  test('labels incomplete archive and the newest-only map/feed subset', () => {
+    setCrowdsecHistoryRange('all');
+    renderCrowdsecHistoryCoverage({ history_oldest: '2026-09-01T00:00:00Z', history_complete: false });
+    renderCrowdsecAlertCoverage({ alerts: [{}, {}], count: 2, total: 3000 });
+    expect(document.getElementById('crowdsecScopeDetail').textContent).toContain('Historical import is incomplete');
+    expect(document.getElementById('crowdsecScopeDetail').textContent).toContain('100,000');
+    expect(document.getElementById('crowdsecMapCoverage').textContent).toContain('newest 2 of 3,000');
+    expect(document.getElementById('crowdsecMapCoverage').textContent).toContain('geolocated alerts from this subset');
+    expect(document.getElementById('crowdsecActivityCoverage').textContent).toContain('3,000');
+  });
+
+  test('clears stale selected-period values before loading another range', () => {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="csStatAlerts">12</div><div id="crowdsecTimeline" data-render-signature="old"><svg></svg></div>
+      <div id="crowdsecAlerts"><div class="crowdsec-alert-row">old alert</div></div>
+      <div id="crowdsecAlertsExpand"></div>`);
+    crowdsecAllAlerts = [{ alert_id: 'old' }];
+    setCrowdsecHistoryRange('hours', 168, 'days');
+    expect(document.getElementById('tab-crowdsec').getAttribute('aria-busy')).toBe('true');
+    expect(document.getElementById('csStatAlerts').textContent).toBe('—');
+    expect(document.getElementById('crowdsecTimeline').querySelector('svg')).toBeNull();
+    expect(document.getElementById('crowdsecTimeline').dataset.renderSignature).toBeUndefined();
+    expect(document.getElementById('crowdsecAlerts').textContent).toContain('Loading selected period');
+    expect(crowdsecAllAlerts).toHaveLength(0);
+  });
+});
+
 /* ── live dashboard loading ───────────────────────────────────── */
 describe('loadCrowdsecDecisions', () => {
   let originalJ;
@@ -473,6 +552,8 @@ describe('loadCrowdsecDecisions', () => {
   beforeEach(() => {
     originalJ = global.j;
     crowdsecDashboardPromise = null;
+    crowdsecDashboardRangeKey = '';
+    crowdsecHistoryRange = { mode: 'hours', hours: 24, unit: 'hours' };
     crowdsecIntegrationEnabled = null;
     document.body.innerHTML = `
       <span id="crowdsecSyncBadge"></span>
@@ -519,7 +600,8 @@ describe('loadCrowdsecDecisions', () => {
     expect(document.getElementById('crowdsecSyncBadge').textContent).toContain('Partial data');
     expect(document.getElementById('crowdsecSyncBadge').title).toContain('decisions');
     expect(document.getElementById('crowdsecSyncDetailsMessage').textContent).toContain('Could not refresh: decisions');
-    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/alerts?limit=2000&compact=true');
+    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/alerts?limit=2000&compact=true&hours=24');
+    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/stats?hours=24');
     expect(global.crowdsecMapApply).toHaveBeenCalledTimes(1);
   });
 
@@ -557,6 +639,51 @@ describe('loadCrowdsecDecisions', () => {
     resolvers[3]({ active_decisions: 0, alerts_24h: 0, countries: [], scenarios: [] });
     await first;
     expect(crowdsecDashboardPromise).toBeNull();
+  });
+
+  test('uses the same all-retained period for stats and alerts while decisions stay current', async () => {
+    crowdsecHistoryRange = { mode: 'all', hours: 0, unit: 'hours' };
+    global.j = jest.fn(url => {
+      if (url.includes('/decisions')) return Promise.resolve({ decisions: [] });
+      if (url.includes('/status')) return Promise.resolve({ enabled: true });
+      if (url.includes('/alerts')) return Promise.resolve({ alerts: [], total: 0 });
+      return Promise.resolve({ active_decisions: 0, alerts_24h: 0, hourly: [], history_complete: true });
+    });
+    await loadCrowdsecDecisions();
+    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/decisions?active=true');
+    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/alerts?limit=2000&compact=true&range=all');
+    expect(global.j).toHaveBeenCalledWith('/api/admin/crowdsec/stats?range=all');
+  });
+
+  test('does not render an obsolete period when a range changes during a request', async () => {
+    const first = [];
+    const second = [];
+    let requests = 0;
+    global.j = jest.fn(() => {
+      requests += 1;
+      return new Promise(resolve => (requests <= 4 ? first : second).push(resolve));
+    });
+
+    const oldRequest = loadCrowdsecDecisions();
+    expect(requests).toBe(4);
+    setCrowdsecHistoryRange('hours', 168, 'days');
+    first[0]({ decisions: [] });
+    first[1]({ enabled: true });
+    first[2]({ alerts: [{ alert_id: 'old', scenario: 'old period' }], total: 1 });
+    first[3]({ active_decisions: 0, alerts_24h: 99, hourly: [] });
+    await oldRequest;
+    await Promise.resolve();
+    expect(requests).toBe(8);
+    expect(document.getElementById('crowdsecAlerts').textContent).not.toContain('old period');
+    expect(document.getElementById('csStatAlerts').textContent).toBe('—');
+
+    second[0]({ decisions: [] });
+    second[1]({ enabled: true });
+    second[2]({ alerts: [{ alert_id: 'new', scenario: 'new period', created_at: new Date().toISOString() }], total: 1 });
+    second[3]({ active_decisions: 0, alerts_24h: 1, hourly: [], history_complete: true });
+    await crowdsecDashboardPromise;
+    expect(document.getElementById('crowdsecAlerts').textContent).toContain('new period');
+    expect(document.getElementById('csStatAlerts').textContent).toBe('1');
   });
 });
 

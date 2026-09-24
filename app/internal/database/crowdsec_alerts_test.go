@@ -134,7 +134,7 @@ func TestSyncCrowdSecAlerts_EmptyPrunesExpiredHistory(t *testing.T) {
 		(alert_id, scenario, message, source_value, country, as_number, as_name,
 		 events_count, start_at, created_at, has_decision, simulated, synced_at)
 		VALUES ('old', 'scenario', '', '1.2.3.4', '', '', '', 1, '', ?, 0, 0, ?)`,
-		now.Add(-25*time.Hour).Format(time.RFC3339), now.Format(time.RFC3339))
+		now.Add(-CrowdSecArchiveMaxAge-time.Hour).Format(time.RFC3339), now.Format(time.RFC3339))
 	if err != nil {
 		t.Fatalf("seed old alert: %v", err)
 	}
@@ -152,24 +152,28 @@ func TestSyncCrowdSecAlerts_EmptyPrunesExpiredHistory(t *testing.T) {
 
 func TestSyncCrowdSecAlerts_CapsAtMaxRows(t *testing.T) {
 	initCrowdSecAlertsTestDB(t)
-	now := time.Now().UTC()
-	alerts := make([]models.CrowdSecAlert, 0, CrowdSecMaxAlertRows+10)
-	for i := 0; i < CrowdSecMaxAlertRows+10; i++ {
-		alerts = append(alerts, models.CrowdSecAlert{
-			AlertID:   fmt.Sprintf("a-%d", i),
-			Scenario:  "s",
-			CreatedAt: now.Add(-time.Duration(i) * time.Minute).Format(time.RFC3339),
-		})
+	now := time.Now().UTC().Truncate(time.Second)
+	// Seed cheaply in SQLite so this regression exercises the actual 100k cap.
+	if _, err := DB.Exec(`WITH RECURSIVE n(i) AS (
+		VALUES(0) UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+		INSERT INTO crowdsec_alerts (alert_id, created_at, synced_at)
+		SELECT 'a-' || i, strftime('%Y-%m-%dT%H:%M:%SZ', ?, '-' || i || ' seconds'), ? FROM n`,
+		CrowdSecMaxArchivedAlerts+9, now.Format(time.RFC3339), now.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := SyncCrowdSecAlerts(alerts, now); err != nil {
+	if _, err := SyncCrowdSecAlerts(nil, now); err != nil {
 		t.Fatalf("bulk sync: %v", err)
 	}
 	var count int
 	if err := DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count > CrowdSecMaxAlertRows {
-		t.Errorf("alerts count %d exceeds cap %d", count, CrowdSecMaxAlertRows)
+	if count != CrowdSecMaxArchivedAlerts {
+		t.Errorf("alerts count %d, want archive cap %d", count, CrowdSecMaxArchivedAlerts)
+	}
+	state, err := GetCrowdSecHistoryState()
+	if err != nil || !state.Truncated || state.Complete {
+		t.Fatalf("archive cap must report incomplete history: %+v, %v", state, err)
 	}
 	// The newest alert must survive the prune.
 	got, err := GetCrowdSecAlerts(1)
@@ -338,8 +342,8 @@ func TestGetCrowdSecStatsAt_ExpandedRollingWindow(t *testing.T) {
 	if _, err := SyncCrowdSecAlerts(alerts, now); err != nil {
 		t.Fatalf("seed alerts: %v", err)
 	}
-	// Sync pruning removes an exact-cutoff row, so insert one directly to prove
-	// the statistics helper applies the documented open lower boundary itself.
+	// Insert an exact window-cutoff row to prove statistics use the documented
+	// open lower boundary independently of the longer archive retention.
 	if _, err := DB.Exec(`INSERT INTO crowdsec_alerts (alert_id, created_at, synced_at)
 		VALUES ('at-cutoff', ?, ?)`, now.Add(-24*time.Hour).Format(time.RFC3339), now.Format(time.RFC3339)); err != nil {
 		t.Fatalf("seed cutoff alert: %v", err)

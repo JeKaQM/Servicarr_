@@ -17,7 +17,7 @@ A lightweight, self-hosted status page that monitors your services and displays 
 - **Uptime Bars** — 30-day visual uptime history per service with daily granularity; click any day for hour-by-hour breakdown
 - **Matrix View** — Network topology visualisation with dependency arcs, connected-to links and status lines
 - **System Resources** — Live CPU, RAM, disk, GPU, swap, network, containers, processes and uptime via [Glances](https://github.com/nicolargo/glances), plus UPS status, automatic mains-loss warnings and transition-based email alerts via Network UPS Tools
-- **CrowdSec Integration** — Mirror recent detections and active decisions into an admin security dashboard with a 24-hour activity chart, outcome coverage, source-geography map, ranked dimensions, encrypted credentials and live sync health
+- **CrowdSec Integration** — Archive up to one year/100,000 local detections and mirror active decisions into an admin security dashboard with selectable time ranges, activity charts, outcome coverage, a source-geography map, ranked dimensions, encrypted credentials and live sync health
 - **Multi-Channel Alerts** — SMTP, webhook, Discord and Telegram notifications
 - **Status Alerts** — Manual banners, one-time windows and flexible daily/weekly maintenance schedules with automatic monitoring and uptime suppression
 - **Admin Panel** — Manage services, view logs, reorder cards, toggle monitoring, import/export database
@@ -125,7 +125,7 @@ Servicarr can mirror a [CrowdSec](https://crowdsec.net) Local API (LAPI) into th
 | Credential | CrowdSec capability | Servicarr panel |
 |------------|---------------------|-----------------|
 | Bouncer API key | Read `/v1/decisions` | Active bans, captchas and other decisions |
-| Machine ID and password | Log in through `/v1/watchers/login` and read `/v1/alerts` | 24-hour detection feed, map and alert statistics |
+| Machine ID and password | Log in through `/v1/watchers/login` and read `/v1/alerts` | Detection history, map and alert statistics |
 
 Configure either credential for its corresponding feed, or configure both for the complete dashboard.
 
@@ -152,13 +152,15 @@ The LAPI URL is resolved from inside the Servicarr container. Do not use `localh
 Dashboard behaviour and limits:
 
 - The dashboard refreshes while the CrowdSec tab is visible. **Sync Now** forces an immediate server-side poll.
-- Each decision sync stores at most 500 active decisions from the page returned by LAPI. This is a capped snapshot, not a count of every decision held by LAPI.
-- Each alert sync requests at most 100 local (non-CAPI) alerts from the previous 24 hours. Alerts are deduplicated by LAPI ID, future-dated rows are excluded, and the local history is capped at 2000 rows. On a very busy LAPI, the feed therefore represents the newest detections rather than an exhaustive event ledger.
-- Headline metrics and graphs aggregate that bounded rolling 24-hour alert mirror. They include zero-filled hourly detection and reported-event buckets, unique reported sources, simulated and geolocated detections, top countries/scenarios/networks/sources, and an explicit **Other** count outside each top-ten list. Decision type and origin charts describe the current active snapshot.
+- The default detection range is 24 hours. Choose 6 hours, 7 days, 30 days, **All retained**, or a custom number of hours/days to apply the same range to detection metrics, charts, map and feed. Active decisions are a *current* LAPI snapshot, so their charts do not change with the historical range.
+- Decisions are fetched across LAPI pages, up to a 100,000-decision safety cap. The list displays the newest 2,000; counts and charts use the full saved snapshot. An incomplete LAPI snapshot is explicitly marked. Decision pages are not an atomic LAPI snapshot, so a changing remote set can affect completeness while syncing.
+- Servicarr keeps at most one year and 100,000 mirrored local (non-CAPI) alerts. It backfills older LAPI-retained alerts in bounded batches after connection, then archives newly seen alerts across restarts. History already purged by LAPI cannot be recovered; **All retained** means the available local archive, not all alerts ever produced by CrowdSec. The dashboard reports coverage and flags incomplete or capped history rather than implying an exhaustive lifetime total.
+- Archive IDs are scoped to the LAPI URL and machine ID, so changing connections cannot mix alerts with reused IDs. Previously archived rows remain stored until normal retention removes them; switching back to that connection makes its retained history available again. The 100,000-row cap applies across all saved sources.
+- Headline detection metrics and graphs aggregate the selected range. They include detection and reported-event buckets, unique reported sources, simulated and geolocated detections, top countries/scenarios/networks/sources, and an explicit **Other** count outside each top-ten list. Decision type and origin charts describe the current active snapshot.
 - **Decision attached** means the alert included at least one LAPI decision. It does not necessarily mean a ban; the decision may be a captcha or another action. The active-decision breakdown shows the actual current decision types separately.
-- Map bubbles aggregate every geolocated alert in the retained 24-hour mirror (up to 2000 rows), cluster nearby coordinates, and can be filtered by outcome. IP geolocation is approximate. Server coordinates are optional; leave both fields empty to hide destination arcs instead of assuming a server location.
+- The map and individual-alert feed display at most the newest 2,000 alerts in the selected range for browser performance; aggregate statistics use the complete locally retained range. The UI labels a sampled map/feed when the range contains more alerts. Map bubbles cluster nearby coordinates and can be filtered by outcome. IP geolocation is approximate. Server coordinates are optional; leave both fields empty to hide destination arcs instead of assuming a server location.
 - The UI reads the local SQLite snapshot, so the most recently synced data remains available during a short LAPI outage. The badge records the last successful sync and distinguishes authentication failures from other errors. Disabling the integration stops server-side polling and labels any retained dashboard data as cached.
-- Cloud metadata endpoints are rejected from the LAPI URL, redirects are not followed, and credentials are encrypted at rest. Secrets are never returned by the API and are excluded from database backups.
+- Cloud metadata endpoints are rejected from the LAPI URL, redirects are not followed, and credentials are encrypted at rest. Secrets are never returned by the API. The portable **Admin > Settings > Export** backup excludes both integration secrets and CrowdSec's mirrored history; use a raw SQLite backup if you need to preserve the archive. After importing a portable backup, re-enter the credentials and allow LAPI-retained history to backfill.
 
 ## Notifications
 
@@ -311,9 +313,9 @@ Servicarr_/
 |--------|------|-------------|
 | `GET/POST` | `/api/admin/crowdsec/config` | Get the masked configuration or save connection settings |
 | `GET` | `/api/admin/crowdsec/status` | Last sync, error state and local decision count |
-| `GET` | `/api/admin/crowdsec/decisions?active=true` | Read the local decision snapshot; `active=true` excludes expired rows |
-| `GET` | `/api/admin/crowdsec/alerts?limit=50` | Read recent local alerts; `limit` may be 1–2000. Add `compact=true` for the dashboard field projection, omitting unused message and start-time fields. |
-| `GET` | `/api/admin/crowdsec/stats` | Read the bounded rolling 24-hour timeline, alert dimensions and current active-decision composition |
+| `GET` | `/api/admin/crowdsec/decisions?active=true` | Read up to 2,000 local decision rows; `active=true` excludes expired rows. `total` is the matching saved count and `truncated` indicates a limited response. |
+| `GET` | `/api/admin/crowdsec/alerts?limit=50&hours=24` | Read local alerts in a time range; `limit` may be 1–2000, `hours` may be 1–8760, and `range=all` selects all locally retained history. Omit both range parameters for 24 hours. Add `compact=true` for the dashboard field projection. The response includes the total matching alert count and history-coverage metadata. |
+| `GET` | `/api/admin/crowdsec/stats?hours=24` | Read detection metrics and timeline for the requested range (`hours=1`–`8760` or `range=all`) alongside current active-decision composition; defaults to 24 hours |
 | `POST` | `/api/admin/crowdsec/sync-now` | Run an immediate sync |
 | `POST` | `/api/admin/crowdsec/test` | Test LAPI reachability and the supplied credential realms without saving |
 
@@ -358,7 +360,7 @@ The Go and JavaScript suites cover the backend packages, API handlers, resource 
 - If LAPI only listens on `127.0.0.1:8080`, change CrowdSec's `api.server.listen_uri` to an interface reachable on the intended Docker/LAN network, then restrict access with a firewall.
 - Run **Test Connection**. A bouncer key validates the decisions feed; machine credentials validate the alerts feed. The live detection view requires the latter.
 - Select **Sync Now**, then inspect `docker compose -f deploy/docker-compose.yml logs --tail 200 servicarr` if the badge still shows an error.
-- A working but empty alert feed can simply mean LAPI has no local alerts in the last 24 hours. Imported CAPI/community-blocklist alerts are deliberately omitted from this live view.
+- A working but empty alert feed can mean LAPI has no local alerts in the selected period. Try **All retained** and check the history-coverage indicator while the bounded backfill progresses. Imported CAPI/community-blocklist alerts are deliberately omitted from this view. Alerts already purged by LAPI are unavailable unless Servicarr archived them earlier.
 - Keep **Skip TLS verification** disabled unless you intentionally use a self-signed certificate on a trusted network.
 
 **Login not working?**

@@ -51,7 +51,7 @@ docker compose -f deploy/docker-compose.yml down -v
 
 ## Backup and restore
 
-For a portable application backup, use **Admin > Settings > Export**. CrowdSec and other integration secrets are intentionally excluded and must be re-entered after an import.
+For a portable application backup, use **Admin > Settings > Export**. CrowdSec and other integration secrets are intentionally excluded and must be re-entered after an import. CrowdSec's mirrored alert/decision history is also excluded from this portable export; a fresh connection can only backfill alerts that LAPI still retains. Use a raw SQLite backup if you need to preserve the local archive, and protect it because it contains source IPs and encrypted integration credentials.
 
 For a raw SQLite backup, stop writes before copying the database:
 
@@ -82,4 +82,4 @@ The CrowdSec LAPI URL is contacted from inside the Servicarr container. `localho
 
 Use HTTPS if LAPI traffic crosses an untrusted network. The **Skip TLS verification** option is intended only for a self-signed certificate on a trusted network.
 
-The dashboard's detection charts and geography map cover Servicarr's rolling 24-hour local mirror (up to 2000 stored alerts, with at most the newest 100 requested from LAPI per server-side poll), not an all-time LAPI ledger. Future-dated alerts are excluded. The browser reads a compact projection of the complete retained mirror so map and headline totals use the same scope without transferring unused alert text every refresh. Optional server coordinates only control map destination arcs; leaving them empty keeps the destination hidden. Source locations are approximate IP geolocation. Disabling the integration pauses server-side polling; existing mirrored data remains visible and is marked as cached.
+The dashboard defaults to a 24-hour detection range but also offers 6 hours, 7 days, 30 days, custom hours/days and **All retained**. Servicarr archives up to one year/100,000 local alerts, gradually backfilling what LAPI still holds. It cannot recover alerts already purged by LAPI. Aggregate metrics use the selected retained range; the map and feed show its newest 2,000 alerts and are labeled when sampled. Future-dated alerts are excluded. Active decisions are a current snapshot, independent of the history selector. Optional server coordinates only control map destination arcs; leaving them empty keeps the destination hidden. Source locations are approximate IP geolocation. Disabling the integration pauses server-side polling; existing mirrored data remains visible and is marked as cached.

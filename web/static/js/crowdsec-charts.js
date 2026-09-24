@@ -1,8 +1,6 @@
 // Dependency-free visualisations for the CrowdSec dashboard. The endpoint
-// supplies a bounded, zero-filled 24-hour series, so every chart is labelled
-// as observed mirror data rather than an all-time security total.
+// supplies bounded, zero-filled hourly or daily buckets for the selected range.
 
-var crowdsecTimelineHours = 24;
 var crowdsecLastStats = null;
 var crowdsecTimelineResizeObserver = null;
 var crowdsecTimelineObservedElement = null;
@@ -33,15 +31,34 @@ function crowdsecHourLabel(value, includeDate) {
   return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
-function crowdsecNormaliseHourly(stats, hours) {
+function crowdsecNormaliseBuckets(stats) {
   const all = Array.isArray(stats && stats.hourly) ? stats.hourly.slice() : [];
   all.sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
-  return all.slice(-Math.max(1, Math.min(24, Number(hours) || 24))).map(bucket => ({
+  return all.map(bucket => ({
     start: bucket.start,
     detections: crowdsecChartNumber(bucket.detections),
     withDecision: Math.min(crowdsecChartNumber(bucket.with_decision), crowdsecChartNumber(bucket.detections)),
     events: crowdsecChartNumber(bucket.reported_events)
   }));
+}
+
+function crowdsecBucketLabel(value, stats, full = false) {
+  if (stats && stats.bucket_unit === 'day') {
+    const date = new Date(value || '');
+    if (Number.isNaN(date.getTime())) return 'Unknown period';
+    return new Intl.DateTimeFormat(undefined, full
+      ? { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+      : { month: 'short', day: 'numeric' }).format(date);
+  }
+  return crowdsecHourLabel(value, full);
+}
+
+function crowdsecBucketDescription(bucket, stats) {
+  const start = crowdsecBucketLabel(bucket.start, stats, true);
+  const seconds = Number(stats && stats.bucket_seconds) || 3600;
+  if (seconds <= 3600 || start === 'Unknown period' || start === 'Unknown hour') return start;
+  const end = new Date(new Date(bucket.start).getTime() + seconds * 1000);
+  return `${start} to ${crowdsecBucketLabel(end.toISOString(), stats, true)}`;
 }
 
 function crowdsecTimelineDimensions(container) {
@@ -71,19 +88,19 @@ function crowdsecObserveTimeline(container) {
     const width = Math.floor(entry && entry.contentRect ? entry.contentRect.width : 0);
     if (!width || Math.abs(width - crowdsecTimelineObservedWidth) < 2) return;
     crowdsecTimelineObservedWidth = width;
-    if (crowdsecLastStats) renderCrowdsecTimeline(crowdsecLastStats, crowdsecTimelineHours);
+    if (crowdsecLastStats) renderCrowdsecTimeline(crowdsecLastStats);
   });
   crowdsecTimelineResizeObserver.observe(container);
 }
 
-function renderCrowdsecTimeline(stats, hours) {
+function renderCrowdsecTimeline(stats) {
   const container = $('#crowdsecTimeline');
   if (!container) return;
   crowdsecObserveTimeline(container);
-  crowdsecTimelineHours = Math.max(1, Math.min(24, Number(hours) || crowdsecTimelineHours || 24));
-  const buckets = crowdsecNormaliseHourly(stats, crowdsecTimelineHours);
+  const buckets = crowdsecNormaliseBuckets(stats);
   if (!buckets.length) {
-    container.innerHTML = '<div class="crowdsec-chart-empty">No hourly statistics available.</div>';
+    container.innerHTML = '<div class="crowdsec-chart-empty">No activity buckets available for this period.</div>';
+    delete container.dataset.renderSignature;
     return;
   }
 
@@ -98,7 +115,7 @@ function renderCrowdsecTimeline(stats, hours) {
   const detectionScale = Math.max(1, maxDetectionValue);
   const eventScale = Math.max(1, maxEventValue);
   const slot = plotW / buckets.length;
-  const barWidth = Math.max(3, Math.min(26, slot * 0.58));
+  const barWidth = Math.min(26, slot * 0.58);
 
   const grid = [0, 0.5, 1].map(ratio => {
     const y = margin.top + plotH - ratio * plotH;
@@ -115,13 +132,13 @@ function renderCrowdsecTimeline(stats, hours) {
     const actionedHeight = (bucket.withDecision / detectionScale) * plotH;
     const observedHeight = ((bucket.detections - bucket.withDecision) / detectionScale) * plotH;
     const baseY = margin.top + plotH;
-    const title = `${crowdsecHourLabel(bucket.start, true)}: ${crowdsecFormatNumber(bucket.detections)} detections, ${crowdsecFormatNumber(bucket.withDecision)} with a decision, ${crowdsecFormatNumber(bucket.events)} reported events`;
+    const title = `${crowdsecBucketDescription(bucket, stats)}: ${crowdsecFormatNumber(bucket.detections)} detections, ${crowdsecFormatNumber(bucket.withDecision)} with a decision, ${crowdsecFormatNumber(bucket.events)} reported events`;
     const showLabel = index === 0 || index === buckets.length - 1 || index % Math.max(1, Math.ceil(buckets.length / 6)) === 0;
     return `<g class="crowdsec-chart-bucket">` +
       `<title>${crowdsecChartEscape(title)}</title>` +
       `<rect x="${x}" y="${baseY - observedHeight}" width="${barWidth}" height="${Math.max(0, observedHeight)}" rx="3" class="crowdsec-bar-observed" />` +
       `<rect x="${x}" y="${baseY - observedHeight - actionedHeight}" width="${barWidth}" height="${Math.max(0, actionedHeight)}" rx="3" class="crowdsec-bar-actioned" />` +
-      (showLabel ? `<text x="${x + barWidth / 2}" y="${height - 13}" text-anchor="middle" class="crowdsec-chart-axis">${crowdsecChartEscape(crowdsecHourLabel(bucket.start, false))}</text>` : '') +
+      (showLabel ? `<text x="${x + barWidth / 2}" y="${height - 13}" text-anchor="middle" class="crowdsec-chart-axis">${crowdsecChartEscape(crowdsecBucketLabel(bucket.start, stats))}</text>` : '') +
       '</g>';
   }).join('');
 
@@ -135,11 +152,12 @@ function renderCrowdsecTimeline(stats, hours) {
     (maxEventValue > 0 ? `<text x="${width - 4}" y="${margin.top + plotH + 4}" text-anchor="end" class="crowdsec-chart-axis crowdsec-chart-axis-events">0</text>` : '');
   const totalDetections = buckets.reduce((sum, bucket) => sum + bucket.detections, 0);
   const totalEvents = buckets.reduce((sum, bucket) => sum + bucket.events, 0);
-  const description = `Observed ${crowdsecTimelineHours}-hour activity: ${crowdsecFormatNumber(totalDetections)} detections and ${crowdsecFormatNumber(totalEvents)} reported events.`;
+  const period = typeof crowdsecHistoryLabel === 'function' ? crowdsecHistoryLabel() : 'selected period';
+  const description = `Observed activity in ${period}: ${crowdsecFormatNumber(totalDetections)} detections and ${crowdsecFormatNumber(totalEvents)} reported events across ${buckets.length} ${stats && stats.bucket_unit === 'day' ? 'daily' : 'hourly'} buckets.`;
 
-  const dataRows = buckets.map(bucket => `<div class="crowdsec-chart-data-row" role="row"><span role="cell">${crowdsecChartEscape(crowdsecHourLabel(bucket.start, true))}</span><span role="cell">${crowdsecFormatNumber(bucket.detections)}</span><span role="cell">${crowdsecFormatNumber(bucket.withDecision)}</span><span role="cell">${crowdsecFormatNumber(bucket.events)}</span></div>`).join('');
+  const dataRows = buckets.map(bucket => `<div class="crowdsec-chart-data-row" role="row"><span role="cell">${crowdsecChartEscape(crowdsecBucketDescription(bucket, stats))}</span><span role="cell">${crowdsecFormatNumber(bucket.detections)}</span><span role="cell">${crowdsecFormatNumber(bucket.withDecision)}</span><span role="cell">${crowdsecFormatNumber(bucket.events)}</span></div>`).join('');
 
-  const signature = JSON.stringify([width, height, crowdsecTimelineHours, buckets]);
+  const signature = JSON.stringify([width, height, stats && stats.bucket_seconds, period, buckets]);
   if (container.dataset.renderSignature === signature) return;
   const currentDetails = container.querySelector('.crowdsec-chart-data');
   const detailsOpen = !!(currentDetails && currentDetails.open);
@@ -148,7 +166,7 @@ function renderCrowdsecTimeline(stats, hours) {
   container.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="crowdsecTimelineSvgTitle crowdsecTimelineSvgDesc" preserveAspectRatio="xMidYMid meet">` +
     `<title id="crowdsecTimelineSvgTitle">CrowdSec detection activity</title><desc id="crowdsecTimelineSvgDesc">${crowdsecChartEscape(description)}</desc>` +
     grid + bars + `<polyline points="${eventPoints}" class="crowdsec-events-line" vector-effect="non-scaling-stroke" />${eventAxis}</svg>` +
-    `<details class="crowdsec-chart-data"><summary>View hourly values</summary><div role="table" aria-label="Hourly CrowdSec statistics"><div class="crowdsec-chart-data-row crowdsec-chart-data-head" role="row"><span role="columnheader">Hour</span><span role="columnheader">Detections</span><span role="columnheader">Decision attached</span><span role="columnheader">Events</span></div>${dataRows}</div></details>`;
+    `<details class="crowdsec-chart-data"><summary>View exact values</summary><div role="table" aria-label="CrowdSec activity by time bucket"><div class="crowdsec-chart-data-row crowdsec-chart-data-head" role="row"><span role="columnheader">Period</span><span role="columnheader">Detections</span><span role="columnheader">Decision attached</span><span role="columnheader">Events</span></div>${dataRows}</div></details>`;
   container.dataset.renderSignature = signature;
   const nextDetails = container.querySelector('.crowdsec-chart-data');
   if (nextDetails) {
@@ -173,12 +191,4 @@ function renderCrowdsecOutcomeChart(stats) {
     `<circle cx="60" cy="60" r="46" class="crowdsec-ring-value${actioned ? '' : ' is-empty'}" stroke-dasharray="${actionLength} ${Math.max(0, circumference - actionLength)}" />` +
     `<text x="60" y="57" text-anchor="middle" class="crowdsec-ring-number">${rate.toFixed(total ? 1 : 0)}%</text><text x="60" y="74" text-anchor="middle" class="crowdsec-ring-label">attached</text></svg></div>` +
     `<div class="crowdsec-outcome-list"><div><span class="crowdsec-outcome-swatch is-actioned" aria-hidden="true"></span><span>Decision attached</span><strong>${crowdsecFormatNumber(actioned)}</strong></div><div><span class="crowdsec-outcome-swatch is-observed" aria-hidden="true"></span><span>Detection only</span><strong>${crowdsecFormatNumber(observed)}</strong></div><div class="crowdsec-outcome-total"><span>Total observed</span><strong>${crowdsecFormatNumber(total)}</strong></div></div>`;
-}
-
-function setCrowdsecTimelineRange(hours) {
-  crowdsecTimelineHours = Math.max(1, Math.min(24, Number(hours) || 24));
-  $$('[data-crowdsec-range]').forEach(button => {
-    button.setAttribute('aria-pressed', String(Number(button.dataset.crowdsecRange) === crowdsecTimelineHours));
-  });
-  if (crowdsecLastStats) renderCrowdsecTimeline(crowdsecLastStats, crowdsecTimelineHours);
 }

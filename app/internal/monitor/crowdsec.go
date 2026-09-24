@@ -19,8 +19,10 @@ const (
 	// crowdsecAlertsPageSize caps a single LAPI alerts request. Real LAPI
 	// deployments (ent pagination) fail on large single-page limits, so this
 	// stays at cscli's default page size.
-	crowdsecAlertsPageSize = 100
-	crowdsecAlertsLookback = 24 * time.Hour
+	crowdsecAlertsPageSize     = 100
+	crowdsecAlertsLookback     = 24 * time.Hour
+	crowdsecDecisionPageSize   = 500
+	crowdsecAlertRequestBudget = 8
 )
 
 // Polls can be triggered by both the background monitor and the admin
@@ -125,13 +127,21 @@ func PollCrowdSec(ctx context.Context) error {
 	}
 
 	var syncErrors []error
+	sourceID := database.CrowdSecSourceID(config.LAPIURL, config.MachineID)
+	history, err := database.GetCrowdSecHistoryStateForSource(sourceID)
+	if err != nil {
+		return err
+	}
 	if hasBouncer {
-		remote, fetchErr := fetchDecisionsSnapshot(ctx, client)
+		remote, truncated, fetchErr := fetchDecisionsSnapshot(ctx, client)
 		if fetchErr != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("decisions: %w", fetchErr))
 		} else {
 			total := len(remote)
 			changed, syncErr := database.SyncCrowdSecDecisions(remote, total, time.Now().UTC())
+			if syncErr == nil {
+				history.DecisionTruncated = truncated
+			}
 			if syncErr != nil {
 				syncErrors = append(syncErrors, fmt.Errorf("store decisions: %w", syncErr))
 			} else if changed > 0 {
@@ -142,19 +152,14 @@ func PollCrowdSec(ctx context.Context) error {
 
 	alertsSucceeded := false
 	if hasMachine {
-		alerts, fetchErr := fetchAlertsSnapshot(ctx, client)
+		inserted, fetchErr := syncAlertsHistory(ctx, client, sourceID, &history, time.Now().UTC())
 		if fetchErr != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("alerts: %w", fetchErr))
 		} else {
-			inserted, syncErr := database.SyncCrowdSecAlerts(alerts, time.Now().UTC())
-			if syncErr != nil {
-				syncErrors = append(syncErrors, fmt.Errorf("store alerts: %w", syncErr))
-			} else {
-				alertsSucceeded = true
-				if inserted > 0 {
-					_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "",
-						"CrowdSec alerts synced", fmt.Sprintf("new=%d", inserted))
-				}
+			alertsSucceeded = true
+			if inserted > 0 {
+				_ = database.InsertLog(database.LogLevelInfo, database.LogCategorySystem, "",
+					"CrowdSec alerts synced", fmt.Sprintf("new=%d", inserted))
 			}
 		}
 	}
@@ -167,13 +172,12 @@ func PollCrowdSec(ctx context.Context) error {
 			syncErrors = append(syncErrors, fmt.Errorf("clear decisions: %w", syncErr))
 		}
 	}
-	if !hasMachine {
-		// Machine credentials own the alerts capability. Once they are removed,
-		// cached detections must disappear immediately rather than looking like a
-		// healthy live feed for the remainder of the 24-hour retention window.
-		if _, clearErr := database.ClearCrowdSecAlerts(); clearErr != nil {
-			syncErrors = append(syncErrors, fmt.Errorf("clear alerts: %w", clearErr))
-		}
+	// Credential removal disables ingestion, but must never erase history.
+	if !hasBouncer && alertsSucceeded {
+		history.DecisionTruncated = false
+	}
+	if saveErr := database.SaveCrowdSecHistoryStateForSource(sourceID, history); saveErr != nil {
+		syncErrors = append(syncErrors, fmt.Errorf("store history progress: %w", saveErr))
 	}
 
 	if len(syncErrors) > 0 {
@@ -186,68 +190,69 @@ func PollCrowdSec(ctx context.Context) error {
 	return nil
 }
 
-// fetchDecisionsSnapshot pulls one capped page of active decisions and
-// converts them to the snapshot model. The LAPI list endpoint paginates
-// server-side; we deliberately keep one page (cap 500) — community
-// blocklist totals can exceed 15k entries and fetching all would be
-// megabytes per poll.
-func fetchDecisionsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models.CrowdSecDecision, error) {
+// fetchDecisionsSnapshot pages LAPI's current decisions. A failed page leaves
+// the previous snapshot intact. The local safety cap and non-progressing
+// servers are explicitly reported, rather than presenting a page as a total.
+func fetchDecisionsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models.CrowdSecDecision, bool, error) {
 	if client == nil {
-		return nil, fmt.Errorf("crowdsec client unavailable")
+		return nil, false, fmt.Errorf("crowdsec client unavailable")
 	}
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
-	remote, err := client.Decisions(fetchCtx, crowdsec.DecisionsParams{
-		Limit: database.CrowdSecMaxSnapshotRows,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	now := time.Now().UTC()
-	out := make([]models.CrowdSecDecision, 0, len(remote))
-	for _, d := range remote {
-		if strings.TrimSpace(d.Value) == "" {
-			continue
+	out := make([]models.CrowdSecDecision, 0, crowdsecDecisionPageSize)
+	seen := make(map[int64]struct{})
+	truncated := false
+	unstablePages := false
+	for offset := 0; ; offset += crowdsecDecisionPageSize {
+		remote, err := client.Decisions(fetchCtx, crowdsec.DecisionsParams{Limit: crowdsecDecisionPageSize, Offset: offset})
+		if err != nil {
+			return nil, false, err
 		}
-		id := ""
-		if d.ID != nil {
-			id = fmt.Sprintf("%d", *d.ID)
+		before := len(out)
+		for _, d := range remote {
+			if strings.TrimSpace(d.Value) == "" || d.ID == nil {
+				continue
+			}
+			if _, duplicate := seen[*d.ID]; duplicate {
+				// Offset pages are not a transactional snapshot. Overlap means
+				// records may also have shifted past an unvisited offset.
+				unstablePages = true
+				continue
+			}
+			seen[*d.ID] = struct{}{}
+			if len(out) == database.CrowdSecMaxSnapshotRows {
+				truncated = true
+				break
+			}
+			id := fmt.Sprintf("%d", *d.ID)
+			created := now.UTC().Format(time.RFC3339)
+			expires := d.ExpiresAt(now)
+			if expires.IsZero() {
+				expires = now.Add(time.Hour) // unparsable duration: assume short
+			}
+			out = append(out, models.CrowdSecDecision{
+				DecisionID: id,
+				Value:      d.Value,
+				Type:       d.Type,
+				Scope:      d.Scope,
+				Origin:     d.Origin,
+				Scenario:   d.Scenario,
+				Duration:   d.Duration,
+				CreatedAt:  created,
+				ExpiresAt:  expires.UTC().Format(time.RFC3339),
+				SyncedAt:   now.UTC().Format(time.RFC3339),
+			})
 		}
-		created := now.UTC().Format(time.RFC3339)
-		expires := d.ExpiresAt(now)
-		if expires.IsZero() {
-			expires = now.Add(time.Hour) // unparsable duration: assume short
+		if truncated || len(remote) < crowdsecDecisionPageSize {
+			break
 		}
-		out = append(out, models.CrowdSecDecision{
-			DecisionID: id,
-			Value:      d.Value,
-			Type:       d.Type,
-			Scope:      d.Scope,
-			Origin:     d.Origin,
-			Scenario:   d.Scenario,
-			Duration:   d.Duration,
-			CreatedAt:  created,
-			ExpiresAt:  expires.UTC().Format(time.RFC3339),
-			SyncedAt:   now.UTC().Format(time.RFC3339),
-		})
+		if len(out) == before || offset >= database.CrowdSecMaxSnapshotRows {
+			truncated = true
+			break
+		}
 	}
-	// Decision IDs must be unique in the snapshot; LAPI IDs are unique,
-	// but a defensive dedup guards against odd API responses.
-	seen := make(map[string]struct{}, len(out))
-	deduped := out[:0]
-	for _, d := range out {
-		if d.DecisionID == "" {
-			continue
-		}
-		if _, dup := seen[d.DecisionID]; dup {
-			continue
-		}
-		seen[d.DecisionID] = struct{}{}
-		deduped = append(deduped, d)
-	}
-	return deduped, nil
+	return out, truncated || unstablePages, nil
 }
 
 func recordCrowdSecSyncFailure(err error) {
@@ -255,29 +260,25 @@ func recordCrowdSecSyncFailure(err error) {
 	_ = database.SaveCrowdSecSyncError(checker.SanitizeError(err.Error()), authFailed)
 }
 
-// fetchAlertsSnapshot pulls local scenario-detection alerts from the last
-// 24 hours. Community-list/CAPI alerts are excluded: they can carry very
-// large historical decision payloads and do not represent live detections
-// by this LAPI. Alerts are immutable, so the DB merge dedups by ID.
-func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models.CrowdSecAlert, error) {
+// fetchAlertSlice filters by LAPI start_at, with a small boundary overlap to
+// tolerate request transit time. Saturation is measured before conversion.
+func fetchAlertSlice(ctx context.Context, client *crowdsec.Client, start, end time.Time) ([]models.CrowdSecAlert, bool, error) {
 	if client == nil {
-		return nil, fmt.Errorf("crowdsec client unavailable")
+		return nil, false, fmt.Errorf("crowdsec client unavailable")
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	includeCAPI := false
+	now := time.Now().UTC()
 	remote, err := client.Alerts(fetchCtx, crowdsec.AlertsParams{
-		// 100 is the largest page real LAPI deployments serve reliably; the
-		// ent-backed pagination chokes on larger single-page limits (truncated
-		// responses → "unexpected end of JSON input"). 100 matches cscli's
-		// default page and is plenty for a live-activity feed.
 		Limit:       crowdsecAlertsPageSize,
-		Since:       crowdsecAlertsLookback,
+		Since:       now.Sub(start) + 2*time.Second,
+		Until:       max(time.Duration(0), now.Sub(end)-2*time.Second),
 		IncludeCAPI: &includeCAPI,
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	out := make([]models.CrowdSecAlert, 0, len(remote))
@@ -299,8 +300,8 @@ func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models
 			Scenario:    a.Scenario,
 			Message:     a.Message,
 			EventsCount: events,
-			StartAt:     a.StartAt.Format(time.RFC3339),
-			CreatedAt:   a.CreatedAt.Format(time.RFC3339),
+			StartAt:     a.StartAt.Format(time.RFC3339Nano),
+			CreatedAt:   a.CreatedAt.Format(time.RFC3339Nano),
 			Simulated:   simulated,
 			HasDecision: len(a.Decisions) > 0,
 		}
@@ -318,7 +319,134 @@ func fetchAlertsSnapshot(ctx context.Context, client *crowdsec.Client) ([]models
 		}
 		out = append(out, alert)
 	}
-	return out, nil
+	return out, len(remote) >= crowdsecAlertsPageSize, nil
+}
+
+// syncAlertsHistory always refreshes the newest alerts, then spends a bounded
+// request budget catching up gaps and walking backwards through retained LAPI
+// history. Full pages are subdivided by time (alerts have no offset support).
+// Persisted widths ensure a crowded interval can progress across poll cycles.
+func syncAlertsHistory(ctx context.Context, client *crowdsec.Client, sourceID string, state *database.CrowdSecHistoryState, now time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	now = now.UTC().Truncate(time.Second)
+	cutoff := now.Add(-database.CrowdSecArchiveMaxAge)
+	cursor, _ := time.Parse(time.RFC3339Nano, state.CursorAt)
+	live, _ := time.Parse(time.RFC3339Nano, state.LastLiveAt)
+	if cursor.IsZero() {
+		cursor = now
+	}
+	if live.IsZero() {
+		live = now.Add(-crowdsecAlertsLookback)
+	}
+	if live.Before(cutoff) {
+		live = cutoff
+		state.Truncated = true
+	}
+	if cursor.Before(cutoff) {
+		cursor = cutoff
+	}
+	inserted := 0
+	fetch := func(start, end time.Time) (bool, error) {
+		alerts, saturated, err := fetchAlertSlice(ctx, client, start, end)
+		if err != nil {
+			return false, err
+		}
+		n, err := database.SyncCrowdSecAlertsForSource(alerts, time.Now().UTC(), sourceID)
+		inserted += n
+		if err != nil {
+			return false, err
+		}
+		stored, err := database.GetCrowdSecHistoryStateForSource(sourceID)
+		state.Truncated = state.Truncated || stored.Truncated
+		return saturated, err
+	}
+	// Recent data remains fresh even while a large initial backfill is pending.
+	// LAPI filters scenario start time, while an alert may only be created
+	// after the scenario finishes. Re-read the recent window on every poll.
+	previewStart := now.Add(-crowdsecAlertsLookback)
+	saturated, err := fetch(previewStart, now)
+	if err != nil {
+		return inserted, err
+	}
+	if !saturated && !live.Before(previewStart) {
+		live = now
+	}
+	defer func() {
+		state.CursorAt = cursor.Format(time.RFC3339Nano)
+		state.LastLiveAt = live.Format(time.RFC3339Nano)
+	}()
+	for request := 1; request < crowdsecAlertRequestBudget; request++ {
+		// Reserve half the budget for historical backfill while a live gap is
+		// pending. Otherwise all remaining requests can inspect older history.
+		catchup := live.Before(now) && request <= crowdsecAlertRequestBudget/2
+		if !catchup && (!cursor.After(cutoff) || state.Complete) {
+			continue
+		}
+		var archiveRows int
+		if !catchup {
+			if err := database.DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&archiveRows); err != nil {
+				return inserted, err
+			}
+			if archiveRows >= database.CrowdSecMaxArchivedAlerts {
+				state.Truncated = true
+				state.Complete = false
+				continue
+			}
+		}
+		width := time.Duration(state.BackfillSeconds) * time.Second
+		if width <= 0 {
+			width = database.CrowdSecArchiveMaxAge
+		}
+		start, end := maxTime(cutoff, cursor.Add(-width)), cursor
+		if catchup {
+			width = time.Duration(state.LiveSeconds) * time.Second
+			if width <= 0 {
+				width = crowdsecAlertsLookback
+			}
+			start, end = live, minTime(now, live.Add(width))
+		}
+		saturated, err = fetch(start, end)
+		if err != nil {
+			return inserted, err
+		}
+		span := end.Sub(start)
+		if saturated && span > time.Second {
+			width = max(time.Second, span/2)
+		} else {
+			if saturated {
+				state.Truncated = true
+			}
+			if catchup {
+				live = end
+			} else {
+				cursor = start
+			}
+			width = min(database.CrowdSecArchiveMaxAge, max(time.Second, span)*4)
+		}
+		if catchup {
+			state.LiveSeconds = int64(width / time.Second)
+		} else {
+			state.BackfillSeconds = int64(width / time.Second)
+		}
+		if !cursor.After(cutoff) {
+			state.Complete = true
+		}
+	}
+	return inserted, nil
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 func logCrowdSecSync(changed, total int) {

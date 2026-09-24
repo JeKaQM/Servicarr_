@@ -190,12 +190,16 @@ var crowdsecAlertsExpanded = false;
 var crowdsecDecisionsExpanded = false;
 var crowdsecAllAlerts = [];
 var crowdsecAllDecisions = [];
+var crowdsecDecisionListMetadata = null;
+var crowdsecDecisionSnapshotIncomplete = false;
 var crowdsecRenderSignatures = new WeakMap();
 
-function renderCrowdsecDecisions(decisions) {
+function renderCrowdsecDecisions(decisions, metadata) {
   const container = $('#crowdsecDecisions');
   if (!container) return;
   crowdsecAllDecisions = decisions || [];
+  if (metadata !== undefined) crowdsecDecisionListMetadata = metadata;
+  renderCrowdsecDecisionCoverage();
 
   if (!crowdsecAllDecisions.length) {
     const summary = $('#crowdsecDecisionsSummary');
@@ -251,6 +255,21 @@ function renderCrowdsecDecisions(decisions) {
   updateCrowdsecToggleLabel('decisions', crowdsecAllDecisions.length);
 }
 
+function renderCrowdsecDecisionCoverage() {
+  const element = $('#crowdsecDecisionCoverage');
+  if (!element) return;
+  const count = crowdsecAllDecisions.length;
+  const totalValue = Number(crowdsecDecisionListMetadata && crowdsecDecisionListMetadata.total);
+  const total = Number.isFinite(totalValue) && totalValue >= count ? totalValue : count;
+  const subset = total > count || !!(crowdsecDecisionListMetadata && crowdsecDecisionListMetadata.truncated);
+  const list = subset
+    ? `List contains the newest ${crowdsecDisplayNumber(count)} of ${crowdsecDisplayNumber(total)} current decisions. Statistics include the complete saved snapshot.`
+    : `List contains all ${crowdsecDisplayNumber(count)} current decisions in the saved snapshot.`;
+  element.textContent = `${list} ${crowdsecDecisionSnapshotIncomplete
+    ? 'LAPI returned an incomplete snapshot; more current decisions may exist.'
+    : 'Current decisions are unaffected by time range.'}`;
+}
+
 // toggleCrowdsecExpand shows/hides an expand bar.
 function toggleCrowdsecExpand(selector, show) {
   const el = $(selector);
@@ -264,7 +283,10 @@ function updateCrowdsecToggleLabel(kind, total) {
   const btn = bar.querySelector('button');
   if (!btn) return;
   const expanded = kind === 'decisions' ? crowdsecDecisionsExpanded : crowdsecAlertsExpanded;
-  btn.textContent = expanded ? `Show fewer (top ${crowdsecCollapsedRows})` : `Show all ${total}`;
+  const subset = kind === 'decisions' && crowdsecDecisionListMetadata &&
+    (crowdsecDecisionListMetadata.truncated || Number(crowdsecDecisionListMetadata.total) > total);
+  btn.textContent = expanded ? `Show fewer (top ${crowdsecCollapsedRows})`
+    : (subset ? `Show newest ${crowdsecDisplayNumber(total)}` : `Show all ${total}`);
   btn.setAttribute('aria-expanded', String(expanded));
 }
 
@@ -277,7 +299,7 @@ function renderCrowdsecAlerts(alerts) {
 
   if (!crowdsecAllAlerts.length) {
     crowdsecRenderSignatures.delete(container);
-    container.innerHTML = '<div class="muted">No detections synced yet. This feed needs machine credentials: run <code>cscli machines add servicarr</code> on your CrowdSec host, then enter the generated password under <em>Machine Password</em> in Connection settings below. Decisions sync on the bouncer key alone.</div>';
+    container.innerHTML = '<div class="muted">No detections in the selected period. If alerts have never synced, check the machine credentials in Connection settings.</div>';
     toggleCrowdsecExpand('#crowdsecAlertsExpand', false);
     return;
   }
@@ -395,7 +417,14 @@ function renderCrowdsecStats(stats) {
   const geoRate = alerts24h ? (geolocated / alerts24h) * 100 : 0;
 
   const active = $('#csStatActive');
-  if (active) active.textContent = crowdsecDisplayNumber(stats.active_decisions);
+  if (active) active.textContent = crowdsecDisplayNumber(stats.active_decisions) + (stats.decision_truncated ? '+' : '');
+  crowdsecDecisionSnapshotIncomplete = !!stats.decision_truncated;
+  const decisionCoverage = stats.decision_truncated
+    ? `At least ${crowdsecDisplayNumber(stats.active_decisions)} currently active decisions; the LAPI snapshot is incomplete.`
+    : 'Current snapshot · unaffected by time range';
+  const decisionCardLabel = $('#csStatDecisionCoverage');
+  if (decisionCardLabel) decisionCardLabel.textContent = decisionCoverage;
+  renderCrowdsecDecisionCoverage();
   const alerts = $('#csStatAlerts');
   if (alerts) alerts.textContent = crowdsecDisplayNumber(stats.alerts_24h);
   const events = $('#csStatEvents');
@@ -443,8 +472,9 @@ function renderCrowdsecStats(stats) {
   renderCrowdsecBreakdown('#crowdsecSources', stats.sources, item => item.source || 'unknown', { otherCount: stats.sources_other_count, tone: 'blue' });
   renderCrowdsecBreakdown('#crowdsecDecisionTypes', stats.active_decision_types, item => item.type || 'unknown', { tone: 'red', emptyText: 'No active decisions.' });
   renderCrowdsecBreakdown('#crowdsecDecisionOrigins', stats.active_decision_origins, item => item.origin || 'unknown', { tone: 'violet', emptyText: 'No active decisions.' });
-  if (typeof renderCrowdsecTimeline === 'function') renderCrowdsecTimeline(stats, crowdsecTimelineHours);
+  if (typeof renderCrowdsecTimeline === 'function') renderCrowdsecTimeline(stats);
   if (typeof renderCrowdsecOutcomeChart === 'function') renderCrowdsecOutcomeChart(stats);
+  renderCrowdsecHistoryCoverage(stats);
 }
 
 // Draw ranked bars with an explicit Other row when the API had more
@@ -476,11 +506,132 @@ function renderCrowdsecBreakdown(selector, items, labelFn, options = {}) {
 }
 
 var crowdsecDashboardPromise = null;
+var crowdsecDashboardRangeKey = '';
 var crowdsecRefreshTimer = null;
 var crowdsecRefreshIntervalMs = 15000;
 var crowdsecTabObserver = null;
 var crowdsecLiveRetrying = false;
 var crowdsecIntegrationEnabled = null;
+var crowdsecHistoryRange = { mode: 'hours', hours: 24, unit: 'hours' };
+
+function crowdsecHistoryQuery() {
+  return crowdsecHistoryRange.mode === 'all' ? 'range=all' : `hours=${crowdsecHistoryRange.hours}`;
+}
+
+function crowdsecHistoryLabel() {
+  if (crowdsecHistoryRange.mode === 'all') return 'All retained history';
+  const unit = crowdsecHistoryRange.unit === 'days' ? 'day' : 'hour';
+  const amount = unit === 'day' ? crowdsecHistoryRange.hours / 24 : crowdsecHistoryRange.hours;
+  return `Last ${amount} ${unit}${amount === 1 ? '' : 's'}`;
+}
+
+function crowdsecHistoryOldest(value) {
+  const date = new Date(value || '');
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  }).format(date);
+}
+
+function crowdsecUpdateHistoryControls(loading = false) {
+  const label = $('#crowdsecRangeStatus');
+  if (label) label.textContent = `${crowdsecHistoryLabel()}${loading ? ' · loading…' : ''}`;
+  $$('[data-crowdsec-period]').forEach(button => {
+    const value = button.dataset.crowdsecPeriod;
+    const active = value === 'all'
+      ? crowdsecHistoryRange.mode === 'all'
+      : crowdsecHistoryRange.mode === 'hours' && Number(value) === crowdsecHistoryRange.hours;
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function crowdsecClearHistoryPanels() {
+  const tab = $('#tab-crowdsec');
+  if (tab) tab.setAttribute('aria-busy', 'true');
+  ['csStatAlerts', 'csStatEvents', 'csStatSources', 'csStatActionRate', 'csStatGeoRate',
+    'csStatSimulated', 'csStatCountries', 'csStatTopCountry', 'csStatTopScenario']
+    .forEach(id => { const element = $(`#${id}`); if (element) element.textContent = '—'; });
+  ['csStatActionRateLabel', 'csStatGeoRateLabel', 'csStatTopCountryLabel'].forEach(id => {
+    const element = $(`#${id}`);
+    if (element) element.textContent = 'Loading selected period…';
+  });
+  ['crowdsecCountries', 'crowdsecScenarios', 'crowdsecNetworks', 'crowdsecSources']
+    .forEach(id => { const element = $(`#${id}`); if (element) element.innerHTML = '<div class="muted">Loading selected period…</div>'; });
+  ['crowdsecTimeline', 'crowdsecOutcomeChart']
+    .forEach(id => {
+      const element = $(`#${id}`);
+      if (element) {
+        element.innerHTML = '<div class="crowdsec-chart-empty">Loading selected period…</div>';
+        delete element.dataset.renderSignature;
+      }
+    });
+  crowdsecLastStats = null;
+  const alerts = $('#crowdsecAlerts');
+  if (alerts) {
+    alerts.innerHTML = '<div class="muted">Loading selected period…</div>';
+    crowdsecRenderSignatures.delete(alerts);
+  }
+  crowdsecAllAlerts = [];
+  toggleCrowdsecExpand('#crowdsecAlertsExpand', false);
+  if (typeof crowdsecMapStrikes !== 'undefined') crowdsecMapStrikes = [];
+  if (typeof crowdsecMapApply === 'function') crowdsecMapApply([]);
+  const scopeTitle = $('#crowdsecScopeTitle');
+  const scopeDetail = $('#crowdsecScopeDetail');
+  if (scopeTitle) scopeTitle.textContent = crowdsecHistoryLabel();
+  if (scopeDetail) scopeDetail.textContent = 'Loading coverage for the selected period…';
+  ['crowdsecMapCoverage', 'crowdsecActivityCoverage'].forEach(id => {
+    const element = $(`#${id}`);
+    if (element) element.textContent = 'Loading selected-period alerts…';
+  });
+}
+
+function setCrowdsecHistoryRange(mode, hours = 0, unit = 'hours') {
+  const all = mode === 'all';
+  const amount = Number(hours);
+  if (!all && (!Number.isInteger(amount) || amount < 1 || amount > 8760)) return false;
+  const next = all ? { mode: 'all', hours: 0, unit: 'hours' } : { mode: 'hours', hours: amount, unit };
+  const changed = crowdsecHistoryQuery() !== (all ? 'range=all' : `hours=${amount}`);
+  crowdsecHistoryRange = next;
+  crowdsecUpdateHistoryControls(changed);
+  if (!changed) {
+    const scopeTitle = $('#crowdsecScopeTitle');
+    if (scopeTitle) scopeTitle.textContent = crowdsecHistoryLabel();
+  }
+  if (changed) {
+    crowdsecClearHistoryPanels();
+    loadCrowdsecDecisions();
+  }
+  return true;
+}
+
+function renderCrowdsecHistoryCoverage(stats) {
+  const title = $('#crowdsecScopeTitle');
+  const detail = $('#crowdsecScopeDetail');
+  if (title) title.textContent = crowdsecHistoryLabel();
+  if (!detail) return;
+  const oldest = crowdsecHistoryOldest(stats && stats.history_oldest);
+  const coverage = stats && stats.history_truncated
+    ? 'The archive reached a retention or source limit; older alerts may be absent.'
+    : (stats && stats.history_complete
+      ? 'Mirror caught up with history still available from LAPI.'
+      : 'Historical import is incomplete; older LAPI alerts may not be mirrored yet.');
+  detail.textContent = `${oldest ? `Oldest saved alert: ${oldest}. ` : 'No saved alerts yet. '}${coverage} Archive limit: 1 year or 100,000 alerts.`;
+  crowdsecUpdateHistoryControls();
+}
+
+function renderCrowdsecAlertCoverage(response) {
+  const count = Array.isArray(response && response.alerts) ? response.alerts.length : 0;
+  const totalValue = Number(response && response.total);
+  const total = Number.isFinite(totalValue) && totalValue >= count ? totalValue : count;
+  const label = crowdsecHistoryLabel().toLowerCase();
+  const capped = total > count;
+  const text = capped
+    ? `Showing the newest ${crowdsecDisplayNumber(count)} of ${crowdsecDisplayNumber(total)} alerts in ${label}. Statistics include all retained alerts in this period; the map uses geolocated alerts from this subset.`
+    : `Showing all ${crowdsecDisplayNumber(count)} retained alerts in ${label}. The map uses alerts with coordinates.`;
+  const map = $('#crowdsecMapCoverage');
+  const feed = $('#crowdsecActivityCoverage');
+  if (map) map.textContent = text;
+  if (feed) feed.textContent = text;
+}
 
 // The dashboard only polls while the operator can actually see it. This keeps
 // inactive admin tabs quiet and also gives map animations a stable pause point.
@@ -513,22 +664,31 @@ function setCrowdsecLiveState(active) {
 // blank otherwise healthy decisions, alerts, stats, or map data.
 function loadCrowdsecDecisions() {
   if (!$('#crowdsecDecisions')) return Promise.resolve(null);
-  if (crowdsecDashboardPromise) return crowdsecDashboardPromise;
+  const rangeKey = crowdsecHistoryQuery();
+  if (crowdsecDashboardPromise) {
+    return crowdsecDashboardRangeKey === rangeKey
+      ? crowdsecDashboardPromise
+      : crowdsecDashboardPromise.then(() => loadCrowdsecDecisions());
+  }
+  crowdsecDashboardRangeKey = rangeKey;
 
   const requests = [
     j('/api/admin/crowdsec/decisions?active=true'),
     j('/api/admin/crowdsec/status'),
-    j('/api/admin/crowdsec/alerts?limit=2000&compact=true'),
-    j('/api/admin/crowdsec/stats')
+    j(`/api/admin/crowdsec/alerts?limit=2000&compact=true&${rangeKey}`),
+    j(`/api/admin/crowdsec/stats?${rangeKey}`)
   ];
 
   const pending = Promise.allSettled(requests).then(results => {
+    if (rangeKey !== crowdsecHistoryQuery()) return results;
     const [decisionsResult, statusResult, alertsResult, statsResult] = results;
     const failures = [];
+    const tab = $('#tab-crowdsec');
+    const changedRangeLoading = tab && tab.getAttribute('aria-busy') === 'true';
 
     if (decisionsResult.status === 'fulfilled') {
       const decisions = decisionsResult.value;
-      renderCrowdsecDecisions(decisions && decisions.decisions ? decisions.decisions : []);
+      renderCrowdsecDecisions(decisions && decisions.decisions ? decisions.decisions : [], decisions || {});
     } else {
       failures.push('decisions');
     }
@@ -538,14 +698,31 @@ function loadCrowdsecDecisions() {
       const items = alerts && alerts.alerts ? alerts.alerts : [];
       renderCrowdsecAlerts(items);
       if (typeof crowdsecMapApply === 'function') crowdsecMapApply(items);
+      renderCrowdsecAlertCoverage(alerts);
     } else {
       failures.push('activity');
+      if (changedRangeLoading) {
+        const alerts = $('#crowdsecAlerts');
+        if (alerts) alerts.innerHTML = '<div class="muted">Could not load alerts for this period. Try again or choose another range.</div>';
+        ['crowdsecMapCoverage', 'crowdsecActivityCoverage'].forEach(id => {
+          const element = $(`#${id}`);
+          if (element) element.textContent = 'Alerts for this period are unavailable.';
+        });
+      }
     }
 
     if (statsResult.status === 'fulfilled') {
       renderCrowdsecStats(statsResult.value);
     } else {
       failures.push('statistics');
+      if (changedRangeLoading) {
+        ['crowdsecTimeline', 'crowdsecOutcomeChart', 'crowdsecCountries', 'crowdsecScenarios', 'crowdsecNetworks', 'crowdsecSources'].forEach(id => {
+          const panel = $(`#${id}`);
+          if (panel) panel.innerHTML = '<div class="crowdsec-chart-empty">Statistics for this period are unavailable.</div>';
+        });
+        const scope = $('#crowdsecScopeDetail');
+        if (scope) scope.textContent = 'Could not load history coverage for this period.';
+      }
     }
 
     const badge = $('#crowdsecSyncBadge');
@@ -576,11 +753,16 @@ function loadCrowdsecDecisions() {
     if (badge) {
       badge.title = failures.length ? `Could not refresh: ${failures.join(', ')}` : '';
     }
+    if (tab) tab.setAttribute('aria-busy', 'false');
+    crowdsecUpdateHistoryControls();
     setCrowdsecLiveState(crowdsecDashboardVisible());
 
     return results;
   }).finally(() => {
-    if (crowdsecDashboardPromise === pending) crowdsecDashboardPromise = null;
+    if (crowdsecDashboardPromise === pending) {
+      crowdsecDashboardPromise = null;
+      crowdsecDashboardRangeKey = '';
+    }
   });
 
   crowdsecDashboardPromise = pending;
@@ -721,11 +903,34 @@ function initCrowdsecTab() {
     });
   }
 
-  $$('[data-crowdsec-range]').forEach(button => {
+  $$('[data-crowdsec-period]').forEach(button => {
     button.addEventListener('click', () => {
-      if (typeof setCrowdsecTimelineRange === 'function') setCrowdsecTimelineRange(button.dataset.crowdsecRange);
+      const value = button.dataset.crowdsecPeriod;
+      if (value === 'all') setCrowdsecHistoryRange('all');
+      else setCrowdsecHistoryRange('hours', Number(value), Number(value) >= 168 ? 'days' : 'hours');
     });
   });
+  const customRange = $('#crowdsecCustomRange');
+  const rangeAmount = $('#crowdsecRangeAmount');
+  const rangeUnit = $('#crowdsecRangeUnit');
+  if (rangeUnit && rangeAmount) rangeUnit.addEventListener('change', () => {
+    rangeAmount.max = rangeUnit.value === 'days' ? '365' : '8760';
+  });
+  if (customRange && rangeAmount && rangeUnit) customRange.addEventListener('submit', e => {
+    e.preventDefault();
+    const amount = Number(rangeAmount.value);
+    const unit = rangeUnit.value;
+    const max = unit === 'days' ? 365 : 8760;
+    if (!Number.isInteger(amount) || amount < 1 || amount > max) {
+      rangeAmount.setCustomValidity(`Enter 1 to ${max} ${unit}.`);
+      rangeAmount.reportValidity();
+      return;
+    }
+    rangeAmount.setCustomValidity('');
+    setCrowdsecHistoryRange('hours', amount * (unit === 'days' ? 24 : 1), unit);
+  });
+  if (rangeAmount) rangeAmount.addEventListener('input', () => rangeAmount.setCustomValidity(''));
+  crowdsecUpdateHistoryControls();
 
   const crowdsecTab = $('#tab-crowdsec');
   if (crowdsecTab && typeof MutationObserver === 'function') {

@@ -18,7 +18,6 @@ function hourly(count = 24) {
 describe('renderCrowdsecTimeline', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="crowdsecTimeline"></div>';
-    crowdsecTimelineHours = 24;
   });
 
   test('renders accessible stacked bars, event line, and exact data table', () => {
@@ -56,16 +55,17 @@ describe('renderCrowdsecTimeline', () => {
     expect(document.getElementById('crowdsecTimeline').textContent).toContain('999');
   });
 
-  test('range selection slices the newest buckets and updates pressed state', () => {
-    document.body.innerHTML = `
-      <button data-crowdsec-range="6" aria-pressed="false"></button>
-      <button data-crowdsec-range="24" aria-pressed="true"></button>
-      <div id="crowdsecTimeline"></div>`;
-    crowdsecLastStats = { hourly: hourly() };
-    setCrowdsecTimelineRange(6);
-    expect(document.querySelectorAll('.crowdsec-chart-bucket')).toHaveLength(6);
-    expect(document.querySelector('[data-crowdsec-range="6"]').getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('[data-crowdsec-range="24"]').getAttribute('aria-pressed')).toBe('false');
+  test('renders every backend bucket for a longer range with daily labels', () => {
+    const start = Date.parse('2026-08-01T00:00:00Z');
+    const buckets = Array.from({ length: 35 }, (_, index) => ({
+      start: new Date(start + index * 86400000).toISOString(),
+      detections: index, with_decision: 0, reported_events: index * 2
+    }));
+    renderCrowdsecTimeline({ hourly: buckets, bucket_unit: 'day', bucket_seconds: 86400 });
+    expect(document.querySelectorAll('.crowdsec-chart-bucket')).toHaveLength(35);
+    expect(document.querySelectorAll('.crowdsec-chart-data-row')).toHaveLength(36);
+    expect(document.querySelector('#crowdsecTimeline svg desc').textContent).toContain('daily buckets');
+    expect(document.querySelector('.crowdsec-chart-data').textContent).toContain('Aug');
   });
 
   test('does not materialise hostile timestamps as HTML', () => {
@@ -75,7 +75,15 @@ describe('renderCrowdsecTimeline', () => {
 
   test('shows an honest empty state without hourly data', () => {
     renderCrowdsecTimeline({ hourly: [] }, 24);
-    expect(document.getElementById('crowdsecTimeline').textContent).toContain('No hourly statistics');
+    expect(document.getElementById('crowdsecTimeline').textContent).toContain('No activity buckets');
+  });
+
+  test('restores a chart after an empty response even when its previous data returns unchanged', () => {
+    const stats = { hourly: hourly() };
+    renderCrowdsecTimeline(stats);
+    renderCrowdsecTimeline({ hourly: [] });
+    renderCrowdsecTimeline(stats);
+    expect(document.querySelectorAll('.crowdsec-chart-bucket')).toHaveLength(24);
   });
 });
 

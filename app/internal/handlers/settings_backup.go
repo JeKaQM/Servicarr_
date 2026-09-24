@@ -480,6 +480,7 @@ func HandleResetDatabase(authMgr *auth.Auth) http.HandlerFunc {
 			"crowdsec_state",
 			"crowdsec_decisions",
 			"crowdsec_alerts",
+			"crowdsec_history_state",
 			"app_metadata",
 			"software_deployments",
 		}

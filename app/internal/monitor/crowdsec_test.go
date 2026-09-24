@@ -2,15 +2,19 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"status/app/internal/crowdsec"
 	"status/app/internal/crypto"
 	"status/app/internal/database"
 	"status/app/internal/models"
@@ -125,8 +129,8 @@ func TestPollCrowdSec_AlertsSuccessStoresFeed(t *testing.T) {
 			// Guard: the production page size must stay at the LAPI-safe 100.
 			t.Errorf("alerts limit = %q, want 100 (large single-page limits break real LAPIs)", r.URL.Query().Get("limit"))
 		}
-		if r.URL.Query().Get("since") != "24h0m0s" {
-			t.Errorf("alerts since = %q, want 24h0m0s", r.URL.Query().Get("since"))
+		if duration, err := time.ParseDuration(r.URL.Query().Get("since")); err != nil || duration <= 0 {
+			t.Errorf("alerts since must be a positive duration: %q", r.URL.Query().Get("since"))
 		}
 		if r.URL.Query().Get("include_capi") != "false" {
 			t.Errorf("alerts include_capi = %q, want false", r.URL.Query().Get("include_capi"))
@@ -189,7 +193,7 @@ func TestPollCrowdSec_MachineOnlySyncsAlertsAndReusesJWT(t *testing.T) {
 		http.Error(w, "machine-only config must not fetch decisions", http.StatusInternalServerError)
 	})
 	mux.HandleFunc("/v1/alerts", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("since") != "24h0m0s" || r.URL.Query().Get("include_capi") != "false" {
+		if r.URL.Query().Get("since") == "" || r.URL.Query().Get("include_capi") != "false" {
 			t.Errorf("unexpected alerts query: %s", r.URL.RawQuery)
 		}
 		fmt.Fprintf(w, `[{"id":2001,"created_at":%q,"scenario":"crowdsecurity/http-probing","source":{"value":"2.3.4.5"}}]`, createdAt)
@@ -300,6 +304,176 @@ func TestPollCrowdSec_BouncerOnlySyncsDecisionsWithoutMachineLogin(t *testing.T)
 	}
 	if len(alerts) != 0 {
 		t.Fatalf("bouncer-only transition left stale machine alerts: %+v", alerts)
+	}
+	var archived int
+	if err := database.DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&archived); err != nil || archived != 1 {
+		t.Fatalf("credential removal erased archived history: count=%d err=%v", archived, err)
+	}
+}
+
+func TestCrowdSecHistoryBackfillsBeyondFirstPage(t *testing.T) {
+	initCrowdSecMonitorDB(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	remote := make([]crowdsec.Alert, 235)
+	for i := range remote {
+		id := int64(i + 1)
+		// Created order intentionally differs from start order, as real LAPI
+		// sorts by creation but applies since/until to scenario start time.
+		remote[i] = crowdsec.Alert{ID: &id,
+			CreatedAt: crowdsec.Time{Time: now.Add(-time.Duration(i+1) * time.Minute)},
+			StartAt:   crowdsec.Time{Time: now.Add(-time.Duration((i*73)%235+1) * 15 * time.Minute)}}
+	}
+	var calls atomic.Int64
+	srv := newLAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Query().Get("offset") != "" {
+			t.Error("alerts do not support offset")
+		}
+		since, err := time.ParseDuration(r.URL.Query().Get("since"))
+		if err != nil {
+			t.Error(err)
+		}
+		until, _ := time.ParseDuration(r.URL.Query().Get("until"))
+		anchor := time.Now().UTC()
+		rows := []crowdsec.Alert{}
+		for _, alert := range remote {
+			if !alert.StartAt.Before(anchor.Add(-since)) && !alert.StartAt.After(anchor.Add(-until)) {
+				rows = append(rows, alert)
+			}
+		}
+		sort.Slice(rows, func(i, j int) bool { return rows[i].CreatedAt.After(rows[j].CreatedAt.Time) })
+		if len(rows) > crowdsecAlertsPageSize {
+			rows = rows[:crowdsecAlertsPageSize]
+		}
+		_ = json.NewEncoder(w).Encode(rows)
+	})
+	if err := database.SaveCrowdSecConfig(testCrowdSecConfig(srv.URL)); err != nil {
+		t.Fatal(err)
+	}
+	for cycle := 0; cycle < 40; cycle++ {
+		before := calls.Load()
+		if err := PollCrowdSec(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if used := calls.Load() - before; used > crowdsecAlertRequestBudget {
+			t.Fatalf("request budget exceeded: %d", used)
+		}
+		state, err := database.GetCrowdSecHistoryState()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Complete {
+			var count int
+			if err := database.DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != len(remote) {
+				t.Fatalf("backfill lost records: got %d want %d", count, len(remote))
+			}
+			if state.Truncated {
+				t.Fatal("ordinary pagination falsely marked truncated")
+			}
+			return
+		}
+	}
+	t.Fatal("backfill failed to converge across bounded polls")
+}
+
+func TestCrowdSecDecisionPagination(t *testing.T) {
+	for _, mode := range []string{"normal", "repeated", "overlap"} {
+		t.Run(mode, func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+				if mode == "repeated" {
+					offset = 0
+				}
+				if mode == "overlap" && offset > 0 {
+					offset--
+				}
+				rows := []crowdsec.Decision{}
+				for i := offset; i < min(offset+500, 650); i++ {
+					id := int64(i + 1)
+					rows = append(rows, crowdsec.Decision{ID: &id, Value: fmt.Sprintf("192.0.2.%d", i), Duration: "1h"})
+				}
+				_ = json.NewEncoder(w).Encode(rows)
+			}))
+			defer srv.Close()
+			rows, truncated, err := fetchDecisionsSnapshot(context.Background(), crowdsec.NewClient(crowdsec.Config{BaseURL: srv.URL, BouncerKey: "test"}))
+			want := 650
+			if mode == "repeated" {
+				want = 500
+			}
+			if err != nil || len(rows) != want || truncated != (mode != "normal") || calls != 2 {
+				t.Fatalf("rows=%d truncated=%v calls=%d err=%v", len(rows), truncated, calls, err)
+			}
+		})
+	}
+}
+
+func TestCrowdSecCompletedHistoryStillCollectsLateArrivingAlerts(t *testing.T) {
+	initCrowdSecMonitorDB(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	srv := newLAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		since, _ := time.ParseDuration(r.URL.Query().Get("since"))
+		// This alert arrived after the prior poll, but its scenario began an
+		// hour earlier. Querying only since the last poll would lose it.
+		if since < time.Hour {
+			fmt.Fprint(w, `[]`)
+			return
+		}
+		fmt.Fprintf(w, `[{"id":9999,"start_at":%q,"created_at":%q}]`, now.Add(-time.Hour).Format(time.RFC3339), now.Add(-10*time.Second).Format(time.RFC3339))
+	})
+	cfg := testCrowdSecConfig(srv.URL)
+	if err := database.SaveCrowdSecConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveCrowdSecHistoryState(database.CrowdSecHistoryState{
+		Complete: true, CursorAt: now.Add(-database.CrowdSecArchiveMaxAge).Format(time.RFC3339), LastLiveAt: now.Add(-time.Minute).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := PollCrowdSec(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := database.GetCrowdSecAlerts(10)
+	if err != nil || len(rows) != 1 || rows[0].AlertID != "9999" {
+		t.Fatalf("late alert missing: %+v err=%v", rows, err)
+	}
+}
+
+func TestCrowdSecDecisionPageFailurePreservesSnapshot(t *testing.T) {
+	initCrowdSecMonitorDB(t)
+	now := time.Now().UTC()
+	_, err := database.SyncCrowdSecDecisions([]models.CrowdSecDecision{{DecisionID: "old", Value: "192.0.2.1", ExpiresAt: now.Add(time.Hour).Format(time.RFC3339)}}, 1, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("offset") != "" {
+			http.Error(w, "unavailable", 500)
+			return
+		}
+		rows := make([]crowdsec.Decision, 500)
+		for i := range rows {
+			id := int64(i + 1)
+			rows[i] = crowdsec.Decision{ID: &id, Value: "192.0.2.2", Duration: "1h"}
+		}
+		_ = json.NewEncoder(w).Encode(rows)
+	}))
+	defer srv.Close()
+	cfg := testCrowdSecConfig(srv.URL)
+	cfg.MachineID, cfg.MachinePassword = "", ""
+	if err := database.SaveCrowdSecConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := PollCrowdSec(context.Background()); err == nil {
+		t.Fatal("expected page failure")
+	}
+	rows, err := database.GetCrowdSecDecisions(false, 10)
+	if err != nil || len(rows) != 1 || rows[0].DecisionID != "old" {
+		t.Fatalf("partial snapshot replaced previous data: %+v, %v", rows, err)
 	}
 }
 

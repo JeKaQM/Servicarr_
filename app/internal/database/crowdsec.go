@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -13,14 +15,40 @@ import (
 	"status/app/internal/models"
 )
 
-// CrowdSecMaxSnapshotRows caps the decisions snapshot table and each LAPI
-// fetch. DecisionCount therefore means the number returned by the capped
-// fetch, not a separate total reported by LAPI.
-const CrowdSecMaxSnapshotRows = 500
+// CrowdSecMaxSnapshotRows bounds the complete paged decision snapshot.
+const CrowdSecMaxSnapshotRows = 100000
 
-// CrowdSecMaxAlertRows caps the alerts snapshot table. Alerts are history,
-// append-only with dedup, newest first, and limited to the last 24 hours.
+const CrowdSecMaxDecisionResponseRows = 2000
+
+// CrowdSecMaxAlertRows caps a single alerts API response/map render.
 const CrowdSecMaxAlertRows = 2000
+
+// The archive is bounded independently of the rendered feed. All-time means
+// all retained rows, not unlimited local disk growth.
+const CrowdSecMaxArchivedAlerts = 100000
+const CrowdSecArchiveMaxAge = 365 * 24 * time.Hour
+
+// CrowdSecSourceID is stable for a LAPI URL + machine identity, without
+// incorporating a credential. It prevents alert-ID reuse across connections.
+func CrowdSecSourceID(lapiURL, machineID string) string {
+	if strings.TrimSpace(lapiURL) == "" && strings.TrimSpace(machineID) == "" {
+		return "legacy"
+	}
+	sum := sha256.Sum256([]byte(strings.TrimRight(strings.TrimSpace(lapiURL), "/") + "\x00" + strings.TrimSpace(machineID)))
+	return hex.EncodeToString(sum[:16])
+}
+
+func CurrentCrowdSecSourceID() (string, error) {
+	var url, machineID string
+	err := DB.QueryRow(`SELECT lapi_url, lapi_machine_id FROM crowdsec_config WHERE id = 1`).Scan(&url, &machineID)
+	if err == sql.ErrNoRows {
+		return "legacy", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return CrowdSecSourceID(url, machineID), nil
+}
 
 // LoadCrowdSecConfig loads CrowdSec LAPI configuration. Returns (nil, nil)
 // when no row exists (first run). A decryption failure is returned so a
@@ -213,7 +241,6 @@ func SyncCrowdSecDecisions(remote []models.CrowdSecDecision, totalCount int, syn
 		return 0, err
 	}
 	defer tx.Rollback()
-
 	if len(removed) > 0 {
 		del, err := tx.Prepare(`DELETE FROM crowdsec_decisions WHERE decision_id = ?`)
 		if err != nil {
@@ -267,8 +294,8 @@ func SyncCrowdSecDecisions(remote []models.CrowdSecDecision, totalCount int, syn
 // parameter — never datetime('now'), which is not lexicographically
 // comparable with RFC3339.
 func GetCrowdSecDecisions(activeOnly bool, limit int) ([]models.CrowdSecDecision, error) {
-	if limit <= 0 || limit > CrowdSecMaxSnapshotRows {
-		limit = CrowdSecMaxSnapshotRows
+	if limit <= 0 || limit > CrowdSecMaxDecisionResponseRows {
+		limit = CrowdSecMaxDecisionResponseRows
 	}
 	query := `SELECT decision_id, value, type, scope, origin, scenario, duration, simulated, created_at, expires_at, synced_at
 		FROM crowdsec_decisions`
@@ -307,25 +334,49 @@ func GetCrowdSecSnapshotCount() (int, error) {
 	return n, err
 }
 
+func CountCrowdSecDecisions(activeOnly bool) (int, error) {
+	query := `SELECT COUNT(*) FROM crowdsec_decisions`
+	args := []any{}
+	if activeOnly {
+		query += ` WHERE expires_at > ?`
+		args = append(args, time.Now().UTC().Format(time.RFC3339))
+	}
+	var count int
+	err := DB.QueryRow(query, args...).Scan(&count)
+	return count, err
+}
+
 // SyncCrowdSecAlerts merges fetched alerts into the snapshot table.
 // Append-only: new alert IDs are inserted, existing IDs are skipped (alerts
 // are immutable events in LAPI — no updates). Runs in one short transaction
-// with the 24-hour/cap prune so the table stays bounded. Network I/O must
+// with the archive age/row prune so the table stays bounded. Network I/O must
 // complete BEFORE this runs (MaxOpenConns(1)).
 func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int, error) {
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return 0, err
+	}
+	return SyncCrowdSecAlertsForSource(alerts, syncedAt, sourceID)
+}
+
+func SyncCrowdSecAlertsForSource(alerts []models.CrowdSecAlert, syncedAt time.Time, sourceID string) (int, error) {
 	syncedAt = syncedAt.UTC()
-	cutoffTime := syncedAt.Add(-24 * time.Hour)
+	cutoffTime := syncedAt.Add(-CrowdSecArchiveMaxAge)
 	tx, err := DB.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO crowdsec_history_state (source_id) VALUES (?)
+		ON CONFLICT(source_id) DO NOTHING`, sourceID); err != nil {
+		return 0, err
+	}
 
 	ins, err := tx.Prepare(`INSERT INTO crowdsec_alerts
-		(alert_id, scenario, message, source_value, country, as_number, as_name,
+		(source_id, alert_id, scenario, message, source_value, country, as_number, as_name,
 		 latitude, longitude, events_count, start_at, created_at, has_decision, simulated, synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(alert_id) DO NOTHING`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_id, alert_id) DO NOTHING`)
 	if err != nil {
 		return 0, err
 	}
@@ -341,7 +392,7 @@ func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int,
 		if err != nil || !createdAt.After(cutoffTime) || createdAt.After(syncedAt) {
 			continue
 		}
-		res, err := ins.Exec(a.AlertID, a.Scenario, a.Message, a.SourceValue, a.Country,
+		res, err := ins.Exec(sourceID, a.AlertID, a.Scenario, a.Message, a.SourceValue, a.Country,
 			a.ASNumber, a.ASName, nullableFloat(a.Latitude), nullableFloat(a.Longitude),
 			a.EventsCount, a.StartAt, createdAt.UTC().Format(time.RFC3339Nano),
 			boolInt(a.HasDecision), boolInt(a.Simulated), synced)
@@ -353,27 +404,42 @@ func SyncCrowdSecAlerts(alerts []models.CrowdSecAlert, syncedAt time.Time) (int,
 		}
 	}
 
-	// Prune records outside the live-view window as well as excess rows. This
-	// also runs for an empty response so stale data cannot linger indefinitely.
+	// Prune records outside the archive window as well as excess rows. This
+	// also runs for an empty response so the archive remains bounded.
 	cutoff := cutoffTime.Format(time.RFC3339Nano)
+	if _, err := tx.Exec(`UPDATE crowdsec_history_state SET truncated = 1, complete = 0
+		WHERE source_id IN (SELECT DISTINCT source_id FROM crowdsec_alerts
+			WHERE julianday(created_at) <= julianday(?))`, cutoff); err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE julianday(created_at) IS NULL
 		OR julianday(created_at) <= julianday(?) OR julianday(created_at) > julianday(?)`,
 		cutoff, synced); err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE alert_id NOT IN (
-		SELECT alert_id FROM crowdsec_alerts
-		ORDER BY julianday(created_at) DESC, alert_id ASC LIMIT ?)`,
-		CrowdSecMaxAlertRows); err != nil {
+	var archiveRows int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts`).Scan(&archiveRows); err != nil {
 		return 0, err
+	}
+	if archiveRows > CrowdSecMaxArchivedAlerts {
+		// Global cap may remove rows from several configured sources. Mark all
+		// known sources partial so switching back cannot claim full coverage.
+		if _, err := tx.Exec(`UPDATE crowdsec_history_state SET truncated = 1, complete = 0`); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`DELETE FROM crowdsec_alerts WHERE (source_id, alert_id) NOT IN (
+			SELECT source_id, alert_id FROM crowdsec_alerts
+			ORDER BY julianday(created_at) DESC, source_id ASC, alert_id ASC LIMIT ?)`,
+			CrowdSecMaxArchivedAlerts); err != nil {
+			return 0, err
+		}
 	}
 
 	return inserted, tx.Commit()
 }
 
-// ClearCrowdSecAlerts removes the cached alerts feed when machine credentials
-// are no longer configured. Without this explicit capability transition, old
-// detections would continue to look live until the 24-hour prune caught up.
+// ClearCrowdSecAlerts explicitly removes the local archive.
+// Removing machine credentials must not call this destructive operation.
 func ClearCrowdSecAlerts() (int64, error) {
 	result, err := DB.Exec(`DELETE FROM crowdsec_alerts`)
 	if err != nil {
@@ -382,23 +448,155 @@ func ClearCrowdSecAlerts() (int64, error) {
 	return result.RowsAffected()
 }
 
+// CrowdSecHistoryState tracks which absolute start-time boundary has been
+// completely inspected in LAPI. It is separate from the observed oldest row:
+// a gap in alerts must not be mistaken for the end of history.
+type CrowdSecHistoryState struct {
+	CursorAt          string
+	LastLiveAt        string
+	Complete          bool
+	Truncated         bool
+	DecisionTruncated bool
+	BackfillSeconds   int64
+	LiveSeconds       int64
+}
+
+func GetCrowdSecHistoryState() (CrowdSecHistoryState, error) {
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return CrowdSecHistoryState{}, err
+	}
+	return GetCrowdSecHistoryStateForSource(sourceID)
+}
+
+func GetCrowdSecHistoryStateForSource(sourceID string) (CrowdSecHistoryState, error) {
+	var state CrowdSecHistoryState
+	var complete, truncated, decisionTruncated int
+	err := DB.QueryRow(`SELECT cursor_at, last_live_at, complete, truncated, decision_truncated, backfill_seconds, live_seconds
+		FROM crowdsec_history_state WHERE source_id = ?`, sourceID).Scan(
+		&state.CursorAt, &state.LastLiveAt, &complete, &truncated, &decisionTruncated, &state.BackfillSeconds, &state.LiveSeconds)
+	if err == sql.ErrNoRows {
+		return state, nil
+	}
+	state.Complete = complete != 0
+	state.Truncated = truncated != 0
+	state.DecisionTruncated = decisionTruncated != 0
+	return state, err
+}
+
+func SaveCrowdSecHistoryState(state CrowdSecHistoryState) error {
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return err
+	}
+	return SaveCrowdSecHistoryStateForSource(sourceID, state)
+}
+
+func SaveCrowdSecHistoryStateForSource(sourceID string, state CrowdSecHistoryState) error {
+	_, err := DB.Exec(`INSERT INTO crowdsec_history_state
+		(source_id, cursor_at, last_live_at, complete, truncated, decision_truncated, backfill_seconds, live_seconds)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_id) DO UPDATE SET cursor_at = excluded.cursor_at,
+		last_live_at = excluded.last_live_at, complete = excluded.complete,
+		truncated = MAX(crowdsec_history_state.truncated, excluded.truncated), decision_truncated = excluded.decision_truncated,
+		backfill_seconds = excluded.backfill_seconds, live_seconds = excluded.live_seconds`,
+		sourceID, state.CursorAt, state.LastLiveAt,
+		boolInt(state.Complete), boolInt(state.Truncated), boolInt(state.DecisionTruncated), state.BackfillSeconds, state.LiveSeconds)
+	return err
+}
+
+// CrowdSecHistoryCoverage describes the local archive, not LAPI's unknown
+// pre-retention lifetime. Complete means backfill inspected the retained
+// time window; Truncated separately records retention or saturated slices.
+type CrowdSecHistoryCoverage struct {
+	Oldest            string
+	Complete          bool
+	Truncated         bool
+	DecisionTruncated bool
+}
+
+func GetCrowdSecHistoryCoverage() (CrowdSecHistoryCoverage, error) {
+	state, err := GetCrowdSecHistoryState()
+	if err != nil {
+		return CrowdSecHistoryCoverage{}, err
+	}
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return CrowdSecHistoryCoverage{}, err
+	}
+	coverage := CrowdSecHistoryCoverage{Complete: state.Complete, Truncated: state.Truncated,
+		DecisionTruncated: state.DecisionTruncated}
+	err = DB.QueryRow(`SELECT created_at FROM crowdsec_alerts
+		WHERE source_id = ? ORDER BY julianday(created_at) ASC, alert_id ASC LIMIT 1`, sourceID).Scan(&coverage.Oldest)
+	if err == sql.ErrNoRows {
+		return coverage, nil
+	}
+	return coverage, err
+}
+
+// CrowdSecWindow is a single captured clock boundary shared by one query.
+// For all retained data, Start is the oldest row (or End when empty).
+type CrowdSecWindow struct {
+	Start time.Time
+	End   time.Time
+	Hours int // zero for all retained data
+}
+
+func NewCrowdSecWindow(now time.Time, hours int, all bool, oldest string) CrowdSecWindow {
+	now = now.UTC().Truncate(time.Second)
+	if all {
+		start := now
+		if parsed, err := time.Parse(time.RFC3339Nano, oldest); err == nil && parsed.Before(now) {
+			// julianday() has millisecond precision; one second keeps the
+			// earliest stored row inside the strict lower-bound predicate.
+			start = parsed.UTC().Add(-time.Second)
+		}
+		return CrowdSecWindow{Start: start, End: now}
+	}
+	if hours < 1 || hours > 8760 {
+		hours = 24
+	}
+	return CrowdSecWindow{Start: now.Add(-time.Duration(hours) * time.Hour), End: now, Hours: hours}
+}
+
 // GetCrowdSecAlerts returns the newest alerts from the live 24-hour window.
 func GetCrowdSecAlerts(limit int) ([]models.CrowdSecAlert, error) {
-	return getCrowdSecAlerts(limit, false)
+	return getCrowdSecAlerts(limit, false, NewCrowdSecWindow(time.Now(), 24, false, ""))
 }
 
 // GetCrowdSecCompactAlerts omits message/start_at at the database read so
 // dashboard polling does not repeatedly load unused, potentially large text.
 func GetCrowdSecCompactAlerts(limit int) ([]models.CrowdSecAlert, error) {
-	return getCrowdSecAlerts(limit, true)
+	return getCrowdSecAlerts(limit, true, NewCrowdSecWindow(time.Now(), 24, false, ""))
 }
 
-func getCrowdSecAlerts(limit int, compact bool) ([]models.CrowdSecAlert, error) {
+func GetCrowdSecAlertsWindow(limit int, compact bool, window CrowdSecWindow) ([]models.CrowdSecAlert, error) {
+	return getCrowdSecAlerts(limit, compact, window)
+}
+
+func CountCrowdSecAlertsWindow(window CrowdSecWindow) (int64, error) {
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = DB.QueryRow(`SELECT COUNT(*) FROM crowdsec_alerts
+		WHERE source_id = ? AND julianday(created_at) > julianday(?)
+		AND julianday(created_at) <= julianday(?)`,
+		sourceID, window.Start.Format(time.RFC3339Nano), window.End.Format(time.RFC3339Nano)).Scan(&count)
+	return count, err
+}
+
+func getCrowdSecAlerts(limit int, compact bool, window CrowdSecWindow) ([]models.CrowdSecAlert, error) {
 	if limit <= 0 || limit > CrowdSecMaxAlertRows {
 		limit = 50
 	}
-	now := time.Now().UTC()
-	cutoff := now.Add(-24 * time.Hour)
+	now := window.End
+	cutoff := window.Start
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return nil, err
+	}
 	columns := `alert_id, scenario, source_value, country,
 		as_number, as_name, latitude, longitude, events_count, created_at, has_decision, simulated`
 	if !compact {
@@ -406,10 +604,10 @@ func getCrowdSecAlerts(limit int, compact bool) ([]models.CrowdSecAlert, error) 
 			as_number, as_name, latitude, longitude, events_count, start_at, created_at, has_decision, simulated`
 	}
 	rows, err := DB.Query(`SELECT `+columns+`
-		FROM crowdsec_alerts WHERE julianday(created_at) > julianday(?)
+		FROM crowdsec_alerts WHERE source_id = ? AND julianday(created_at) > julianday(?)
 			AND julianday(created_at) <= julianday(?)
 		ORDER BY julianday(created_at) DESC, alert_id ASC LIMIT ?`,
-		cutoff.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), CrowdSecMaxAlertRows)
+		sourceID, cutoff.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -463,10 +661,7 @@ func nullableFloat(v *float64) any {
 	return *v
 }
 
-const (
-	crowdSecStatsWindowHours = 24
-	crowdSecStatsTopRows     = 10
-)
+const crowdSecStatsTopRows = 10
 
 type crowdSecLabelCount struct {
 	label string
@@ -474,23 +669,67 @@ type crowdSecLabelCount struct {
 }
 
 // GetCrowdSecStats aggregates the bounded local CrowdSec mirrors. The alert
-// metrics describe an exact rolling 24-hour window; active-decision metrics
-// describe the current capped snapshot rather than a historical total.
+// metrics default to a rolling 24-hour window; active-decision metrics
+// describe the current snapshot rather than a historical total.
 func GetCrowdSecStats() (*models.CrowdSecStats, error) {
 	return getCrowdSecStatsAt(time.Now().UTC())
+}
+
+func GetCrowdSecStatsWindow(window CrowdSecWindow) (*models.CrowdSecStats, error) {
+	return getCrowdSecStatsWindow(window)
 }
 
 // getCrowdSecStatsAt is the deterministic implementation behind
 // GetCrowdSecStats. Keeping the clock at the boundary makes rolling-window
 // behavior directly testable and ensures every aggregate uses the same now.
 func getCrowdSecStatsAt(now time.Time) (*models.CrowdSecStats, error) {
-	now = now.UTC().Truncate(time.Second)
-	windowStart := now.Add(-crowdSecStatsWindowHours * time.Hour)
+	return getCrowdSecStatsWindow(NewCrowdSecWindow(now, 24, false, ""))
+}
+
+func crowdSecBucketSize(span time.Duration) time.Duration {
+	switch {
+	case span <= 48*time.Hour:
+		return time.Hour
+	case span <= 60*24*time.Hour:
+		return 24 * time.Hour
+	case span <= 180*24*time.Hour:
+		return 7 * 24 * time.Hour
+	default:
+		return 30 * 24 * time.Hour
+	}
+}
+
+func getCrowdSecStatsWindow(window CrowdSecWindow) (*models.CrowdSecStats, error) {
+	now := window.End.UTC()
+	windowStart := window.Start.UTC()
+	bucketSize := crowdSecBucketSize(now.Sub(windowStart))
+	bucketCount := int(math.Ceil(float64(now.Sub(windowStart)) / float64(bucketSize)))
+	if bucketCount < 1 {
+		bucketCount = 1
+	}
+	coverage, err := GetCrowdSecHistoryCoverage()
+	if err != nil {
+		return nil, err
+	}
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return nil, err
+	}
+	bucketUnit := "hour"
+	if bucketSize >= 24*time.Hour {
+		bucketUnit = "day"
+	}
 	stats := &models.CrowdSecStats{
 		WindowStart:           windowStart.Format(time.RFC3339),
 		WindowEnd:             now.Format(time.RFC3339),
-		WindowHours:           crowdSecStatsWindowHours,
-		Hourly:                make([]models.CrowdSecHourlyCount, crowdSecStatsWindowHours),
+		WindowHours:           window.Hours,
+		BucketUnit:            bucketUnit,
+		BucketSeconds:         int64(bucketSize / time.Second),
+		HistoryOldest:         coverage.Oldest,
+		HistoryComplete:       coverage.Complete,
+		HistoryTruncated:      coverage.Truncated,
+		DecisionTruncated:     coverage.DecisionTruncated,
+		Hourly:                make([]models.CrowdSecHourlyCount, bucketCount),
 		Countries:             []models.CrowdSecCountryCount{},
 		Scenarios:             []models.CrowdSecScenarioCount{},
 		Networks:              []models.CrowdSecNetworkCount{},
@@ -499,7 +738,7 @@ func getCrowdSecStatsAt(now time.Time) (*models.CrowdSecStats, error) {
 		ActiveDecisionOrigins: []models.CrowdSecDecisionOriginCount{},
 	}
 	for i := range stats.Hourly {
-		stats.Hourly[i].Start = windowStart.Add(time.Duration(i) * time.Hour).Format(time.RFC3339)
+		stats.Hourly[i].Start = windowStart.Add(time.Duration(i) * bucketSize).Format(time.RFC3339)
 	}
 
 	tx, err := DB.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
@@ -516,7 +755,9 @@ func getCrowdSecStatsAt(now time.Time) (*models.CrowdSecStats, error) {
 
 	rows, err := tx.Query(`SELECT scenario, source_value, country, as_number, as_name,
 		latitude, longitude, events_count, created_at, has_decision, simulated
-		FROM crowdsec_alerts`)
+		FROM crowdsec_alerts WHERE source_id = ? AND julianday(created_at) > julianday(?)
+		AND julianday(created_at) <= julianday(?)`,
+		sourceID, windowStart.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}
@@ -581,10 +822,10 @@ func getCrowdSecStatsAt(now time.Time) (*models.CrowdSecStats, error) {
 		}
 		networks[asNumber+"\x00"+asName]++
 
-		bucket := int(created.Sub(windowStart) / time.Hour)
+		bucket := int(created.Sub(windowStart) / bucketSize)
 		// The end of the rolling window is inclusive so an alert timestamped
 		// exactly at now is represented by the final bucket.
-		if bucket == crowdSecStatsWindowHours && created.Equal(now) {
+		if bucket == bucketCount && created.Equal(now) {
 			bucket--
 		}
 		if bucket >= 0 && bucket < len(stats.Hourly) {
@@ -645,6 +886,7 @@ func getCrowdSecStatsAt(now time.Time) (*models.CrowdSecStats, error) {
 	}
 
 	stats.UniqueSources24h = int64(len(uniqueSources))
+	stats.TotalAlertsInWindow = stats.Alerts24h
 	if stats.Alerts24h > 0 {
 		stats.DecisionActionRatePercent = math.Round(
 			(float64(stats.AlertsWithDecision)/float64(stats.Alerts24h))*1000,

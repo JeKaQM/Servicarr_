@@ -119,6 +119,7 @@ func (p DecisionsParams) encode() string {
 type AlertsParams struct {
 	Limit       int
 	Since       time.Duration // encoded as a Go duration string, e.g. "2h"
+	Until       time.Duration // alerts older than this relative age (inclusive)
 	Scenario    string
 	IP          string
 	IncludeCAPI *bool // nil = server default; false excludes community-list alerts
@@ -131,6 +132,9 @@ func (p AlertsParams) encode() string {
 	}
 	if p.Since > 0 {
 		q.Set("since", p.Since.String())
+	}
+	if p.Until > 0 {
+		q.Set("until", p.Until.String())
 	}
 	if p.Scenario != "" {
 		q.Set("scenario", p.Scenario)

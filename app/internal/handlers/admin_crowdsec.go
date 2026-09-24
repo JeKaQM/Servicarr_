@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -230,12 +232,19 @@ func HandleGetCrowdSecDecisions() http.HandlerFunc {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
+		total, err := database.CountCrowdSecDecisions(activeOnly)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"decisions": decisions,
 			"count":     len(decisions),
+			"total":     total,
+			"truncated": len(decisions) < total,
 		})
 	}
 }
@@ -298,6 +307,32 @@ func compactCrowdSecAlerts(alerts []models.CrowdSecAlert) []crowdsecCompactAlert
 	return out
 }
 
+var errCrowdSecRange = errors.New("invalid CrowdSec time range")
+
+func crowdSecQueryWindow(r *http.Request) (database.CrowdSecWindow, database.CrowdSecHistoryCoverage, error) {
+	query := r.URL.Query()
+	all := query.Get("range") == "all"
+	if value := query.Get("range"); value != "" && !all {
+		return database.CrowdSecWindow{}, database.CrowdSecHistoryCoverage{}, fmt.Errorf("%w: use range=all", errCrowdSecRange)
+	}
+	if all && query.Get("hours") != "" {
+		return database.CrowdSecWindow{}, database.CrowdSecHistoryCoverage{}, fmt.Errorf("%w: use hours or range, not both", errCrowdSecRange)
+	}
+	hours := 24
+	if value := query.Get("hours"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 8760 {
+			return database.CrowdSecWindow{}, database.CrowdSecHistoryCoverage{}, fmt.Errorf("%w: hours must be between 1 and 8760", errCrowdSecRange)
+		}
+		hours = parsed
+	}
+	coverage, err := database.GetCrowdSecHistoryCoverage()
+	if err != nil {
+		return database.CrowdSecWindow{}, database.CrowdSecHistoryCoverage{}, err
+	}
+	return database.NewCrowdSecWindow(time.Now().UTC(), hours, all, coverage.Oldest), coverage, nil
+}
+
 // HandleGetCrowdSecAlerts returns the newest scenario-detection alerts for
 // the live activity feed. Reads only the local snapshot — includes scans
 // that produced no decision (that's the point).
@@ -314,13 +349,17 @@ func HandleGetCrowdSecAlerts() http.HandlerFunc {
 			}
 		}
 		compact := r.URL.Query().Get("compact") == "true"
-		var alerts []models.CrowdSecAlert
-		var err error
-		if compact {
-			alerts, err = database.GetCrowdSecCompactAlerts(limit)
-		} else {
-			alerts, err = database.GetCrowdSecAlerts(limit)
+		window, coverage, err := crowdSecQueryWindow(r)
+		if err != nil {
+			writeCrowdSecRangeError(w, err)
+			return
 		}
+		alerts, err := database.GetCrowdSecAlertsWindow(limit, compact, window)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		total, err := database.CountCrowdSecAlertsWindow(window)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -330,12 +369,21 @@ func HandleGetCrowdSecAlerts() http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		if compact {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"alerts": compactCrowdSecAlerts(alerts),
-				"count":  len(alerts),
+				"alerts":            compactCrowdSecAlerts(alerts),
+				"count":             len(alerts),
+				"total":             total,
+				"history_oldest":    coverage.Oldest,
+				"history_complete":  coverage.Complete,
+				"history_truncated": coverage.Truncated,
 			})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"alerts": alerts, "count": len(alerts)})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"alerts": alerts, "count": len(alerts), "total": total,
+			"history_oldest":    coverage.Oldest,
+			"history_complete":  coverage.Complete,
+			"history_truncated": coverage.Truncated,
+		})
 	}
 }
 
@@ -347,7 +395,12 @@ func HandleGetCrowdSecStats() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		stats, err := database.GetCrowdSecStats()
+		window, _, err := crowdSecQueryWindow(r)
+		if err != nil {
+			writeCrowdSecRangeError(w, err)
+			return
+		}
+		stats, err := database.GetCrowdSecStatsWindow(window)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -357,6 +410,14 @@ func HandleGetCrowdSecStats() http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(stats)
 	}
+}
+
+func writeCrowdSecRangeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errCrowdSecRange) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Error(w, "server error", http.StatusInternalServerError)
 }
 
 // HandleTestCrowdSecConnection tests form values without saving them.
