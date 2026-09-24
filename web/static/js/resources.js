@@ -820,6 +820,17 @@ async function j(u, opts) {
       signal: controller.signal
     }, opts || {});
 
+    // Auto-include the CSRF token on state-changing requests (the backend
+    // rejects POST/PUT/DELETE without a matching X-CSRF-Token header).
+    // Callers that pass their own token keep it.
+    if (fetchOpts.method && fetchOpts.method.toUpperCase() !== 'GET') {
+      const headers = Object.assign({}, fetchOpts.headers);
+      if (!headers['X-CSRF-Token']) {
+        headers['X-CSRF-Token'] = getCsrf();
+      }
+      fetchOpts.headers = headers;
+    }
+
     const r = await fetch(u, fetchOpts);
     clearTimeout(timeoutId);
 
