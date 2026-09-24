@@ -64,6 +64,14 @@ var checkTransport = func() *http.Transport {
 	return transport
 }()
 
+// NewSafeTransport returns a transport that resolves targets itself and
+// blocks cloud metadata IPs at dial time, closing the DNS-rebinding gap
+// between URL validation and the actual connection. Other integration
+// clients (e.g. the CrowdSec LAPI client) share this dial guard.
+func NewSafeTransport() *http.Transport {
+	return checkTransport.Clone()
+}
+
 func newCheckHTTPClient(timeout time.Duration, hasCredentials bool) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,

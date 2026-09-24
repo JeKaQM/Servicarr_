@@ -214,3 +214,155 @@ type ScheduleInfo struct {
 	NextRun     string `json:"next_run"`
 	Status      string `json:"status"` // running, idle, error
 }
+
+// CrowdSecConfig stores CrowdSec Local API (LAPI) connection configuration.
+// Secrets are encrypted at rest; handlers must never serialize this struct
+// directly into admin responses (use a response struct with *_configured
+// flags, mirroring the alert config pattern).
+type CrowdSecConfig struct {
+	Enabled         bool    `json:"enabled"`
+	LAPIURL         string  `json:"lapi_url"`
+	MachineID       string  `json:"machine_id"`
+	MachinePassword string  `json:"machine_password"` // write-only from the UI
+	BouncerAPIKey   string  `json:"bouncer_api_key"`  // write-only from the UI
+	PollIntervalS   int     `json:"poll_interval_seconds"`
+	TLSSkipVerify   bool    `json:"tls_skip_verify"`
+	MapHomeLat      float64 `json:"map_home_latitude"`  // 0 = unset; no destination arcs
+	MapHomeLng      float64 `json:"map_home_longitude"` // 0 = unset; no destination arcs
+}
+
+// CrowdSecDecision is a single active decision mirrored from LAPI into the
+// snapshot table. Expired rows are filtered at read time via expires_at.
+type CrowdSecDecision struct {
+	DecisionID string `json:"decision_id"`
+	Value      string `json:"value"` // IP or CIDR
+	Type       string `json:"type"`  // ban, captcha, ...
+	Scope      string `json:"scope"` // Ip, Range
+	Origin     string `json:"origin"`
+	Scenario   string `json:"scenario"`
+	Duration   string `json:"duration"` // remaining, e.g. "3h59m55s"
+	Simulated  bool   `json:"simulated"`
+	CreatedAt  string `json:"created_at"` // RFC3339; first observed locally
+	ExpiresAt  string `json:"expires_at"` // RFC3339
+	SyncedAt   string `json:"synced_at"`  // RFC3339, our ingest time
+}
+
+// CrowdSecSyncStatus is the poller-owned runtime state surfaced to the UI.
+type CrowdSecSyncStatus struct {
+	Enabled       bool   `json:"enabled"`              // integration is configured and polling is active
+	LastSync      string `json:"last_sync"`            // RFC3339; empty = never
+	LastError     string `json:"last_error,omitempty"` // sanitized error text
+	AuthFailed    bool   `json:"auth_failed"`          // credentials rejected
+	DecisionCount int    `json:"decision_count"`       // rows returned by the capped LAPI fetch
+	SnapshotCount int    `json:"snapshot_count"`       // rows actually stored (<= cap)
+}
+
+// CrowdSecAlert is a scenario detection event mirrored from LAPI into the
+// alerts snapshot. Alerts fire on detection — a decision (ban) may or may
+// not follow, which is exactly the "scan that didn't lead to a decision"
+// activity the dashboard surfaces. Latitude/Longitude are LAPI's geo
+// enrichment of the source; nil when unavailable (the map skips those).
+type CrowdSecAlert struct {
+	AlertID     string   `json:"alert_id"`
+	Scenario    string   `json:"scenario"`
+	Message     string   `json:"message"`
+	SourceValue string   `json:"source_value"` // attacking IP/range
+	Country     string   `json:"country"`      // ISO 3166-1 alpha-2, e.g. "US"
+	ASNumber    string   `json:"as_number"`
+	ASName      string   `json:"as_name"`
+	Latitude    *float64 `json:"latitude,omitempty"`
+	Longitude   *float64 `json:"longitude,omitempty"`
+	EventsCount int64    `json:"events_count"` // how many raw events tripped the scenario
+	StartAt     string   `json:"start_at"`     // RFC3339
+	CreatedAt   string   `json:"created_at"`   // RFC3339
+	HasDecision bool     `json:"has_decision"`
+	Simulated   bool     `json:"simulated"`
+}
+
+// CrowdSecStats aggregates the bounded local CrowdSec mirrors for the
+// dashboard overview. Alert metrics cover the rolling window identified by
+// WindowStart/WindowEnd; decision metrics cover the current active snapshot.
+type CrowdSecStats struct {
+	WindowStart               string                        `json:"window_start"`
+	WindowEnd                 string                        `json:"window_end"`
+	WindowHours               int                           `json:"window_hours"`
+	BucketUnit                string                        `json:"bucket_unit"`
+	BucketSeconds             int64                         `json:"bucket_seconds"`
+	HistoryOldest             string                        `json:"history_oldest"`
+	HistoryComplete           bool                          `json:"history_complete"`
+	HistoryTruncated          bool                          `json:"history_truncated"`
+	DecisionTruncated         bool                          `json:"decision_truncated"`
+	TotalAlertsInWindow       int64                         `json:"total_alerts_in_window"`
+	ActiveDecisions           int                           `json:"active_decisions"`
+	Alerts24h                 int64                         `json:"alerts_24h"` // selected window; legacy JSON field name
+	AlertsWithDecision        int64                         `json:"alerts_with_decision_24h"`
+	DecisionActionRatePercent float64                       `json:"decision_action_rate_percent"`
+	ReportedEvents24h         int64                         `json:"reported_events_24h"`
+	UniqueSources24h          int64                         `json:"unique_sources_24h"`
+	SimulatedAlerts24h        int64                         `json:"simulated_alerts_24h"`
+	GeolocatedAlerts24h       int64                         `json:"geolocated_alerts_24h"`
+	TopCountry                string                        `json:"top_country"`
+	TopCountryCount           int64                         `json:"top_country_count"`
+	TopScenario               string                        `json:"top_scenario"`
+	Hourly                    []CrowdSecHourlyCount         `json:"hourly"`
+	Countries                 []CrowdSecCountryCount        `json:"countries"`
+	CountriesOtherCount       int64                         `json:"countries_other_count"`
+	Scenarios                 []CrowdSecScenarioCount       `json:"scenarios"`
+	ScenariosOtherCount       int64                         `json:"scenarios_other_count"`
+	Networks                  []CrowdSecNetworkCount        `json:"networks"`
+	NetworksOtherCount        int64                         `json:"networks_other_count"`
+	Sources                   []CrowdSecSourceCount         `json:"sources"`
+	SourcesOtherCount         int64                         `json:"sources_other_count"`
+	ActiveDecisionTypes       []CrowdSecDecisionTypeCount   `json:"active_decision_types"`
+	ActiveDecisionOrigins     []CrowdSecDecisionOriginCount `json:"active_decision_origins"`
+}
+
+// CrowdSecHourlyCount is one of 24 equal one-hour buckets covering the exact
+// rolling statistics window. Start is an RFC3339 UTC timestamp.
+type CrowdSecHourlyCount struct {
+	Start          string `json:"start"`
+	Detections     int64  `json:"detections"`
+	WithDecision   int64  `json:"with_decision"`
+	ReportedEvents int64  `json:"reported_events"`
+}
+
+// CrowdSecCountryCount pairs an ISO country code with its alert volume.
+type CrowdSecCountryCount struct {
+	Country string `json:"country"`
+	Count   int64  `json:"count"`
+}
+
+// CrowdSecScenarioCount pairs a scenario name with its alert volume.
+type CrowdSecScenarioCount struct {
+	Scenario string `json:"scenario"`
+	Count    int64  `json:"count"`
+}
+
+// CrowdSecNetworkCount groups alerts by the CrowdSec-provided autonomous
+// system number and name. Both values are "unknown" when LAPI supplied
+// neither value.
+type CrowdSecNetworkCount struct {
+	ASNumber string `json:"as_number"`
+	ASName   string `json:"as_name"`
+	Count    int64  `json:"count"`
+}
+
+// CrowdSecSourceCount groups alerts by the CrowdSec-provided source value.
+type CrowdSecSourceCount struct {
+	Source string `json:"source"`
+	Count  int64  `json:"count"`
+}
+
+// CrowdSecDecisionTypeCount groups the currently mirrored active decisions
+// by decision type (ban, captcha, and any LAPI-defined extension).
+type CrowdSecDecisionTypeCount struct {
+	Type  string `json:"type"`
+	Count int64  `json:"count"`
+}
+
+// CrowdSecDecisionOriginCount groups the currently mirrored active decisions
+// by origin (for example crowdsec, cscli, capi, or lists).
+type CrowdSecDecisionOriginCount struct {
+	Origin string `json:"origin"`
+	Count  int64  `json:"count"`
+}

@@ -1,9 +1,12 @@
 package database
 
-import "strconv"
+import (
+	"fmt"
+	"strconv"
+)
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 4
+const SchemaVersion = 8
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -229,8 +232,95 @@ CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON system_logs(timestamp);
 CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level);
 CREATE INDEX IF NOT EXISTS idx_logs_category ON system_logs(category);
 CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
+
+CREATE TABLE IF NOT EXISTS crowdsec_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  lapi_url TEXT NOT NULL DEFAULT '',
+  lapi_machine_id TEXT NOT NULL DEFAULT '',
+  lapi_machine_password TEXT NOT NULL DEFAULT '',
+  bouncer_api_key TEXT NOT NULL DEFAULT '',
+  poll_interval INTEGER NOT NULL DEFAULT 30,
+  tls_skip_verify INTEGER NOT NULL DEFAULT 0,
+  map_home_lat REAL NOT NULL DEFAULT 0,
+  map_home_lng REAL NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS crowdsec_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_sync TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  auth_failed INTEGER NOT NULL DEFAULT 0,
+  decision_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS crowdsec_decisions (
+  decision_id TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'ban',
+  scope TEXT NOT NULL DEFAULT 'Ip',
+  origin TEXT NOT NULL DEFAULT '',
+  scenario TEXT NOT NULL DEFAULT '',
+  duration TEXT NOT NULL DEFAULT '',
+  simulated INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  synced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_expires ON crowdsec_decisions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_value ON crowdsec_decisions(value);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_decisions_created ON crowdsec_decisions(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS crowdsec_alerts (
+  source_id TEXT NOT NULL DEFAULT 'legacy',
+  alert_id TEXT NOT NULL,
+  scenario TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  source_value TEXT NOT NULL DEFAULT '',
+  country TEXT NOT NULL DEFAULT '',
+  as_number TEXT NOT NULL DEFAULT '',
+  as_name TEXT NOT NULL DEFAULT '',
+  latitude REAL,
+  longitude REAL,
+  events_count INTEGER NOT NULL DEFAULT 0,
+  start_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  has_decision INTEGER NOT NULL DEFAULT 0,
+  simulated INTEGER NOT NULL DEFAULT 0,
+  synced_at TEXT NOT NULL,
+  PRIMARY KEY (source_id, alert_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_created ON crowdsec_alerts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_country ON crowdsec_alerts(country);
+CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_scenario ON crowdsec_alerts(scenario);
+
+CREATE TABLE IF NOT EXISTS crowdsec_history_state (
+  source_id TEXT PRIMARY KEY,
+  cursor_at TEXT NOT NULL DEFAULT '',
+  last_live_at TEXT NOT NULL DEFAULT '',
+  complete INTEGER NOT NULL DEFAULT 0,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  decision_truncated INTEGER NOT NULL DEFAULT 0,
+  backfill_seconds INTEGER NOT NULL DEFAULT 0,
+  live_seconds INTEGER NOT NULL DEFAULT 0
+);
 `)
 	if err != nil {
+		return err
+	}
+
+	// CrowdSec map geo enrichment (v7) — idempotent for existing installs.
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN latitude REAL;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN longitude REAL;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lat REAL NOT NULL DEFAULT 0;`)
+	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lng REAL NOT NULL DEFAULT 0;`)
+	if err := migrateCrowdSecArchiveSources(); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(`CREATE INDEX IF NOT EXISTS idx_crowdsec_alerts_source_created
+		ON crowdsec_alerts(source_id, julianday(created_at) DESC)`); err != nil {
 		return err
 	}
 
@@ -309,4 +399,79 @@ CREATE INDEX IF NOT EXISTS idx_logs_service ON system_logs(service);
 	}
 
 	return EnsureDefaultMaintenanceSchedule()
+}
+
+// migrateCrowdSecArchiveSources rebuilds the v7 alert table so alert IDs from
+// different LAPI instances cannot collide. It preserves existing rows under
+// the connection configured at migration time, in one rollbackable transaction.
+func migrateCrowdSecArchiveSources() error {
+	rows, err := DB.Query(`PRAGMA table_info(crowdsec_alerts)`)
+	if err != nil {
+		return err
+	}
+	hasSource := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "source_id" {
+			hasSource = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if hasSource {
+		return nil
+	}
+	sourceID, err := CurrentCrowdSecSourceID()
+	if err != nil {
+		return err
+	}
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`CREATE TABLE crowdsec_alerts_v8 (
+			source_id TEXT NOT NULL, alert_id TEXT NOT NULL,
+			scenario TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '',
+			source_value TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '',
+			as_number TEXT NOT NULL DEFAULT '', as_name TEXT NOT NULL DEFAULT '',
+			latitude REAL, longitude REAL, events_count INTEGER NOT NULL DEFAULT 0,
+			start_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
+			has_decision INTEGER NOT NULL DEFAULT 0, simulated INTEGER NOT NULL DEFAULT 0,
+			synced_at TEXT NOT NULL, PRIMARY KEY (source_id, alert_id))`,
+		`INSERT INTO crowdsec_alerts_v8
+			(source_id, alert_id, scenario, message, source_value, country,
+			as_number, as_name, latitude, longitude, events_count, start_at,
+			created_at, has_decision, simulated, synced_at)
+			SELECT ?, alert_id, scenario, message, source_value, country,
+			as_number, as_name, latitude, longitude, events_count, start_at,
+			created_at, has_decision, simulated, synced_at FROM crowdsec_alerts`,
+		`DROP TABLE crowdsec_alerts`,
+		`ALTER TABLE crowdsec_alerts_v8 RENAME TO crowdsec_alerts`,
+		`CREATE INDEX idx_crowdsec_alerts_created ON crowdsec_alerts(created_at DESC)`,
+		`CREATE INDEX idx_crowdsec_alerts_country ON crowdsec_alerts(country)`,
+		`CREATE INDEX idx_crowdsec_alerts_scenario ON crowdsec_alerts(scenario)`,
+	}
+	for i, stmt := range statements {
+		var execErr error
+		if i == 1 {
+			_, execErr = tx.Exec(stmt, sourceID)
+		} else {
+			_, execErr = tx.Exec(stmt)
+		}
+		if execErr != nil {
+			return fmt.Errorf("migrate CrowdSec archive: %w", execErr)
+		}
+	}
+	return tx.Commit()
 }

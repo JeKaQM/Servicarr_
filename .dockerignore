@@ -21,9 +21,19 @@
 **/dist
 **/*.exe
 **/*.db
+**/*.db-*
 **/*.sqlite
 **/*.log
 **/.gocache
+
+# Local agent/worktree artifacts (never send these to the Docker daemon)
+.worktrees/
+.tmp/
+.agents/
+.codex/
+AI Instructions/
+mock-lapi/
+servicarr-backup-*.json
 
 # Documentation
 **/README.md
