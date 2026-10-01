@@ -119,6 +119,11 @@ func GetMaintenanceSchedules() ([]models.MaintenanceSchedule, error) {
 
 // SaveMaintenanceSchedule creates or updates a maintenance schedule.
 func SaveMaintenanceSchedule(schedule *models.MaintenanceSchedule) error {
+	return SaveMaintenanceScheduleWith(DB, schedule)
+}
+
+// SaveMaintenanceScheduleWith creates or updates a schedule using q, which may be a transaction.
+func SaveMaintenanceScheduleWith(q Querier, schedule *models.MaintenanceSchedule) error {
 	if schedule == nil || schedule.ID == "" {
 		return fmt.Errorf("maintenance schedule ID is required")
 	}
@@ -140,7 +145,7 @@ func SaveMaintenanceSchedule(schedule *models.MaintenanceSchedule) error {
 	if scheduleType == "" {
 		scheduleType = "weekly"
 	}
-	_, err := DB.Exec(`INSERT INTO maintenance_schedules
+	_, err := q.Exec(`INSERT INTO maintenance_schedules
 		(id, name, message, level, weekday, start_time, duration_minutes, timezone, suppress_monitoring, enabled, created_at, updated_at,
 		schedule_type, weekdays, starts_at, ends_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -165,7 +170,7 @@ func SaveMaintenanceSchedule(schedule *models.MaintenanceSchedule) error {
 		scheduleType, weekdays, schedule.StartsAt, schedule.EndsAt)
 	if err == nil {
 		// Preserve the original creation time when updating a schedule by ID.
-		err = DB.QueryRow(`SELECT created_at FROM maintenance_schedules WHERE id = ?`, schedule.ID).Scan(&schedule.CreatedAt)
+		err = q.QueryRow(`SELECT created_at FROM maintenance_schedules WHERE id = ?`, schedule.ID).Scan(&schedule.CreatedAt)
 		schedule.ScheduleType = scheduleType
 		schedule.UpdatedAt = now
 	}

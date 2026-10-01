@@ -24,6 +24,30 @@ func InsertSample(ts time.Time, key string, ok bool, status int, ms *int) {
 		ts.UTC().Format(time.RFC3339), key, okInt, status, msVal)
 }
 
+// PruneSamples deletes raw samples taken before cutoff. Deletion runs in
+// bounded batches so the single connection is never held for long and the
+// scheduler keeps writing between batches.
+func PruneSamples(cutoff time.Time) (int64, error) {
+	const batch = 5000
+	before := cutoff.UTC().Format(time.RFC3339)
+	var removed int64
+	for {
+		result, err := DB.Exec(`DELETE FROM samples WHERE id IN (
+			SELECT id FROM samples WHERE taken_at < ? LIMIT ?)`, before, batch)
+		if err != nil {
+			return removed, err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return removed, err
+		}
+		removed += n
+		if n < batch {
+			return removed, nil
+		}
+	}
+}
+
 // GetServiceDisabledState loads service disabled state from database
 func GetServiceDisabledState(key string) (bool, error) {
 	var disabled int
@@ -162,6 +186,11 @@ func decryptServiceToken(s *models.ServiceConfig) {
 
 // CreateService inserts a new service into the database
 func CreateService(s *models.ServiceConfig) (int64, error) {
+	return CreateServiceWith(DB, s)
+}
+
+// CreateServiceWith inserts a new service using q, which may be a transaction.
+func CreateServiceWith(q Querier, s *models.ServiceConfig) (int64, error) {
 	visible := 0
 	if s.Visible {
 		visible = 1
@@ -170,7 +199,7 @@ func CreateService(s *models.ServiceConfig) (int64, error) {
 	// Auto-assign display order only when not explicitly provided
 	if s.DisplayOrder < 0 {
 		var maxOrder int
-		_ = DB.QueryRow(`SELECT COALESCE(MAX(display_order), -1) FROM services`).Scan(&maxOrder)
+		_ = q.QueryRow(`SELECT COALESCE(MAX(display_order), -1) FROM services`).Scan(&maxOrder)
 		s.DisplayOrder = maxOrder + 1
 	}
 
@@ -181,7 +210,7 @@ func CreateService(s *models.ServiceConfig) (int64, error) {
 		encToken = s.APIToken // fallback to plaintext if encryption fails
 	}
 
-	result, err := DB.Exec(`
+	result, err := q.Exec(`
 		INSERT INTO services (key, name, url, service_type, icon, icon_url, api_token, display_order, visible,
 		                      check_type, check_interval, timeout, expected_min, expected_max, depends_on, connected_to, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,

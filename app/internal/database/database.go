@@ -10,6 +10,16 @@ import (
 // DB is the global database instance
 var DB *sql.DB
 
+// Querier is implemented by both *sql.DB and *sql.Tx. Helpers that accept it
+// can run inside a caller's transaction. Because the pool holds a single
+// connection, code inside a transaction must never fall back to DB directly:
+// that would wait forever for the connection the transaction is holding.
+type Querier interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // Init initializes the database connection and creates schema
 func Init(dbPath string) error {
 	var err error

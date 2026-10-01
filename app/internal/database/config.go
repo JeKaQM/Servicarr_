@@ -33,7 +33,12 @@ func LoadAlertConfig() (*models.AlertConfig, error) {
 
 // SaveAlertConfig saves email alert configuration to database
 func SaveAlertConfig(config *models.AlertConfig) error {
-	_, err := DB.Exec(`INSERT INTO alert_config (id, enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, status_page_url, smtp_skip_verify,
+	return SaveAlertConfigWith(DB, config)
+}
+
+// SaveAlertConfigWith saves alert configuration using q, which may be a transaction.
+func SaveAlertConfigWith(q Querier, config *models.AlertConfig) error {
+	_, err := q.Exec(`INSERT INTO alert_config (id, enabled, smtp_host, smtp_port, smtp_user, smtp_password, alert_email, from_email, status_page_url, smtp_skip_verify,
 		alert_on_down, alert_on_degraded, alert_on_up, alert_on_degraded_recovery,
 		discord_webhook_url, discord_enabled, discord_username, discord_silent,
 		telegram_bot_token, telegram_chat_id, telegram_enabled,
@@ -88,11 +93,16 @@ func LoadResourcesUIConfig() (*models.ResourcesUIConfig, error) {
 
 // SaveResourcesUIConfig saves resources UI configuration to database
 func SaveResourcesUIConfig(config *models.ResourcesUIConfig) error {
+	return SaveResourcesUIConfigWith(DB, config)
+}
+
+// SaveResourcesUIConfigWith saves resources configuration using q, which may be a transaction.
+func SaveResourcesUIConfigWith(q Querier, config *models.ResourcesUIConfig) error {
 	config.GlancesURL = strings.TrimSpace(config.GlancesURL)
 	config.NUTHost = strings.TrimSpace(config.NUTHost)
 	config.UPSName = strings.TrimSpace(config.UPSName)
 
-	_, err := DB.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, nut_host, ups_name, cpu, memory, network, temp, storage, swap, load, gpu, containers, processes, uptime, ups, updated_at)
+	_, err := q.Exec(`INSERT INTO resources_ui_config (id, enabled, glances_url, nut_host, ups_name, cpu, memory, network, temp, storage, swap, load, gpu, containers, processes, uptime, ups, updated_at)
 		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 			enabled=?, glances_url=?, nut_host=?, ups_name=?, cpu=?, memory=?, network=?, temp=?, storage=?, swap=?, load=?, gpu=?, containers=?, processes=?, uptime=?, ups=?, updated_at=datetime('now')`,
