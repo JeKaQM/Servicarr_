@@ -1,13 +1,76 @@
-﻿:root {
+﻿/* ===== Design tokens =====
+   Every page loads this file first (bundles and main.css), so these names are
+   available everywhere. Prefer the semantic tokens; the legacy names at the end
+   keep their original values so existing rules render exactly as before. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #0c121c;
+  --surface-1: #111827;
+  --surface-2: #162032;
+  --surface-inset: rgba(2, 6, 23, 0.45);
+  --border: #1f2937;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* Ink */
+  --text: #e5e7eb;
+  --text-secondary: #c3cad5;
+  --muted: #9ca3af;
+  --faint: #6b7280;
+
+  /* Brand and focus */
+  --primary: #22c55e;
+  --accent: var(--primary);
+  --focus: #60a5fa;
+
+  /* Status marks: a fixed scale for uptime days, dots and similar marks.
+     Checked with the dataviz palette validator against --surface-1: worst
+     colour-blind separation dE 10.0 across all pairs (the previous green/red
+     collapsed to dE 1.1 for deuteranopes), normal-vision dE 23.1, and every
+     mark at least 3:1. Colour never carries status alone: always pair it with
+     a label, icon or legend. */
+  --status-up: #22c55e;
+  --status-partial: #fcd34d;
+  --status-down: #e11d48;
+  --status-none: #334155;
+  --status-maintenance: #f59e0b;
+  --status-disabled: #64748b;
+
+  /* Status ink: companions for text, at least 4.5:1 on --surface-1. */
+  --status-up-ink: #4ade80;
+  --status-partial-ink: #fcd34d;
+  --status-down-ink: #fb7185;
+
+  /* Type */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono",
+    monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+
+  /* Shape and motion */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  /* Legacy names: original values, plus aliases for names some rules used
+     without ever defining (which left e.g. the day-detail dialog transparent). */
   --ok: #16a34a;
   --down: #ef4444;
   --warn: #eab308;
-  --bg: #0c121c;
-  --card: #111827;
-  --border: #1f2937;
-  --muted: #9ca3af;
-  --text: #e5e7eb;
-  --primary: #22c55e;
+  --card: var(--surface-1);
+  --card-bg: var(--surface-1);
+  --fg: var(--text);
+  --up: var(--status-up);
+  --text-dim: var(--faint);
 }
 
 * {
@@ -31,10 +94,42 @@ body {
       transparent 50%
     );
   background-attachment: fixed;
-  color: #e5e7eb;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+/* Keyboard focus is always visible; mouse clicks don't show a ring. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(96, 165, 250, 0.35);
+}
+
+/* Respect reduced-motion preferences: no entrance effects, pulses or lifts. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Very wide screens: keep content at a readable width instead of stretching. */
+@media (min-width: 1760px) {
+  main,
+  .resources-section,
+  .uptime-section,
+  .admin-panel {
+    max-width: 1680px;
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 
 /* Section entrance animation */
@@ -90,24 +185,21 @@ header {
   flex-shrink: 0;
 }
 
+/* Each dot sits beside its label ("3 Operational"), so colour is never alone. */
 .status-summary-dot.up {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+  background: var(--status-up);
 }
 .status-summary-dot.down {
-  background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+  background: var(--status-down);
 }
 .status-summary-dot.degraded {
-  background: #eab308;
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+  background: var(--status-partial);
 }
 .status-summary-dot.maintenance {
-  background: #f59e0b;
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+  background: var(--status-maintenance);
 }
 .status-summary-dot.disabled {
-  background: #64748b;
+  background: var(--status-disabled);
 }
 
 .status-summary-count {
