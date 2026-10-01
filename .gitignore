@@ -46,3 +46,7 @@ Thumbs.db
 
 # Backups
 servicarr-backup*.json
+
+# Local git worktrees and per-user Claude Code settings
+.worktrees/
+.claude/settings.local.json

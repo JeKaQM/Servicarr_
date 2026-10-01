@@ -1,0 +1,10 @@
+# Check out text files with LF everywhere so Windows working trees match CI:
+# gofmt reports CRLF files as unformatted, and shell scripts copied into the
+# Linux image break with CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.db binary
