@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS samples (
   latency_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_samples_taken ON samples(taken_at);
-CREATE INDEX IF NOT EXISTS idx_samples_service ON samples(service_key);
 
 CREATE TABLE IF NOT EXISTS ip_blocks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

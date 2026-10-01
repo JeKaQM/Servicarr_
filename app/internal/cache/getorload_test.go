@@ -79,3 +79,35 @@ func TestGetOrLoadRecoversPanics(t *testing.T) {
 		t.Fatalf("after panic got %v, %v", v, err)
 	}
 }
+
+func TestGetOrLoadDoesNotStoreResultsInvalidatedMidLoad(t *testing.T) {
+	c := New(time.Minute)
+	defer c.Stop()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		_, _ = c.GetOrLoad("k", time.Minute, func() (interface{}, error) {
+			close(started)
+			<-release
+			return "stale", nil
+		})
+	}()
+	<-started
+	c.Clear() // an admin edit lands while the old data is being computed
+
+	// New callers must not join the stale load...
+	v, err := c.GetOrLoad("k", time.Minute, func() (interface{}, error) { return "fresh", nil })
+	if err != nil || v != "fresh" {
+		t.Fatalf("after Clear got %v, %v; want a fresh load", v, err)
+	}
+	close(release)
+	<-finished
+
+	// ...and the stale load must not overwrite the fresh value when it finishes.
+	if v, ok := c.Get("k"); !ok || v != "fresh" {
+		t.Fatalf("cached value = %v (ok=%v), want fresh", v, ok)
+	}
+}

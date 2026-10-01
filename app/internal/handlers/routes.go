@@ -268,10 +268,10 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	// Setup routes (must be accessible before setup is complete)
 	mux.HandleFunc("/healthz", HandleHealth)
 	mux.HandleFunc("/setup", HandleSetupPage)
-	mux.Handle("/api/setup", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleCompleteSetup(authMgr))))
+	mux.Handle("/api/setup", RateLimitMiddleware(ratelimit.SetupLimiter, invalidatePublicCacheOnMutation(http.HandlerFunc(HandleCompleteSetup(authMgr)))))
 	mux.Handle("/api/setup/status", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleSetupStatus)))
-	mux.Handle("/api/setup/service", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleAddFirstService)))
-	mux.Handle("/api/setup/import", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleSetupImport(authMgr))))
+	mux.Handle("/api/setup/service", RateLimitMiddleware(ratelimit.SetupLimiter, invalidatePublicCacheOnMutation(http.HandlerFunc(HandleAddFirstService))))
+	mux.Handle("/api/setup/import", RateLimitMiddleware(ratelimit.SetupLimiter, invalidatePublicCacheOnMutation(http.HandlerFunc(HandleSetupImport(authMgr)))))
 
 	// Self-unblock endpoint (accessible even when blocked, but rate limited)
 	mux.Handle("/api/self-unblock", RateLimitMiddleware(ratelimit.SetupLimiter, http.HandlerFunc(HandleSelfUnblock())))

@@ -22,6 +22,10 @@ type Cache struct {
 
 	flightMu sync.Mutex
 	inflight map[string]*loadCall
+	// generation changes whenever entries are invalidated. A load that started
+	// before an invalidation must not store its now-stale result. Guarded by
+	// flightMu.
+	generation uint64
 }
 
 // loadCall is one in-progress GetOrLoad computation shared by concurrent callers.
@@ -129,6 +133,7 @@ func (c *Cache) GetOrLoad(key string, ttl time.Duration, load func() (interface{
 		c.inflight = make(map[string]*loadCall)
 	}
 	c.inflight[key] = call
+	generation := c.generation
 	c.flightMu.Unlock()
 
 	func() {
@@ -139,19 +144,30 @@ func (c *Cache) GetOrLoad(key string, ttl time.Duration, load func() (interface{
 		}()
 		call.value, call.err = load()
 	}()
-	if call.err == nil {
+	c.flightMu.Lock()
+	if call.err == nil && c.generation == generation {
 		c.SetWithTTL(key, call.value, ttl)
 	}
-
-	c.flightMu.Lock()
-	delete(c.inflight, key)
+	if c.inflight[key] == call {
+		delete(c.inflight, key)
+	}
 	c.flightMu.Unlock()
 	close(call.done)
 	return call.value, call.err
 }
 
+// invalidate stops loads already in flight from storing or sharing results
+// computed from data that is about to change.
+func (c *Cache) invalidate() {
+	c.flightMu.Lock()
+	c.generation++
+	c.inflight = nil
+	c.flightMu.Unlock()
+}
+
 // Delete removes a value from the cache
 func (c *Cache) Delete(key string) {
+	c.invalidate()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.items, key)
@@ -159,6 +175,7 @@ func (c *Cache) Delete(key string) {
 
 // DeletePrefix removes all values with keys starting with the given prefix
 func (c *Cache) DeletePrefix(prefix string) {
+	c.invalidate()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -171,6 +188,7 @@ func (c *Cache) DeletePrefix(prefix string) {
 
 // Clear removes all values from the cache
 func (c *Cache) Clear() {
+	c.invalidate()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items = make(map[string]Entry)

@@ -374,6 +374,10 @@ func HandleCreateService(w http.ResponseWriter, r *http.Request) {
 	s.Visible = true
 	// Auto-append to the end of the list
 	s.DisplayOrder = -1
+	if !serviceKeyPattern.MatchString(s.Key) {
+		http.Error(w, "Service key must start with a letter or digit and use only lowercase letters, digits, hyphens or underscores (max 64)", http.StatusBadRequest)
+		return
+	}
 	if err := validateServiceConfig(&s); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -543,6 +547,10 @@ func generateServiceKey(name string) string {
 	key = reg.ReplaceAllString(key, "-")
 	// Trim hyphens from ends
 	key = strings.Trim(key, "-")
+	// Keep keys within serviceKeyPattern's length for long names.
+	if len(key) > 64 {
+		key = strings.TrimRight(key[:64], "-")
+	}
 	return key
 }
 
@@ -552,7 +560,9 @@ var serviceKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // validateServiceConfig enforces the same bounds as the service form. Without
 // them a single service with a very long timeout could stall every scheduler
-// tick and public status refresh while its check waits.
+// tick and public status refresh while its check waits. Keys are checked only
+// on create: they are immutable afterwards, and services from the setup wizard
+// or older backups may use keys that predate serviceKeyPattern.
 func validateServiceConfig(s *models.ServiceConfig) error {
 	s.Name = strings.TrimSpace(s.Name)
 	s.URL = strings.TrimSpace(s.URL)
@@ -561,8 +571,6 @@ func validateServiceConfig(s *models.ServiceConfig) error {
 		return errors.New("Name and URL are required")
 	case len(s.Name) > 100:
 		return errors.New("Name must be at most 100 characters")
-	case !serviceKeyPattern.MatchString(s.Key):
-		return errors.New("Service key must start with a letter or digit and use only lowercase letters, digits, hyphens or underscores (max 64)")
 	case s.CheckInterval < 10 || s.CheckInterval > 3600:
 		return errors.New("Check interval must be between 10 and 3600 seconds")
 	case s.Timeout < 1 || s.Timeout > 60:

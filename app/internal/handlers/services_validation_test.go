@@ -32,8 +32,7 @@ func TestValidateServiceConfig(t *testing.T) {
 		{"unknown check type", func(s *models.ServiceConfig) { s.CheckType = "icmp" }, "Check type"},
 		{"http without scheme", func(s *models.ServiceConfig) { s.URL = "plex.local:32400" }, "http://"},
 		{"metadata target", func(s *models.ServiceConfig) { s.URL = "http://169.254.169.254/latest" }, "metadata"},
-		{"bad key", func(s *models.ServiceConfig) { s.Key = `x" onmouseover="alert(1)` }, "key"},
-		{"empty key", func(s *models.ServiceConfig) { s.Key = "" }, "key"},
+		{"legacy key still editable", func(s *models.ServiceConfig) { s.Key = "Legacy Key From Setup" }, ""},
 		{"blank name", func(s *models.ServiceConfig) { s.Name = "   " }, "required"},
 	}
 	for _, tt := range tests {
@@ -61,5 +60,23 @@ func TestCreateServiceRejectsUnboundedTimeout(t *testing.T) {
 	HandleCreateService(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/services", strings.NewReader(body)))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateServiceRejectsUnsafeKeyButDerivesLongNames(t *testing.T) {
+	initMaintenanceHandlerDB(t)
+	unsafe := `{"key":"x\" onmouseover=\"alert(1)","name":"Bad","url":"http://bad.local","check_type":"http"}`
+	recorder := httptest.NewRecorder()
+	HandleCreateService(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/services", strings.NewReader(unsafe)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unsafe key: status = %d, want 400", recorder.Code)
+	}
+
+	longName := strings.Repeat("Very Long Service Name ", 4) // over 64 characters once slugged
+	body := `{"name":"` + longName + `","url":"http://long.local","check_type":"http"}`
+	recorder = httptest.NewRecorder()
+	HandleCreateService(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/services", strings.NewReader(body)))
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("long name: status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
