@@ -32,7 +32,6 @@ async function loadLogs(append = false, auditRefresh = false) {
     if (!res || !res.logs) {
       if (!append) {
         renderLogs('#allLogsList', [], false);
-        renderLogs('#errorLogsList', [], true);
       }
       return;
     }
@@ -40,9 +39,6 @@ async function loadLogs(append = false, auditRefresh = false) {
     const logs = res.logs;
     if (!append) {
       renderLogs('#allLogsList', logs, false);
-      // Also show errors/warnings in highlights section
-      const errorWarnLogs = logs.filter(l => l.level === 'error' || l.level === 'warn');
-      renderLogs('#errorLogsList', errorWarnLogs.slice(0, 10), true);
     } else {
       appendLogs('#allLogsList', logs);
     }
@@ -54,6 +50,25 @@ async function loadLogs(append = false, auditRefresh = false) {
     }
   } catch (err) {
     console.error('[Logs] Failed to load logs:', err);
+    throw err;
+  }
+}
+
+// The highlights panel queries errors and warnings directly. Filtering the
+// first page of all activity missed any that routine check logs had pushed
+// beyond the newest page, so it could say "No errors" beside a non-zero count.
+async function loadErrorHighlights() {
+  try {
+    const [errors, warnings] = await Promise.all([
+      j('/api/admin/logs?limit=10&level=error'),
+      j('/api/admin/logs?limit=10&level=warn')
+    ]);
+    const recent = [...(errors?.logs || []), ...(warnings?.logs || [])]
+      .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)) || (b.id || 0) - (a.id || 0))
+      .slice(0, 10);
+    renderLogs('#errorLogsList', recent, true);
+  } catch (err) {
+    console.error('[Logs] Failed to load errors and warnings:', err);
     throw err;
   }
 }
@@ -253,8 +268,10 @@ async function refreshLogs(silent = false, auditRefresh = false) {
   try {
     logsOffset = 0;
     const [logsResult] = await Promise.allSettled([loadLogs(false, auditRefresh)]);
-    const [statsResult, auditResult] = await Promise.allSettled([loadLogStats(), loadAuditLogs()]);
-    const anyFailed = statsResult.status === 'rejected' || logsResult.status === 'rejected' || auditResult.status === 'rejected';
+    const [statsResult, auditResult, highlightsResult] = await Promise.allSettled([
+      loadLogStats(), loadAuditLogs(), loadErrorHighlights()
+    ]);
+    const anyFailed = [logsResult, statsResult, auditResult, highlightsResult].some(r => r.status === 'rejected');
     if (anyFailed) {
       showToast('Failed to refresh logs', 'error');
     } else if (!silent) {
