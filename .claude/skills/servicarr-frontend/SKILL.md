@@ -36,10 +36,29 @@ description: Conventions for Servicarr's no-build vanilla JS/CSS frontend - bund
 
 Load the `dataviz` skill before building or restyling any chart, sparkline, meter or stat tile, including CrowdSec charts, resource meters and uptime bars. Keep series colours consistent between charts and meet contrast in the dark theme.
 
+## Design tokens (`web/static/css/base.css`)
+
+Every page loads `base.css` first, through the bundles or `main.css`. Use tokens, not new hex values:
+
+| Group | Tokens |
+|---|---|
+| Surfaces | `--bg`, `--surface-1` (cards, dialogs), `--surface-2`, `--surface-inset`, `--border`, `--border-subtle` |
+| Ink | `--text`, `--text-secondary`, `--muted`, `--faint` |
+| Status marks | `--status-up`, `--status-partial`, `--status-down`, `--status-none`, `--status-maintenance`, `--status-disabled` |
+| Status text | `--status-up-ink`, `--status-partial-ink`, `--status-down-ink` (at least 4.5:1 on `--surface-1`) |
+| Type, shape, motion | `--font-sans`, `--font-mono`, `--text-xs/sm/base`, `--radius-sm/md/lg`, `--ease`, `--dur-fast`, `--dur`, `--focus` |
+
+- **Status colours are a validated, fixed scale.** The previous green/red pair was indistinguishable for deuteranopes (dE 1.1). The current marks keep dE 10.0 or more for every pair, which is why the red is the darker `#e11d48`. Don't swap a status value without re-running the dataviz skill's `validate_palette.js --mode dark --surface "#111827" --pairs all`.
+- Marks (bars, dots, swatches) use `--status-*`. Text uses `--status-*-ink`, or plain ink beside a coloured mark. Never render "unavailable" or "N/A" in a healthy colour.
+- Legacy names (`--ok`, `--down`, `--warn`, `--card`) keep their original values for older rules. Aliases cover names some rules used without defining (`--card-bg`, `--fg`, `--up`, `--text-dim`). An undefined custom property silently drops the declaration (the day-detail dialog was transparent because of one), so add a fallback or define the token.
+- Charts follow the dataviz rules: no dual axes (use stacked panels on a shared x-axis, as in `crowdsec-charts.js`), solid hairline grids, 2px lines, 2px surface gaps between stacked segments, no glows or outlines around marks, axis text in ink, a legend for 2 or more series, and a data-table view.
+- Repeated interactive marks (uptime days) use a roving tabindex: one tab stop per group, arrow keys inside it, Enter/Space to activate. Preserve focus across the 15s re-render (see `renderUptimeBars`).
+- Leak to know about: `day-detail.css` styles every bare `li` (flex layout, padding, dashed bottom border). Reset those properties on new lists, as `.uptime-legend li` does.
+
 ## Styling
 
-- Theme variables live in `:root` in `web/static/css/base.css`. Use them rather than new hard-coded colours.
 - `mobile.css` holds the responsive overrides and comes after component CSS in the bundle, so a component's mobile rules belong there.
+- `base.css` already handles `prefers-reduced-motion` and the very-wide max-width, so don't re-implement them per component.
 - Check both 1440px and 390px widths.
 
 ## Verify
