@@ -54,6 +54,15 @@ describe('renderCrowdsecTimeline', () => {
     expect(Math.min(...lineYs)).toBeGreaterThan(Math.max(...barBottoms));
   });
 
+  test('keeps a small decision segment visible next to a tall bar', () => {
+    const buckets = hourly(24).map((bucket) => ({ ...bucket, detections: 1, with_decision: 0, reported_events: 0 }));
+    buckets[0] = { ...buckets[0], detections: 200, with_decision: 0 };
+    buckets[1] = { ...buckets[1], detections: 3, with_decision: 2 };
+    renderCrowdsecTimeline({ hourly: buckets }, 24);
+    const actioned = document.querySelectorAll('.crowdsec-bar-actioned')[1];
+    expect(Number(actioned.getAttribute('height'))).toBeGreaterThan(0);
+  });
+
   test('uses compact chart geometry without shrinking phone labels from a desktop viewBox', () => {
     const container = document.getElementById('crowdsecTimeline');
     container.getBoundingClientRect = () => ({ width: 320, height: 0 });

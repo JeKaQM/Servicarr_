@@ -424,6 +424,7 @@ function renderUptimeBars(metrics, days) {
       // Click to open hourly detail
       block.addEventListener('click', (e) => {
         e.stopPropagation();
+        lastUptimeOpener = { key, day: point.day };
         openDayDetail(key, point.day);
       });
 
@@ -446,10 +447,38 @@ function renderUptimeBars(metrics, days) {
       bar.appendChild(block);
     });
 
-    const focusTarget = (focusedDay && bar.querySelector(`.uptime-block[data-day="${focusedDay}"]`)) || bar.lastElementChild;
+    // Keep the tab stop on the day the user last visited, not on today.
+    const rememberedDay = focusedDay || bar.dataset.activeDay;
+    const focusTarget = (rememberedDay && bar.querySelector(`.uptime-block[data-day="${rememberedDay}"]`)) || bar.lastElementChild;
     if (focusTarget) {
       focusTarget.tabIndex = 0;
       if (focusedDay) focusTarget.focus({ preventScroll: true });
+    }
+  });
+  bindUptimeDialogFocusRestore();
+}
+
+// The day that opened the hourly detail, so focus can return to it on close.
+let lastUptimeOpener = null;
+
+// A refresh can rebuild the bars while the hourly dialog is open; the browser
+// then has no element to return focus to and drops it on <body>. Put it back on
+// the rebuilt block for the same day.
+function bindUptimeDialogFocusRestore() {
+  const dialog = document.getElementById('dayDetailDialog');
+  if (!dialog || dialog.dataset.uptimeFocusBound) return;
+  dialog.dataset.uptimeFocusBound = 'true';
+  dialog.addEventListener('close', () => {
+    const opener = lastUptimeOpener;
+    lastUptimeOpener = null;
+    if (!opener) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const bar = document.getElementById(`uptime-bar-${opener.key}`);
+    const block = bar && bar.querySelector(`.uptime-block[data-day="${opener.day}"]`);
+    if (block) {
+      bar.querySelectorAll('.uptime-block[tabindex="0"]').forEach((b) => { b.tabIndex = -1; });
+      block.tabIndex = 0;
+      block.focus();
     }
   });
 }
@@ -460,7 +489,14 @@ function renderUptimeBars(metrics, days) {
 function bindUptimeBarKeyboard(bar) {
   if (!bar || bar.dataset.keyboardBound) return;
   bar.dataset.keyboardBound = 'true';
+  bar.addEventListener('focusin', (e) => {
+    if (e.target.classList && e.target.classList.contains('uptime-block')) {
+      bar.dataset.activeDay = e.target.dataset.day;
+    }
+  });
   bar.addEventListener('keydown', (e) => {
+    // Leave browser and assistive-technology shortcuts (Alt+Left, Ctrl+Home...) alone.
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const blocks = Array.from(bar.querySelectorAll('.uptime-block'));
     const index = blocks.indexOf(document.activeElement);
     if (index === -1) return;
@@ -473,6 +509,7 @@ function bindUptimeBarKeyboard(bar) {
       case 'Enter':
       case ' ':
         e.preventDefault();
+        lastUptimeOpener = { key: blocks[index].dataset.serviceKey, day: blocks[index].dataset.day };
         openDayDetail(blocks[index].dataset.serviceKey, blocks[index].dataset.day);
         return;
       default:

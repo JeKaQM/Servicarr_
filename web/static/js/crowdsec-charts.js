@@ -141,15 +141,16 @@ function renderCrowdsecTimeline(stats) {
     const x = margin.left + index * slot + (slot - barWidth) / 2;
     const actionedHeight = (bucket.withDecision / detectionScale) * barsH;
     const observedHeight = ((bucket.detections - bucket.withDecision) / detectionScale) * barsH;
-    // A 2px surface gap separates stacked segments instead of an outline.
-    const segmentGap = observedHeight > 0 && actionedHeight > 0 ? 2 : 0;
+    // A 2px surface gap separates stacked segments instead of an outline, but
+    // only when the segment is tall enough to keep a visible mark afterwards.
+    const segmentGap = observedHeight > 0 && actionedHeight > 4 ? 2 : 0;
     const baseY = barsBase;
     const title = `${crowdsecBucketDescription(bucket, stats)}: ${crowdsecFormatNumber(bucket.detections)} detections, ${crowdsecFormatNumber(bucket.withDecision)} with a decision, ${crowdsecFormatNumber(bucket.events)} reported events`;
     const showLabel = index === 0 || index === buckets.length - 1 || index % Math.max(1, Math.ceil(buckets.length / 6)) === 0;
     return `<g class="crowdsec-chart-bucket">` +
       `<title>${crowdsecChartEscape(title)}</title>` +
       `<rect x="${x}" y="${baseY - observedHeight}" width="${barWidth}" height="${Math.max(0, observedHeight)}" rx="3" class="crowdsec-bar-observed" />` +
-      `<rect x="${x}" y="${baseY - observedHeight - actionedHeight}" width="${barWidth}" height="${Math.max(0, actionedHeight - segmentGap)}" rx="3" class="crowdsec-bar-actioned" />` +
+      `<rect x="${x}" y="${baseY - observedHeight - actionedHeight}" width="${barWidth}" height="${Math.max(bucket.withDecision > 0 ? 1 : 0, actionedHeight - segmentGap)}" rx="3" class="crowdsec-bar-actioned" />` +
       (showLabel ? `<text x="${x + barWidth / 2}" y="${height - 13}" text-anchor="middle" class="crowdsec-chart-axis">${crowdsecChartEscape(crowdsecBucketLabel(bucket.start, stats))}</text>` : '') +
       '</g>';
   }).join('');

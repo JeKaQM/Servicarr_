@@ -120,12 +120,14 @@ body {
   }
 }
 
-/* Very wide screens: keep content at a readable width instead of stretching. */
+/* Very wide screens: keep content at a readable width instead of stretching.
+   "body" raises specificity above the sections' own side margins, which are
+   declared later in this file and, for the admin panel, in a later bundle. */
 @media (min-width: 1760px) {
-  main,
-  .resources-section,
-  .uptime-section,
-  .admin-panel {
+  body main,
+  body .resources-section,
+  body .uptime-section,
+  body .admin-panel {
     max-width: 1680px;
     margin-left: auto;
     margin-right: auto;

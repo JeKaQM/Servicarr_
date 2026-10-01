@@ -228,6 +228,45 @@ describe('uptime bar keyboard access', () => {
     expect(global.openDayDetail).toHaveBeenCalledWith('plex', blocks[5].dataset.day);
   });
 
+  test('leaves modified key presses to the browser', () => {
+    const blocks = renderPlexBar();
+    blocks[6].focus();
+    blocks[6].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }));
+    blocks[6].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    expect(document.activeElement).toBe(blocks[6]);
+    expect(global.openDayDetail).not.toHaveBeenCalled();
+  });
+
+  test('keeps the tab stop on the last visited day after focus leaves', () => {
+    const blocks = renderPlexBar();
+    blocks[6].focus();
+    blocks[6].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    const day = blocks[0].dataset.day;
+    document.activeElement.blur();
+
+    renderUptimeBars({ series: { plex: [] } }, 7);
+
+    const tabStop = document.querySelector('#uptime-bar-plex .uptime-block[tabindex="0"]');
+    expect(tabStop.dataset.day).toBe(day);
+  });
+
+  test('returns focus to the day after its dialog closes across a refresh', () => {
+    const blocks = renderPlexBar();
+    document.body.insertAdjacentHTML('beforeend', '<dialog id="dayDetailDialog"></dialog>');
+    renderUptimeBars({ series: { plex: [] } }, 7); // binds the dialog listener
+    let current = document.querySelectorAll('#uptime-bar-plex .uptime-block');
+    current[2].focus();
+    current[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const day = current[2].dataset.day;
+
+    renderUptimeBars({ series: { plex: [] } }, 7); // refresh while the dialog is open
+    document.activeElement.blur();                  // the opener no longer exists
+    document.getElementById('dayDetailDialog').dispatchEvent(new Event('close'));
+
+    expect(document.activeElement.dataset.day).toBe(day);
+    expect(blocks).toBeTruthy();
+  });
+
   test('keeps keyboard focus on the same day across a refresh', () => {
     const blocks = renderPlexBar();
     blocks[3].tabIndex = 0;
