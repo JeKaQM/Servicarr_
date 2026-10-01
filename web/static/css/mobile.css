@@ -159,51 +159,30 @@
   .uptime-bar[data-days="7"] .uptime-block {
     min-width: 24px;
     border-radius: 5px;
-    border-width: 2px;
   }
 
   .uptime-bar[data-days="30"] .uptime-block {
     min-width: 6px;
-    border-width: 1.5px;
   }
 
   .uptime-bar[data-days="90"] .uptime-block {
     min-width: 2.5px;
-    border-width: 1px;
   }
 
   .uptime-bar[data-days="180"] .uptime-block {
     min-width: 1.5px;
-    border-width: 0.5px;
     gap: 1px;
   }
 
   .uptime-bar[data-days="360"] .uptime-block {
     min-width: 1px;
-    border-width: 0.5px;
     gap: 0.5px;
   }
 
-  /* Mobile hover effects - use active state */
+  /* Touch feedback without glow */
   .uptime-block:active {
-    transform: scale(1.1);
-    filter: brightness(1.3);
-    z-index: 10;
-  }
-
-  .uptime-block.up:active {
-    background: rgba(34, 197, 94, 0.7);
-    box-shadow: 0 2px 16px rgba(34, 197, 94, 0.8);
-  }
-
-  .uptime-block.degraded:active {
-    background: rgba(251, 191, 36, 0.75);
-    box-shadow: 0 2px 16px rgba(251, 191, 36, 0.8);
-  }
-
-  .uptime-block.down:active {
-    background: rgba(248, 113, 113, 0.75);
-    box-shadow: 0 2px 16px rgba(248, 113, 113, 0.8);
+    transform: scaleY(1.12);
+    filter: brightness(1.15);
   }
 
   /* Uptime footer */
@@ -459,29 +438,11 @@
   /* 180-day blocks - make them slightly more visible */
   .uptime-bar[data-days="180"] .uptime-block {
     min-width: 1.5px;
-    border-width: 0.5px;
   }
 
   /* 360-day blocks - absolute minimum but visible */
   .uptime-bar[data-days="360"] .uptime-block {
     min-width: 1px;
-    border-width: 0.5px;
-  }
-
-  /* Enhance glow for longer time periods on small screens */
-  .uptime-bar[data-days="180"] .uptime-block.up,
-  .uptime-bar[data-days="360"] .uptime-block.up {
-    box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
-  }
-
-  .uptime-bar[data-days="180"] .uptime-block.degraded,
-  .uptime-bar[data-days="360"] .uptime-block.degraded {
-    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
-  }
-
-  .uptime-bar[data-days="180"] .uptime-block.down,
-  .uptime-bar[data-days="360"] .uptime-block.down {
-    box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
   }
 
   /* Uptime percentage */

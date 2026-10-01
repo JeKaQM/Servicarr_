@@ -961,6 +961,14 @@
   text-shadow: 0 10px 30px rgba(239, 68, 68, 0.28);
 }
 
+/* Unreadable UPS data is not "healthy": show N/A in muted ink, not status green. */
+.ups-tile.ups-unknown .ups-output-value,
+.ups-tile.ups-unknown .ups-battery-row strong,
+.ups-tile.ups-unknown .ups-runtime-row strong {
+  color: var(--muted);
+  text-shadow: none;
+}
+
 .ups-tile.ups-warning .ups-meter .meter-fill {
   background: linear-gradient(90deg, #f59e0b, #fbbf24);
   box-shadow: 0 0 16px rgba(245, 158, 11, 0.32);
@@ -1076,92 +1084,3 @@
 
 /* Resource tiles respond automatically via auto-fit */
 
-.uptime-bar-container {
-  height: 48px;
-  background: linear-gradient(
-    to bottom,
-    rgba(15, 23, 42, 0.4),
-    rgba(0, 0, 0, 0.3)
-  );
-  border-radius: 10px;
-  overflow: visible;
-  border: 1px solid rgba(100, 116, 139, 0.15);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
-  padding: 4px;
-  position: relative;
-}
-
-.uptime-bar {
-  display: flex;
-  height: 100%;
-  gap: 3px;
-  border-radius: 7px;
-  overflow: visible;
-}
-
-.uptime-block {
-  flex: 1;
-  min-width: 4px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  position: relative;
-  border-radius: 3px;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
-}
-
-.uptime-block.up {
-  background: rgba(34, 197, 94, 0.45);
-  border: 1px solid rgba(34, 197, 94, 0.8);
-  box-shadow:
-    0 0 16px rgba(34, 197, 94, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.uptime-block.degraded {
-  background: rgba(251, 191, 36, 0.5);
-  border: 1px solid rgba(251, 191, 36, 0.85);
-  box-shadow:
-    0 0 16px rgba(251, 191, 36, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.uptime-block.down {
-  background: rgba(248, 113, 113, 0.5);
-  border: 1px solid rgba(248, 113, 113, 0.85);
-  box-shadow:
-    0 0 16px rgba(248, 113, 113, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.uptime-block.unknown {
-  background: rgba(100, 116, 139, 0.3);
-  border: 1px solid rgba(100, 116, 139, 0.4);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-.uptime-block:hover {
-  transform: translateY(-3px) scaleY(1.15);
-  filter: brightness(1.35) saturate(1.2);
-  z-index: 10;
-}
-
-.uptime-block.up:hover {
-  background: rgba(34, 197, 94, 0.65);
-  box-shadow:
-    0 4px 24px rgba(34, 197, 94, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-.uptime-block.degraded:hover {
-  background: rgba(251, 191, 36, 0.7);
-  box-shadow:
-    0 4px 24px rgba(251, 191, 36, 0.75),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-.uptime-block.down:hover {
-  background: rgba(248, 113, 113, 0.7);
-  box-shadow:
-    0 4px 24px rgba(248, 113, 113, 0.75),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}

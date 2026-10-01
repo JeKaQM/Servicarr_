@@ -121,7 +121,7 @@ function renderDynamicUptimeBars(services) {
         <span class="uptime-percent" id="uptime-${escapeHtml(svc.key)}">—%</span>
       </div>
       <div class="uptime-bar-container">
-        <div class="uptime-bar" id="uptime-bar-${escapeHtml(svc.key)}"></div>
+        <div class="uptime-bar" id="uptime-bar-${escapeHtml(svc.key)}" role="group" aria-label="${svcName} uptime by day. Use arrow keys to move between days and Enter to open hourly detail."></div>
       </div>
     `;
     container.appendChild(row);

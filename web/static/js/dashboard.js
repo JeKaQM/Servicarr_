@@ -300,9 +300,9 @@ function renderUptimeBars(metrics, days) {
   if (globalTimestamp) {
     if (earliestDate) {
       const startDate = earliestDate.toLocaleDateString();
-      globalTimestamp.textContent = `Tracking since ${startDate} • Hover over blocks for details`;
+      globalTimestamp.textContent = `Tracking since ${startDate} • Select a day for hourly detail`;
     } else {
-      globalTimestamp.textContent = `No data yet • Hover over blocks for details`;
+      globalTimestamp.textContent = `No data yet • Select a day for hourly detail`;
     }
   }
 
@@ -343,6 +343,11 @@ function renderUptimeBars(metrics, days) {
         uptimePercent.style.color = avgUptime >= 100 ? 'var(--ok)' : avgUptime >= 50 ? 'var(--warn)' : 'var(--down)';
       }
     }
+
+    // Rebuilding the blocks would drop keyboard focus every refresh; remember
+    // the focused day so it can be restored below.
+    const focusedDay = bar.contains(document.activeElement) ? document.activeElement.dataset.day : null;
+    bindUptimeBarKeyboard(bar);
 
     // Clear existing blocks
     bar.innerHTML = '';
@@ -411,7 +416,10 @@ function renderUptimeBars(metrics, days) {
       block.setAttribute('data-tooltip', tooltipText);
       block.setAttribute('data-day', point.day);
       block.setAttribute('data-service-key', key);
-      block.style.cursor = 'pointer';
+      // One tab stop per bar (roving tabindex); arrow keys move between days.
+      block.setAttribute('role', 'button');
+      block.setAttribute('aria-label', tooltipText.replace(/\n/g, ', '));
+      block.tabIndex = -1;
 
       // Click to open hourly detail
       block.addEventListener('click', (e) => {
@@ -437,6 +445,43 @@ function renderUptimeBars(metrics, days) {
 
       bar.appendChild(block);
     });
+
+    const focusTarget = (focusedDay && bar.querySelector(`.uptime-block[data-day="${focusedDay}"]`)) || bar.lastElementChild;
+    if (focusTarget) {
+      focusTarget.tabIndex = 0;
+      if (focusedDay) focusTarget.focus({ preventScroll: true });
+    }
+  });
+}
+
+// Keyboard support for a service's uptime bar: Left/Right/Home/End move
+// between days, Enter or Space opens the hourly detail. Bound once per bar
+// because the blocks themselves are rebuilt on every refresh.
+function bindUptimeBarKeyboard(bar) {
+  if (!bar || bar.dataset.keyboardBound) return;
+  bar.dataset.keyboardBound = 'true';
+  bar.addEventListener('keydown', (e) => {
+    const blocks = Array.from(bar.querySelectorAll('.uptime-block'));
+    const index = blocks.indexOf(document.activeElement);
+    if (index === -1) return;
+    let next = null;
+    switch (e.key) {
+      case 'ArrowLeft': next = blocks[Math.max(0, index - 1)]; break;
+      case 'ArrowRight': next = blocks[Math.min(blocks.length - 1, index + 1)]; break;
+      case 'Home': next = blocks[0]; break;
+      case 'End': next = blocks[blocks.length - 1]; break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        openDayDetail(blocks[index].dataset.serviceKey, blocks[index].dataset.day);
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    blocks[index].tabIndex = -1;
+    next.tabIndex = 0;
+    next.focus();
   });
 }
 

@@ -80,24 +80,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Color coding for stat values */
+/* Status colour only where the value is a judgement (uptime, latency); other
+   values stay in text ink. Each value sits under its label. */
 .stat-value.good {
-  color: #34d399;
+  color: var(--status-up-ink);
 }
 .stat-value.warning {
-  color: #fbbf24;
+  color: var(--status-partial-ink);
 }
 .stat-value.bad {
-  color: #f87171;
-}
-
-/* Default stat value colors per position */
-.stat-item:nth-child(2) .stat-value {
-  color: #60a5fa;
-}
-
-.stat-item:nth-child(3) .stat-value {
-  color: #a78bfa;
+  color: var(--status-down-ink);
 }
 
 .stat-sub {
@@ -105,4 +97,125 @@
   font-size: 11px;
   color: var(--muted);
   line-height: 1.2;
+}
+
+/* ===== Uptime history bars =====
+   One mark per day in the fixed status colours from base.css. Marks are
+   separated by surface gaps (no outlines or glows, so the colours render
+   exactly as validated), and the legend names every state. */
+.uptime-bar-container {
+  height: 44px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.uptime-bar {
+  display: flex;
+  height: 100%;
+  gap: 2px;
+}
+
+.uptime-block {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--status-none);
+  cursor: pointer;
+  position: relative;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    filter var(--dur-fast) var(--ease);
+}
+
+.uptime-block.up {
+  background: var(--status-up);
+}
+
+.uptime-block.degraded {
+  background: var(--status-partial);
+}
+
+.uptime-block.down {
+  background: var(--status-down);
+}
+
+.uptime-block.unknown {
+  background: var(--status-none);
+}
+
+.uptime-block:hover {
+  transform: scaleY(1.1);
+  filter: brightness(1.12);
+  z-index: 1;
+}
+
+.uptime-block:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+.uptime-bar[data-days="7"] .uptime-block {
+  min-width: 16px;
+  border-radius: 4px;
+}
+
+.uptime-bar[data-days="30"] .uptime-block {
+  min-width: 6px;
+}
+
+.uptime-bar[data-days="90"],
+.uptime-bar[data-days="180"],
+.uptime-bar[data-days="360"] {
+  gap: 1px;
+}
+
+.uptime-bar[data-days="180"] .uptime-block,
+.uptime-bar[data-days="360"] .uptime-block {
+  min-width: 1px;
+  border-radius: 1px;
+}
+
+.uptime-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* day-detail.css styles every bare li (flex, padding, dashed rule); reset it. */
+.uptime-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-bottom: 0;
+  font-size: inherit;
+}
+
+.uptime-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--status-none);
+}
+
+.uptime-legend-swatch.up {
+  background: var(--status-up);
+}
+
+.uptime-legend-swatch.degraded {
+  background: var(--status-partial);
+}
+
+.uptime-legend-swatch.down {
+  background: var(--status-down);
 }

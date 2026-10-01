@@ -191,3 +191,52 @@ describe('ongoing incidents', () => {
     expect(incident.textContent).toContain('Started');
   });
 });
+
+/* ── uptime bar keyboard access ─────────────────────────── */
+describe('uptime bar keyboard access', () => {
+  function renderPlexBar() {
+    document.body.innerHTML = '<span id="timestamp-global"></span><span id="uptime-plex"></span><div id="uptime-bar-plex" class="uptime-bar"></div>';
+    global.servicesData = [{ key: 'plex', name: 'Plex' }];
+    global.openDayDetail = jest.fn();
+    const today = new Date().toISOString().substr(0, 10);
+    renderUptimeBars({ series: { plex: [{ day: today, uptime: 100 }] } }, 7);
+    return document.querySelectorAll('#uptime-bar-plex .uptime-block');
+  }
+
+  afterEach(() => {
+    delete global.openDayDetail;
+  });
+
+  test('exposes one tab stop per bar with labelled day buttons', () => {
+    const blocks = renderPlexBar();
+    expect(blocks).toHaveLength(7);
+    expect([...blocks].filter((b) => b.tabIndex === 0)).toHaveLength(1);
+    expect(blocks[6].tabIndex).toBe(0);
+    expect(blocks[6].getAttribute('role')).toBe('button');
+    expect(blocks[6].getAttribute('aria-label')).toContain('100.0% uptime');
+  });
+
+  test('arrow keys move between days and Enter opens the hourly detail', () => {
+    const blocks = renderPlexBar();
+    blocks[6].focus();
+    blocks[6].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(document.activeElement).toBe(blocks[5]);
+    expect(blocks[5].tabIndex).toBe(0);
+    expect(blocks[6].tabIndex).toBe(-1);
+
+    blocks[5].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(global.openDayDetail).toHaveBeenCalledWith('plex', blocks[5].dataset.day);
+  });
+
+  test('keeps keyboard focus on the same day across a refresh', () => {
+    const blocks = renderPlexBar();
+    blocks[3].tabIndex = 0;
+    blocks[3].focus();
+    const day = blocks[3].dataset.day;
+
+    renderUptimeBars({ series: { plex: [] } }, 7);
+
+    expect(document.activeElement.dataset.day).toBe(day);
+    expect(document.activeElement.tabIndex).toBe(0);
+  });
+});
