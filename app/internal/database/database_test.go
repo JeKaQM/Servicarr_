@@ -956,7 +956,7 @@ func TestPruneLogs(t *testing.T) {
 		InsertLog(LogLevelInfo, LogCategoryCheck, "", "msg", "")
 	}
 
-	if err := PruneLogs(5); err != nil {
+	if err := PruneLogs(LogRetention{CheckEntries: 5, OtherEntries: 5, OtherDays: 90}); err != nil {
 		t.Fatalf("error: %v", err)
 	}
 
@@ -964,5 +964,28 @@ func TestPruneLogs(t *testing.T) {
 	DB.QueryRow(`SELECT COUNT(*) FROM system_logs`).Scan(&count)
 	if count != 5 {
 		t.Errorf("expected 5 logs after prune, got %d", count)
+	}
+}
+
+func TestPruneLogsKeepsAuditHistoryDespiteCheckVolume(t *testing.T) {
+	initTestDB(t)
+	InsertLog(LogLevelWarn, LogCategoryAudit, "", "Login failed", "")
+	DB.Exec(`INSERT INTO system_logs (timestamp, level, category, service, message, details) VALUES (datetime('now', '-120 days'), 'info', 'audit', '', 'ancient', '')`)
+	for i := 0; i < 50; i++ {
+		InsertLog(LogLevelInfo, LogCategoryCheck, "svc", "Service check passed", "")
+	}
+
+	if err := PruneLogs(LogRetention{CheckEntries: 10, OtherEntries: 100, OtherDays: 90}); err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	var checks, audits int
+	DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE category = 'check'`).Scan(&checks)
+	DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE category = 'audit'`).Scan(&audits)
+	if checks != 10 {
+		t.Errorf("check logs = %d, want 10", checks)
+	}
+	if audits != 1 {
+		t.Errorf("audit logs = %d, want the recent entry only", audits)
 	}
 }

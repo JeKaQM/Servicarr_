@@ -1,6 +1,10 @@
 package database
 
-import "status/app/internal/models"
+import (
+	"fmt"
+
+	"status/app/internal/models"
+)
 
 // ============================================
 // Logging Functions
@@ -68,24 +72,23 @@ func GetLogs(limit int, level, category, service string, offset int) ([]models.L
 		}
 		logs = append(logs, log)
 	}
-	return logs, nil
+	return logs, rows.Err()
 }
 
 // GetLogStats returns statistics about logs
 func GetLogStats() (*models.LogStats, error) {
 	var stats models.LogStats
 
-	err := DB.QueryRow(`SELECT COUNT(*) FROM system_logs`).Scan(&stats.TotalLogs)
+	// One pass over the table instead of a scan per counter.
+	err := DB.QueryRow(`SELECT COUNT(*),
+		COALESCE(SUM(level = 'error'), 0), COALESCE(SUM(level = 'warn'), 0),
+		COALESCE(SUM(level = 'info'), 0), COALESCE(SUM(level = 'debug'), 0),
+		COALESCE(SUM(category = 'audit'), 0)
+		FROM system_logs`).Scan(&stats.TotalLogs, &stats.ErrorCount, &stats.WarnCount,
+		&stats.InfoCount, &stats.DebugCount, &stats.AuditCount)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'error'`).Scan(&stats.ErrorCount)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'warn'`).Scan(&stats.WarnCount)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'info'`).Scan(&stats.InfoCount)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE level = 'debug'`).Scan(&stats.DebugCount)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM system_logs WHERE category = 'audit'`).Scan(&stats.AuditCount)
-
 	return &stats, nil
 }
 
@@ -99,10 +102,31 @@ func ClearLogs(days int) error {
 	return err
 }
 
-// PruneLogs removes old logs to keep the database size manageable (keeps last N logs)
-func PruneLogs(keepCount int) error {
-	_, err := DB.Exec(`DELETE FROM system_logs WHERE id NOT IN (
-		SELECT id FROM system_logs ORDER BY timestamp DESC, id DESC LIMIT ?
-	)`, keepCount)
+// LogRetention bounds the system log. Routine service-check entries are capped
+// separately so their volume cannot evict audit, security and system history.
+type LogRetention struct {
+	CheckEntries int // newest service-check entries kept
+	OtherEntries int // newest entries kept across all other categories
+	OtherDays    int // other entries older than this many days are removed
+}
+
+// DefaultLogRetention keeps the recent check log plus ninety days of audit and
+// security history; the entry cap guards against floods of failed logins.
+var DefaultLogRetention = LogRetention{CheckEntries: 10000, OtherEntries: 20000, OtherDays: 90}
+
+// PruneLogs applies a retention policy to the system log.
+func PruneLogs(policy LogRetention) error {
+	if _, err := DB.Exec(`DELETE FROM system_logs WHERE category = ? AND id NOT IN (
+		SELECT id FROM system_logs WHERE category = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+	)`, LogCategoryCheck, LogCategoryCheck, policy.CheckEntries); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(`DELETE FROM system_logs WHERE category != ? AND timestamp < datetime('now', ?)`,
+		LogCategoryCheck, fmt.Sprintf("-%d days", policy.OtherDays)); err != nil {
+		return err
+	}
+	_, err := DB.Exec(`DELETE FROM system_logs WHERE category != ? AND id NOT IN (
+		SELECT id FROM system_logs WHERE category != ? ORDER BY timestamp DESC, id DESC LIMIT ?
+	)`, LogCategoryCheck, LogCategoryCheck, policy.OtherEntries)
 	return err
 }

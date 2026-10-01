@@ -57,102 +57,100 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
+// Live checks for the public dashboard are shared between visitors for a few
+// seconds, so anonymous traffic cannot multiply outbound requests to services.
+const (
+	publicCheckCacheKey = "public:check"
+	publicCheckTTL      = 10 * time.Second
+	// maxConcurrentChecks bounds simultaneous outbound checks in one batch.
+	maxConcurrentChecks = 8
+)
+
 // HandleCheck returns current status of all services
 func HandleCheck(_ *monitor.FailureTracker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		now := time.Now().UTC()
-		out := models.LivePayload{T: now, Status: map[string]models.LiveResult{}}
-
-		// Load services dynamically from database to pick up new services
-		dbServices, err := database.GetVisibleServices()
+		payload, err := cache.PublicCache.GetOrLoad(publicCheckCacheKey, publicCheckTTL, func() (interface{}, error) {
+			return buildPublicLiveStatus(time.Now().UTC())
+		})
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(out)
-			return
+			payload = models.LivePayload{T: time.Now().UTC(), Status: map[string]models.LiveResult{}}
 		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
+	}
+}
 
-		filterPublicRelationships(dbServices)
-		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
+// buildPublicLiveStatus checks every visible service once, concurrently.
+// Public refreshes must not mutate the scheduler's notification debounce, so
+// the result only describes these observed checks.
+func buildPublicLiveStatus(now time.Time) (models.LivePayload, error) {
+	out := models.LivePayload{T: now, Status: map[string]models.LiveResult{}}
 
-		for _, sc := range dbServices {
-			// Check if monitoring is disabled
-			disabled, _ := database.GetServiceDisabledState(sc.Key)
-			if disabled {
-				out.Status[sc.Key] = models.LiveResult{
-					Label:       sc.Name,
-					OK:          false,
-					Status:      0,
-					MS:          nil,
-					Disabled:    true,
-					Degraded:    false,
-					CheckType:   sc.CheckType,
-					DependsOn:   sc.DependsOn,
-					ConnectedTo: sc.ConnectedTo,
-				}
-				continue
-			}
+	// Load services dynamically from database to pick up new services
+	dbServices, err := database.GetVisibleServices()
+	if err != nil {
+		return out, err
+	}
 
-			if maintenanceActive {
-				out.Status[sc.Key] = models.LiveResult{
-					Label:       sc.Name,
-					OK:          true,
-					Status:      0,
-					Maintenance: true,
-					CheckType:   sc.CheckType,
-					DependsOn:   sc.DependsOn,
-					ConnectedTo: sc.ConnectedTo,
-				}
-				continue
-			}
+	filterPublicRelationships(dbServices)
+	maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
 
-			timeout := time.Duration(sc.Timeout) * time.Second
-			if timeout == 0 {
-				timeout = 5 * time.Second
-			}
+	maintenanceResult := func(sc models.ServiceConfig) models.LiveResult {
+		return models.LiveResult{
+			Label:       sc.Name,
+			OK:          true,
+			Maintenance: true,
+			CheckType:   sc.CheckType,
+			DependsOn:   sc.DependsOn,
+			ConnectedTo: sc.ConnectedTo,
+		}
+	}
 
-			checkOK, code, ms, _ := checker.Check(checker.CheckOptions{
-				URL:         sc.URL,
-				Timeout:     timeout,
-				ExpectedMin: sc.ExpectedMin,
-				ExpectedMax: sc.ExpectedMax,
-				CheckType:   sc.CheckType,
-				ServiceType: sc.ServiceType,
-				APIToken:    sc.APIToken,
-			})
-			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
-			if maintenanceStarted {
-				maintenanceActive = true
-				out.Status[sc.Key] = models.LiveResult{
-					Label:       sc.Name,
-					OK:          true,
-					Maintenance: true,
-					CheckType:   sc.CheckType,
-					DependsOn:   sc.DependsOn,
-					ConnectedTo: sc.ConnectedTo,
-				}
-				continue
-			}
-
-			// Public refreshes must not mutate the scheduler's notification debounce.
-			// The live status always represents this observed check.
-			ok := checkOK
-			degraded := ok && ms != nil && *ms > 200
+	var toCheck []models.ServiceConfig
+	for _, sc := range dbServices {
+		disabled, _ := database.GetServiceDisabledState(sc.Key)
+		switch {
+		case disabled:
 			out.Status[sc.Key] = models.LiveResult{
 				Label:       sc.Name,
-				OK:          ok,
-				Status:      code,
-				MS:          ms,
-				Disabled:    false,
-				Degraded:    degraded,
+				Disabled:    true,
 				CheckType:   sc.CheckType,
 				DependsOn:   sc.DependsOn,
 				ConnectedTo: sc.ConnectedTo,
 			}
+		case maintenanceActive:
+			out.Status[sc.Key] = maintenanceResult(sc)
+		default:
+			toCheck = append(toCheck, sc)
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
 	}
+
+	opts := make([]checker.CheckOptions, len(toCheck))
+	for i, sc := range toCheck {
+		opts[i] = checker.OptionsFor(sc)
+	}
+	results := checker.CheckAll(opts, maxConcurrentChecks)
+
+	// A batch can straddle the start of a maintenance window. Report maintenance.
+	maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+	for i, sc := range toCheck {
+		if maintenanceStarted {
+			out.Status[sc.Key] = maintenanceResult(sc)
+			continue
+		}
+		res := results[i]
+		out.Status[sc.Key] = models.LiveResult{
+			Label:       sc.Name,
+			OK:          res.OK,
+			Status:      res.Code,
+			MS:          res.MS,
+			Degraded:    models.IsDegraded(res.OK, res.MS),
+			CheckType:   sc.CheckType,
+			DependsOn:   sc.DependsOn,
+			ConnectedTo: sc.ConnectedTo,
+		}
+	}
+	return out, nil
 }
 
 // HandleMetrics returns historical uptime metrics
@@ -188,24 +186,44 @@ func HandleMetrics() http.HandlerFunc {
 			hours = 24
 		}
 
-		var since string
-		var groupBy string
-		var timeField string
-
-		if days > 0 {
-			// Use daily aggregation
-			since = time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
-			groupBy = "substr(taken_at,1,10)"
-			timeField = "day"
-		} else {
-			// Use hourly aggregation
-			since = time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Format(time.RFC3339)
-			groupBy = "substr(taken_at,1,13) || ':00:00Z'"
-			timeField = "hour"
+		cacheKey := fmt.Sprintf("public:metrics:d=%d:h=%d", days, hours)
+		payload, err := cache.PublicCache.GetOrLoad(cacheKey, publicMetricsTTL, func() (interface{}, error) {
+			return buildMetricsResponse(days, hours)
+		})
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
 		}
 
-		// #nosec G201 -- groupBy is derived from fixed string constants, not user input
-		query := fmt.Sprintf(`
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
+	}
+}
+
+// publicMetricsTTL bounds how often the history aggregation runs for anonymous
+// visitors; every dashboard polls it, so results are shared between them.
+const publicMetricsTTL = 15 * time.Second
+
+// buildMetricsResponse aggregates uptime history for the requested window.
+func buildMetricsResponse(days, hours int) (map[string]any, error) {
+	var since string
+	var groupBy string
+	var timeField string
+
+	if days > 0 {
+		// Use daily aggregation
+		since = time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
+		groupBy = "substr(taken_at,1,10)"
+		timeField = "day"
+	} else {
+		// Use hourly aggregation
+		since = time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Format(time.RFC3339)
+		groupBy = "substr(taken_at,1,13) || ':00:00Z'"
+		timeField = "hour"
+	}
+
+	// #nosec G201 -- groupBy is derived from fixed string constants, not user input
+	query := fmt.Sprintf(`
 WITH aggregated AS (
   SELECT service_key,
          %s AS time_bin,
@@ -219,68 +237,64 @@ WITH aggregated AS (
 SELECT service_key, time_bin, up_count, total_count, avg_ms
 FROM aggregated ORDER BY time_bin ASC`, groupBy)
 
-		rows, err := database.DB.Query(query, since)
-		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
-		series := map[string][]map[string]any{}
-		for rows.Next() {
-			var key, tb string
-			var up, total int
-			var avgMs sql.NullFloat64
-			_ = rows.Scan(&key, &tb, &up, &total, &avgMs)
-			var u float64
-			if total > 0 {
-				// Use float with 1 decimal place precision to show accurate uptime
-				u = float64(up) / float64(total) * 100.0
-				u = float64(int(u*10+0.5)) / 10.0 // Round to 1 decimal place
-			}
-			point := map[string]any{timeField: tb, "uptime": u}
-			if avgMs.Valid {
-				point["avg_ms"] = avgMs.Float64
-			}
-			series[key] = append(series[key], point)
-		}
-
-		overall := map[string]float64{}
-		rows2, err := database.DB.Query(`SELECT service_key, SUM(ok), COUNT(*) FROM samples WHERE taken_at >= ? AND service_key IN (SELECT key FROM services WHERE visible = 1) GROUP BY service_key`, since)
-		if err == nil {
-			defer rows2.Close()
-			for rows2.Next() {
-				var key string
-				var up, total sql.NullInt64
-				_ = rows2.Scan(&key, &up, &total)
-				if total.Valid && total.Int64 > 0 {
-					pct := float64(up.Int64) * 100.0 / float64(total.Int64)
-					overall[key] = float64(int(pct*10+0.5)) / 10.0 // Round to 1 decimal place
-				}
-			}
-		}
-
-		downs, err := loadRecentIncidents(time.Now())
-		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-
-		response := map[string]any{
-			"series":  series,
-			"overall": overall,
-			"downs":   downs,
-		}
-
-		if days > 0 {
-			response["window_days"] = days
-		} else {
-			response["window_hours"] = hours
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+	rows, err := database.DB.Query(query, since)
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
+
+	series := map[string][]map[string]any{}
+	for rows.Next() {
+		var key, tb string
+		var up, total int
+		var avgMs sql.NullFloat64
+		_ = rows.Scan(&key, &tb, &up, &total, &avgMs)
+		var u float64
+		if total > 0 {
+			// Use float with 1 decimal place precision to show accurate uptime
+			u = float64(up) / float64(total) * 100.0
+			u = float64(int(u*10+0.5)) / 10.0 // Round to 1 decimal place
+		}
+		point := map[string]any{timeField: tb, "uptime": u}
+		if avgMs.Valid {
+			point["avg_ms"] = avgMs.Float64
+		}
+		series[key] = append(series[key], point)
+	}
+
+	overall := map[string]float64{}
+	rows2, err := database.DB.Query(`SELECT service_key, SUM(ok), COUNT(*) FROM samples WHERE taken_at >= ? AND service_key IN (SELECT key FROM services WHERE visible = 1) GROUP BY service_key`, since)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var key string
+			var up, total sql.NullInt64
+			_ = rows2.Scan(&key, &up, &total)
+			if total.Valid && total.Int64 > 0 {
+				pct := float64(up.Int64) * 100.0 / float64(total.Int64)
+				overall[key] = float64(int(pct*10+0.5)) / 10.0 // Round to 1 decimal place
+			}
+		}
+	}
+
+	downs, err := loadRecentIncidents(time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	response := map[string]any{
+		"series":  series,
+		"overall": overall,
+		"downs":   downs,
+	}
+
+	if days > 0 {
+		response["window_days"] = days
+	} else {
+		response["window_hours"] = hours
+	}
+
+	return response, nil
 }
 
 func loadRecentIncidents(now time.Time) ([]incidentItem, error) {

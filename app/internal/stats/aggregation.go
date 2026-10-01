@@ -66,7 +66,10 @@ CREATE TABLE IF NOT EXISTS heartbeats (
 	http_status INTEGER,
 	important INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_heartbeats_key ON heartbeats(service_key);
+-- (service_key, time) serves the per-check "latest heartbeat" lookup without
+-- sorting a service's whole history, and replaces the single-column key index.
+CREATE INDEX IF NOT EXISTS idx_heartbeats_key_time ON heartbeats(service_key, time);
+DROP INDEX IF EXISTS idx_heartbeats_key;
 CREATE INDEX IF NOT EXISTS idx_heartbeats_time ON heartbeats(time);
 CREATE INDEX IF NOT EXISTS idx_heartbeats_important ON heartbeats(important);
 `)
@@ -189,6 +192,20 @@ func AggregateDailyStats() {
 	_, _ = database.DB.Exec(`DELETE FROM stat_daily WHERE timestamp < ?`, yearAgo)
 }
 
+// SampleRetention bounds the raw samples table. It exceeds the longest history
+// window the dashboard can request (365 days) so every view stays complete.
+const SampleRetention = 400 * 24 * time.Hour
+
+// CleanupOldSamples removes raw check samples older than SampleRetention.
+// Without it the table grows by one row per check forever.
+func CleanupOldSamples() {
+	if removed, err := database.PruneSamples(time.Now().Add(-SampleRetention)); err != nil {
+		log.Printf("Error pruning samples: %v", err)
+	} else if removed > 0 {
+		log.Printf("Pruned %d samples older than %d days", removed, int(SampleRetention.Hours()/24))
+	}
+}
+
 // CleanupOldHeartbeats removes heartbeats older than 24 hours, keeping important ones for 7 days
 func CleanupOldHeartbeats() {
 	now := time.Now().UTC()
@@ -220,11 +237,12 @@ func StartStatsAggregator() {
 		}
 	}()
 
-	// Run heartbeat cleanup every hour
+	// Run heartbeat and sample cleanup every hour
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		for range ticker.C {
 			CleanupOldHeartbeats()
+			CleanupOldSamples()
 		}
 	}()
 

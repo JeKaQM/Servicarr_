@@ -246,7 +246,7 @@ func HandleTestNotification(alertMgr *alerts.Manager) http.HandlerFunc {
 		messages := map[string]string{
 			"test":     "This is a test notification from Servicarr. Your notification destination accepted delivery.",
 			"down":     "Example: the service is failing health checks. Investigate its availability.",
-			"degraded": "Example: the service is responding, but response time exceeds the 200 ms degradation threshold.",
+			"degraded": fmt.Sprintf("Example: the service is responding, but response time exceeds the %d ms degradation threshold.", models.DegradedLatencyMS),
 			"up":       "Example: the service has recovered and is responding normally to health checks.",
 		}
 		message, valid := messages[statusType]

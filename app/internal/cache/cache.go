@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -18,6 +19,16 @@ type Cache struct {
 	defaultTTL    time.Duration
 	cleanupTicker *time.Ticker
 	stopCleanup   chan struct{}
+
+	flightMu sync.Mutex
+	inflight map[string]*loadCall
+}
+
+// loadCall is one in-progress GetOrLoad computation shared by concurrent callers.
+type loadCall struct {
+	done  chan struct{}
+	value interface{}
+	err   error
 }
 
 // New creates a new cache with the given default TTL
@@ -93,6 +104,52 @@ func (c *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration) {
 	}
 }
 
+// GetOrLoad returns the cached value for key, or runs load once and shares its
+// result with every concurrent caller (single flight). Successful results are
+// cached for ttl; errors are returned but not cached. This bounds the work a
+// burst of identical requests can cause to one computation per ttl.
+func (c *Cache) GetOrLoad(key string, ttl time.Duration, load func() (interface{}, error)) (interface{}, error) {
+	if v, ok := c.Get(key); ok {
+		return v, nil
+	}
+
+	c.flightMu.Lock()
+	if call, ok := c.inflight[key]; ok {
+		c.flightMu.Unlock()
+		<-call.done
+		return call.value, call.err
+	}
+	// Another caller may have stored the value since the unlocked Get.
+	if v, ok := c.Get(key); ok {
+		c.flightMu.Unlock()
+		return v, nil
+	}
+	call := &loadCall{done: make(chan struct{})}
+	if c.inflight == nil {
+		c.inflight = make(map[string]*loadCall)
+	}
+	c.inflight[key] = call
+	c.flightMu.Unlock()
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				call.err = fmt.Errorf("cache load for %q panicked: %v", key, r)
+			}
+		}()
+		call.value, call.err = load()
+	}()
+	if call.err == nil {
+		c.SetWithTTL(key, call.value, ttl)
+	}
+
+	c.flightMu.Lock()
+	delete(c.inflight, key)
+	c.flightMu.Unlock()
+	close(call.done)
+	return call.value, call.err
+}
+
 // Delete removes a value from the cache
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
@@ -127,3 +184,8 @@ var StatsCache = New(30 * time.Second)
 
 // ServiceCache is a global cache for service configurations with 30-second TTL
 var ServiceCache = New(30 * time.Second)
+
+// PublicCache holds responses served to anonymous dashboard visitors. Entries
+// are short-lived and the cache is cleared after admin changes, so every
+// visitor shares one computation instead of each triggering its own.
+var PublicCache = New(15 * time.Second)

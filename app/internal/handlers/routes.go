@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"status/app/internal/alerts"
 	"status/app/internal/auth"
+	"status/app/internal/cache"
 	"status/app/internal/database"
 	"status/app/internal/monitor"
 	"status/app/internal/ratelimit"
@@ -21,6 +22,17 @@ func RateLimitMiddleware(limiter *ratelimit.Limiter, next http.Handler) http.Han
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// invalidatePublicCacheOnMutation clears responses shared with anonymous
+// visitors after any admin change, so edits appear on the dashboard at once.
+func invalidatePublicCacheOnMutation(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			cache.PublicCache.Clear()
+		}
 	})
 }
 
@@ -271,7 +283,7 @@ func SetupRoutes(authMgr *auth.Auth, alertMgr *alerts.Manager, tracker *monitor.
 	mux.Handle("/api/me", RateLimitMiddleware(ratelimit.APILimiter, http.HandlerFunc(HandleWhoAmI(authMgr))))
 
 	// Admin API: 60 requests/minute
-	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, AuditAdminActions(authMgr, authAPI)))
+	mux.Handle("/api/admin/", RateLimitMiddleware(ratelimit.APILimiter, AuditAdminActions(authMgr, invalidatePublicCacheOnMutation(authAPI))))
 
 	// Public API: 30 requests/minute for check endpoint (prevents abuse)
 	mux.Handle("/api/check", RateLimitMiddleware(ratelimit.CheckLimiter, http.HandlerFunc(HandleCheck(tracker))))

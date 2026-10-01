@@ -171,7 +171,7 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 		stats.RecordHeartbeat(sc.Key, checkOK, ms, code, errMsg)
 		database.InsertSample(now, sc.Key, checkOK, code, ms)
 
-		degraded := checkOK && ms != nil && *ms > 200
+		degraded := models.IsDegraded(checkOK, ms)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: checkOK, Status: code, MS: ms, Degraded: degraded, CheckType: sc.CheckType})
 	}

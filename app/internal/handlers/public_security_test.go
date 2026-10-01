@@ -17,6 +17,8 @@ func TestPublicEndpointsDoNotExposeHiddenServices(t *testing.T) {
 	initAPIOutageTest(t)
 	cache.StatsCache.Clear()
 	t.Cleanup(cache.StatsCache.Clear)
+	cache.PublicCache.Clear()
+	t.Cleanup(cache.PublicCache.Clear)
 	createAPIOutageService(t, "public-security-visible", "Visible", "http://private-visible.internal")
 	createAPIOutageService(t, "public-security-hidden", "Secret Service", "http://private-hidden.internal")
 	if _, err := database.DB.Exec(`UPDATE services SET visible=0 WHERE key='public-security-hidden'`); err != nil {

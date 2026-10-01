@@ -80,7 +80,7 @@ func main() {
 
 	// Start health check scheduler
 	if cfg.EnableScheduler {
-		go runScheduler(alertMgr, cfg.PollInterval, failureTracker)
+		go runScheduler(appCtx, alertMgr, cfg.PollInterval, failureTracker)
 		log.Printf("Scheduler started with %v interval", cfg.PollInterval)
 	}
 
@@ -106,14 +106,20 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-quit
 		log.Println("Shutting down server...")
 		cancelApp()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Finish inside Docker's default 10s stop grace period.
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
 			log.Printf("Server forced shutdown: %v", err)
+		}
+		if !alerts.WaitForDeliveries(time.Until(deadlineOf(ctx))) {
+			log.Println("Warning: shutting down with notifications still in flight")
 		}
 	}()
 
@@ -121,7 +127,21 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server failed: %v", err)
 	}
+	// ListenAndServe returns as soon as Shutdown begins; wait for in-flight
+	// requests to drain before closing the database underneath them.
+	<-shutdownDone
+	if err := database.DB.Close(); err != nil {
+		log.Printf("Warning: failed to close database: %v", err)
+	}
 	log.Println("Server stopped gracefully")
+}
+
+// deadlineOf returns ctx's deadline, or now when it has none.
+func deadlineOf(ctx context.Context) time.Time {
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline
+	}
+	return time.Now()
 }
 
 func recordSoftwareStartup(build buildinfo.Info) error {
@@ -361,166 +381,201 @@ func ensureDemoService() {
 	}
 }
 
+// schedulerCheckConcurrency bounds simultaneous outbound checks per tick.
+const schedulerCheckConcurrency = 8
+
 // runScheduler runs health checks using per-service intervals.
 // Each service runs on its own timer based on its configured check_interval.
 // A global coordination ticker reloads services and prunes stale data.
-func runScheduler(alertMgr *alerts.Manager, defaultInterval time.Duration, tracker *monitor.FailureTracker) {
-	type serviceTimer struct {
-		key      string
-		interval time.Duration
-		lastRun  time.Time
-	}
-
+func runScheduler(ctx context.Context, alertMgr *alerts.Manager, defaultInterval time.Duration, tracker *monitor.FailureTracker) {
 	// Coordination ticker runs every 5 seconds to check if any service is due
 	coordTicker := time.NewTicker(5 * time.Second)
 	defer coordTicker.Stop()
 
-	timers := make(map[string]*serviceTimer)
-	var lastPrune time.Time
+	s := &scheduler{
+		alertMgr:        alertMgr,
+		defaultInterval: defaultInterval,
+		tracker:         tracker,
+		timers:          make(map[string]*serviceTimer),
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-coordTicker.C:
+			s.safeTick()
+		}
+	}
+}
 
-	for range coordTicker.C {
-		// Reload services from DB to pick up changes (new services, interval changes)
-		dbServices, err := database.GetAllServices()
-		if err != nil {
-			log.Printf("Warning: Failed to reload services: %v", err)
+type serviceTimer struct {
+	interval time.Duration
+	lastRun  time.Time
+}
+
+type scheduler struct {
+	alertMgr        *alerts.Manager
+	defaultInterval time.Duration
+	tracker         *monitor.FailureTracker
+	timers          map[string]*serviceTimer
+	lastPrune       time.Time
+}
+
+// safeTick keeps the scheduler alive if a single tick panics; an unrecovered
+// panic in this goroutine would otherwise stop all monitoring.
+func (s *scheduler) safeTick() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Scheduler tick panicked: %v", r)
+		}
+	}()
+	s.tick()
+}
+
+func (s *scheduler) tick() {
+	// Reload services from DB to pick up changes (new services, interval changes)
+	dbServices, err := database.GetAllServices()
+	if err != nil {
+		log.Printf("Warning: Failed to reload services: %v", err)
+		return
+	}
+
+	// Build set of valid keys and update timers
+	validKeys := make(map[string]struct{}, len(dbServices))
+	for _, sc := range dbServices {
+		validKeys[sc.Key] = struct{}{}
+
+		interval := time.Duration(sc.CheckInterval) * time.Second
+		if interval < 10*time.Second {
+			interval = s.defaultInterval
+		}
+
+		if t, ok := s.timers[sc.Key]; ok {
+			// Update interval if it changed
+			t.interval = interval
+		} else {
+			// New service: a zero lastRun runs it on this tick
+			s.timers[sc.Key] = &serviceTimer{interval: interval}
+		}
+	}
+
+	// Remove timers for deleted services
+	for k := range s.timers {
+		if _, exists := validKeys[k]; !exists {
+			delete(s.timers, k)
+		}
+	}
+	s.tracker.Prune(validKeys)
+
+	now := time.Now()
+	maintenanceActive, _, maintenanceErr := maintenance.MonitoringSuppressed(now)
+	if maintenanceErr != nil {
+		log.Printf("Warning: Failed to evaluate maintenance schedules: %v", maintenanceErr)
+	}
+	if maintenanceActive {
+		s.tracker.ResetAll()
+		return
+	}
+
+	var due []models.ServiceConfig
+	for _, sc := range dbServices {
+		t := s.timers[sc.Key]
+		if t == nil {
 			continue
 		}
 
-		// Build set of valid keys and update timers
-		validKeys := make(map[string]struct{}, len(dbServices))
-		for _, sc := range dbServices {
-			validKeys[sc.Key] = struct{}{}
-
-			interval := time.Duration(sc.CheckInterval) * time.Second
-			if interval < 10*time.Second {
-				interval = defaultInterval
-			}
-
-			if t, ok := timers[sc.Key]; ok {
-				// Update interval if it changed
-				t.interval = interval
-			} else {
-				// New service — run immediately on first tick
-				timers[sc.Key] = &serviceTimer{
-					key:      sc.Key,
-					interval: interval,
-					lastRun:  time.Time{}, // zero = run immediately
-				}
-			}
-		}
-
-		// Remove timers for deleted services
-		for k := range timers {
-			if _, exists := validKeys[k]; !exists {
-				delete(timers, k)
-			}
-		}
-		tracker.Prune(validKeys)
-
-		now := time.Now()
-		maintenanceActive, _, maintenanceErr := maintenance.MonitoringSuppressed(now)
-		if maintenanceErr != nil {
-			log.Printf("Warning: Failed to evaluate maintenance schedules: %v", maintenanceErr)
-		}
-		if maintenanceActive {
-			tracker.ResetAll()
+		// Check if this service is due for a check
+		if !t.lastRun.IsZero() && now.Sub(t.lastRun) < t.interval {
 			continue
 		}
+		t.lastRun = now
 
-		for _, sc := range dbServices {
-			t := timers[sc.Key]
-			if t == nil {
-				continue
-			}
-
-			// Check if this service is due for a check
-			if !t.lastRun.IsZero() && now.Sub(t.lastRun) < t.interval {
-				continue
-			}
-			t.lastRun = now
-
-			// Check disabled state
-			disabled, _ := database.GetServiceDisabledState(sc.Key)
-			if disabled {
-				continue
-			}
-
-			timeout := time.Duration(sc.Timeout) * time.Second
-			if timeout == 0 {
-				timeout = 5 * time.Second
-			}
-
-			// Perform health check
-			checkOK, code, msPtr, errMsg := checker.Check(checker.CheckOptions{
-				URL:         sc.URL,
-				Timeout:     timeout,
-				ExpectedMin: sc.ExpectedMin,
-				ExpectedMax: sc.ExpectedMax,
-				CheckType:   sc.CheckType,
-				ServiceType: sc.ServiceType,
-				APIToken:    sc.APIToken,
-			})
-
-			// A check can straddle the start of a maintenance window. Discard it.
-			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
-			if maintenanceStarted {
-				tracker.ResetAll()
-				break
-			}
-
-			// Track consecutive failures
-			consecutiveFailures := tracker.Update(sc.Key, checkOK)
-
-			// History and the live dashboard reflect the observed check immediately.
-			// Consecutive failures are used only to debounce notifications below.
-			observedOK := checkOK
-			degraded := observedOK && msPtr != nil && *msPtr > 200
-
-			// Record stats
-			importantHeartbeat := stats.RecordHeartbeat(sc.Key, observedOK, msPtr, code, errMsg)
-			database.InsertSample(now, sc.Key, observedOK, code, msPtr)
-
-			// Log the check result
-			logLevel := database.LogLevelInfo
-			logMsg := "Service check passed"
-			logDetails := ""
-
-			if msPtr != nil {
-				logDetails = fmt.Sprintf("status=%d, latency=%dms, interval=%ds", code, *msPtr, sc.CheckInterval)
-			} else {
-				logDetails = fmt.Sprintf("status=%d, interval=%ds", code, sc.CheckInterval)
-			}
-
-			if !observedOK {
-				logLevel = database.LogLevelError
-				logMsg = "Service check failed"
-				if errMsg != "" {
-					logDetails += ", error=" + errMsg
-				}
-			} else if degraded {
-				logLevel = database.LogLevelWarn
-				logMsg = "Service degraded (slow response)"
-			}
-
-			if observedOK || importantHeartbeat {
-				_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
-			}
-
-			if errMsg != "" {
-				log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
-			}
-
-			// Notification and banner state only advance on a real success or confirmed failure.
-			if err := recordConfirmedServiceState(alertMgr, sc.Key, sc.Name, checkOK, consecutiveFailures, degraded, time.Now()); err != nil {
-				log.Printf("Warning: Failed to record outage state for %s: %v", sc.Key, err)
-			}
+		// Check disabled state
+		disabled, _ := database.GetServiceDisabledState(sc.Key)
+		if disabled {
+			continue
 		}
+		due = append(due, sc)
+	}
 
-		// Prune old logs every 5 minutes
-		if now.Sub(lastPrune) > 5*time.Minute {
-			_ = database.PruneLogs(10000)
-			lastPrune = now
+	// Network checks run concurrently so one slow target cannot delay the
+	// others by its whole timeout. Results are then processed in display order,
+	// keeping failure tracking, dependency-aware alert suppression and
+	// recording exactly as sequential as before.
+	opts := make([]checker.CheckOptions, len(due))
+	for i, sc := range due {
+		opts[i] = checker.OptionsFor(sc)
+	}
+	results := checker.CheckAll(opts, schedulerCheckConcurrency)
+
+	// A batch can straddle the start of a maintenance window. Discard it.
+	if maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now()); maintenanceStarted {
+		s.tracker.ResetAll()
+		results = nil
+	}
+
+	for i, res := range results {
+		s.record(due[i], res, now)
+	}
+
+	// Prune old logs every 5 minutes
+	if now.Sub(s.lastPrune) > 5*time.Minute {
+		if err := database.PruneLogs(database.DefaultLogRetention); err != nil {
+			log.Printf("Warning: Failed to prune logs: %v", err)
 		}
+		s.lastPrune = now
+	}
+}
+
+// record stores one check result and advances notification state.
+func (s *scheduler) record(sc models.ServiceConfig, res checker.Result, checkedAt time.Time) {
+	checkOK, code, msPtr, errMsg := res.OK, res.Code, res.MS, res.ErrMsg
+
+	// Track consecutive failures
+	consecutiveFailures := s.tracker.Update(sc.Key, checkOK)
+
+	// History and the live dashboard reflect the observed check immediately.
+	// Consecutive failures are used only to debounce notifications below.
+	observedOK := checkOK
+	degraded := models.IsDegraded(observedOK, msPtr)
+
+	// Record stats
+	importantHeartbeat := stats.RecordHeartbeat(sc.Key, observedOK, msPtr, code, errMsg)
+	database.InsertSample(checkedAt, sc.Key, observedOK, code, msPtr)
+
+	// Log the check result
+	logLevel := database.LogLevelInfo
+	logMsg := "Service check passed"
+	logDetails := ""
+
+	if msPtr != nil {
+		logDetails = fmt.Sprintf("status=%d, latency=%dms, interval=%ds", code, *msPtr, sc.CheckInterval)
+	} else {
+		logDetails = fmt.Sprintf("status=%d, interval=%ds", code, sc.CheckInterval)
+	}
+
+	if !observedOK {
+		logLevel = database.LogLevelError
+		logMsg = "Service check failed"
+		if errMsg != "" {
+			logDetails += ", error=" + errMsg
+		}
+	} else if degraded {
+		logLevel = database.LogLevelWarn
+		logMsg = "Service degraded (slow response)"
+	}
+
+	if observedOK || importantHeartbeat {
+		_ = database.InsertLog(logLevel, database.LogCategoryCheck, sc.Key, logMsg, logDetails)
+	}
+
+	if errMsg != "" {
+		log.Printf("Check %s: %s (failures: %d/2)", sc.Key, errMsg, consecutiveFailures)
+	}
+
+	// Notification and banner state only advance on a real success or confirmed failure.
+	if err := recordConfirmedServiceState(s.alertMgr, sc.Key, sc.Name, checkOK, consecutiveFailures, degraded, time.Now()); err != nil {
+		log.Printf("Warning: Failed to record outage state for %s: %v", sc.Key, err)
 	}
 }
 

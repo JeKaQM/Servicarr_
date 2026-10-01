@@ -10,12 +10,30 @@ import (
 	"status/app/internal/resources"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type dispatchQueue struct {
 	mu   sync.Mutex
 	tail chan struct{}
+}
+
+// inFlight counts notification sends that have not finished, across managers.
+var inFlight atomic.Int64
+
+// WaitForDeliveries waits up to timeout for queued notifications to finish and
+// reports whether they all did. Shutdown uses it so a final outage alert is
+// not dropped when the process exits.
+func WaitForDeliveries(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for inFlight.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
 }
 
 func (q *dispatchQueue) enqueue(send func()) {
@@ -25,7 +43,9 @@ func (q *dispatchQueue) enqueue(send func()) {
 	q.tail = done
 	q.mu.Unlock()
 
+	inFlight.Add(1)
 	go func() {
+		defer inFlight.Add(-1)
 		if previous != nil {
 			<-previous
 		}
@@ -193,7 +213,7 @@ func (m *Manager) CheckAndSendAlerts(serviceKey, serviceName string, ok, degrade
 			message = fmt.Sprintf("The service <strong>%s</strong> is failing health checks. Investigate its availability.", safeServiceName)
 		case current == "degraded" && config.AlertOnDegraded:
 			subject = fmt.Sprintf("⚠️ Service Degraded: %s", serviceName)
-			message = fmt.Sprintf("The service <strong>%s</strong> is responding, but response time exceeds the 200 ms degradation threshold.", safeServiceName)
+			message = fmt.Sprintf("The service <strong>%s</strong> is responding, but response time exceeds the %d ms degradation threshold.", safeServiceName, models.DegradedLatencyMS)
 			if previous == "down" {
 				message += " The service is reachable again, but has not fully recovered."
 			}

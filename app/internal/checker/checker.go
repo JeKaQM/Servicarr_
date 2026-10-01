@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"status/app/internal/models"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -256,4 +257,60 @@ func FindServiceByKey(services []*models.Service, key string) *models.Service {
 		}
 	}
 	return nil
+}
+
+// OptionsFor builds the check options for a configured service.
+func OptionsFor(sc models.ServiceConfig) CheckOptions {
+	timeout := time.Duration(sc.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	return CheckOptions{
+		URL:         sc.URL,
+		Timeout:     timeout,
+		ExpectedMin: sc.ExpectedMin,
+		ExpectedMax: sc.ExpectedMax,
+		CheckType:   sc.CheckType,
+		ServiceType: sc.ServiceType,
+		APIToken:    sc.APIToken,
+	}
+}
+
+// Result is the outcome of a single Check.
+type Result struct {
+	OK     bool
+	Code   int
+	MS     *int
+	ErrMsg string
+}
+
+// CheckAll runs checks concurrently, at most limit at a time, and returns the
+// results in input order. One slow or unreachable target therefore delays a
+// batch by its own timeout instead of adding it to every other check's wait.
+// A panicking check is reported as a failed result rather than crashing.
+func CheckAll(opts []CheckOptions, limit int) []Result {
+	results := make([]Result, len(opts))
+	if limit < 1 {
+		limit = 1
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i := range opts {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("check panicked: %v", r)
+					results[i] = Result{ErrMsg: "internal check error"}
+				}
+			}()
+			ok, code, ms, errMsg := Check(opts[i])
+			results[i] = Result{OK: ok, Code: code, MS: ms, ErrMsg: errMsg}
+		}(i)
+	}
+	wg.Wait()
+	return results
 }
