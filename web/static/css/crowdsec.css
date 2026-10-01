@@ -452,10 +452,10 @@
   overflow: visible;
 }
 
+/* Solid hairlines: dashing adds noise without information. */
 .crowdsec-chart-grid {
   stroke: var(--cs-grid);
   stroke-width: 1;
-  stroke-dasharray: 3 5;
 }
 
 .crowdsec-chart-axis {
@@ -463,8 +463,11 @@
   font-size: 9px;
 }
 
-.crowdsec-chart-axis-events {
-  fill: #67e8f9;
+/* Axis text stays in text ink; the line's colour identifies the series. */
+.crowdsec-chart-panel-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .crowdsec-bar-observed {
@@ -476,18 +479,15 @@
 }
 
 .crowdsec-chart-bucket:hover rect {
-  filter: brightness(1.25);
-  stroke: rgba(255, 255, 255, 0.45);
-  stroke-width: 1;
+  filter: brightness(1.2);
 }
 
 .crowdsec-events-line {
   fill: none;
   stroke: var(--cs-cyan);
-  stroke-width: 1.8;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.26));
 }
 
 .crowdsec-chart-empty {

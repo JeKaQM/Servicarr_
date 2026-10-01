@@ -72,8 +72,8 @@ function crowdsecTimelineDimensions(container) {
     width,
     height: compact ? 250 : 270,
     margin: compact
-      ? { top: 20, right: 45, bottom: 38, left: 32 }
-      : { top: 18, right: 48, bottom: 38, left: 40 }
+      ? { top: 20, right: 12, bottom: 38, left: 32 }
+      : { top: 18, right: 16, bottom: 38, left: 40 }
   };
 }
 
@@ -117,8 +117,18 @@ function renderCrowdsecTimeline(stats) {
   const slot = plotW / buckets.length;
   const barWidth = Math.min(26, slot * 0.58);
 
+  // Two measures with different scales get two panels on one shared time
+  // axis, never two y-scales on one plot: detections (stacked bars) above,
+  // reported events (line) below, each with its own labelled axis.
+  const panelGap = 24;
+  const barsH = Math.round((plotH - panelGap) * 0.62);
+  const eventsH = plotH - panelGap - barsH;
+  const barsBase = margin.top + barsH;
+  const eventsTop = barsBase + panelGap;
+  const eventsBase = eventsTop + eventsH;
+
   const grid = [0, 0.5, 1].map(ratio => {
-    const y = margin.top + plotH - ratio * plotH;
+    const y = barsBase - ratio * barsH;
     const value = Math.round(maxDetectionValue * ratio);
     const label = maxDetectionValue === 0 && ratio > 0
       ? ''
@@ -129,27 +139,32 @@ function renderCrowdsecTimeline(stats) {
 
   const bars = buckets.map((bucket, index) => {
     const x = margin.left + index * slot + (slot - barWidth) / 2;
-    const actionedHeight = (bucket.withDecision / detectionScale) * plotH;
-    const observedHeight = ((bucket.detections - bucket.withDecision) / detectionScale) * plotH;
-    const baseY = margin.top + plotH;
+    const actionedHeight = (bucket.withDecision / detectionScale) * barsH;
+    const observedHeight = ((bucket.detections - bucket.withDecision) / detectionScale) * barsH;
+    // A 2px surface gap separates stacked segments instead of an outline.
+    const segmentGap = observedHeight > 0 && actionedHeight > 0 ? 2 : 0;
+    const baseY = barsBase;
     const title = `${crowdsecBucketDescription(bucket, stats)}: ${crowdsecFormatNumber(bucket.detections)} detections, ${crowdsecFormatNumber(bucket.withDecision)} with a decision, ${crowdsecFormatNumber(bucket.events)} reported events`;
     const showLabel = index === 0 || index === buckets.length - 1 || index % Math.max(1, Math.ceil(buckets.length / 6)) === 0;
     return `<g class="crowdsec-chart-bucket">` +
       `<title>${crowdsecChartEscape(title)}</title>` +
       `<rect x="${x}" y="${baseY - observedHeight}" width="${barWidth}" height="${Math.max(0, observedHeight)}" rx="3" class="crowdsec-bar-observed" />` +
-      `<rect x="${x}" y="${baseY - observedHeight - actionedHeight}" width="${barWidth}" height="${Math.max(0, actionedHeight)}" rx="3" class="crowdsec-bar-actioned" />` +
+      `<rect x="${x}" y="${baseY - observedHeight - actionedHeight}" width="${barWidth}" height="${Math.max(0, actionedHeight - segmentGap)}" rx="3" class="crowdsec-bar-actioned" />` +
       (showLabel ? `<text x="${x + barWidth / 2}" y="${height - 13}" text-anchor="middle" class="crowdsec-chart-axis">${crowdsecChartEscape(crowdsecBucketLabel(bucket.start, stats))}</text>` : '') +
       '</g>';
   }).join('');
 
   const eventPoints = buckets.map((bucket, index) => {
     const x = margin.left + index * slot + slot / 2;
-    const y = margin.top + plotH - (bucket.events / eventScale) * plotH;
+    const y = eventsBase - (bucket.events / eventScale) * eventsH;
     return `${x},${y}`;
   }).join(' ');
-  const eventUnit = maxEventValue === 1 ? 'event' : 'events';
-  const eventAxis = `<text x="${width - 4}" y="${margin.top + 4}" text-anchor="end" class="crowdsec-chart-axis crowdsec-chart-axis-events">${crowdsecFormatNumber(maxEventValue)} ${eventUnit}</text>` +
-    (maxEventValue > 0 ? `<text x="${width - 4}" y="${margin.top + plotH + 4}" text-anchor="end" class="crowdsec-chart-axis crowdsec-chart-axis-events">0</text>` : '');
+  const eventPanel =
+    `<text x="${margin.left}" y="${eventsTop - 9}" class="crowdsec-chart-panel-label">Reported events</text>` +
+    `<line x1="${margin.left}" y1="${eventsTop}" x2="${width - margin.right}" y2="${eventsTop}" class="crowdsec-chart-grid" />` +
+    `<line x1="${margin.left}" y1="${eventsBase}" x2="${width - margin.right}" y2="${eventsBase}" class="crowdsec-chart-grid" />` +
+    (maxEventValue > 0 ? `<text x="${margin.left - 9}" y="${eventsTop + 4}" text-anchor="end" class="crowdsec-chart-axis crowdsec-chart-axis-events">${crowdsecFormatNumber(maxEventValue)}</text>` : '') +
+    `<text x="${margin.left - 9}" y="${eventsBase + 4}" text-anchor="end" class="crowdsec-chart-axis crowdsec-chart-axis-events">0</text>`;
   const totalDetections = buckets.reduce((sum, bucket) => sum + bucket.detections, 0);
   const totalEvents = buckets.reduce((sum, bucket) => sum + bucket.events, 0);
   const period = typeof crowdsecHistoryLabel === 'function' ? crowdsecHistoryLabel() : 'selected period';
@@ -165,7 +180,7 @@ function renderCrowdsecTimeline(stats) {
 
   container.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="crowdsecTimelineSvgTitle crowdsecTimelineSvgDesc" preserveAspectRatio="xMidYMid meet">` +
     `<title id="crowdsecTimelineSvgTitle">CrowdSec detection activity</title><desc id="crowdsecTimelineSvgDesc">${crowdsecChartEscape(description)}</desc>` +
-    grid + bars + `<polyline points="${eventPoints}" class="crowdsec-events-line" vector-effect="non-scaling-stroke" />${eventAxis}</svg>` +
+    grid + bars + eventPanel + `<polyline points="${eventPoints}" class="crowdsec-events-line" vector-effect="non-scaling-stroke" /></svg>` +
     `<details class="crowdsec-chart-data"><summary>View exact values</summary><div role="table" aria-label="CrowdSec activity by time bucket"><div class="crowdsec-chart-data-row crowdsec-chart-data-head" role="row"><span role="columnheader">Period</span><span role="columnheader">Detections</span><span role="columnheader">Decision attached</span><span role="columnheader">Events</span></div>${dataRows}</div></details>`;
   container.dataset.renderSignature = signature;
   const nextDetails = container.querySelector('.crowdsec-chart-data');
