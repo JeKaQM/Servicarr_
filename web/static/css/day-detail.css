@@ -83,7 +83,6 @@
   width: min(94vw, 720px);
   max-height: 85vh;
   overflow-y: auto;
-  background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
   color: var(--text);
