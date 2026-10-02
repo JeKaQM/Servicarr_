@@ -30,17 +30,17 @@
   border-color: #22c55e;
 }
 
-/* ── Matrix Network Graph ────────────────────────────────── */
+/* ── Topology map ────────────────────────────────────────── */
 .matrix-container {
   position: relative;
   width: 100%;
-  min-height: 300px;
+  min-height: 160px;
   background: #0f111a;
   background-image:
     radial-gradient(
-      circle at 50% 50%,
-      rgba(99, 102, 241, 0.05) 0%,
-      transparent 60%
+      circle at 50% 40%,
+      rgba(99, 102, 241, 0.06) 0%,
+      transparent 65%
     ),
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
@@ -52,47 +52,385 @@
   border-radius: 16px;
   margin-bottom: 12px;
   overflow: hidden;
-  transition: height 0.3s ease;
   grid-column: 1 / -1;
   animation: fadeSlideUp 0.4s ease-out both;
   box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.5);
 }
 
-.matrix-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+.topo {
+  position: relative;
+  display: grid;
 }
 
-.matrix-nodes {
+.topo-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.topo-stage {
+  position: relative;
+}
+
+.topo-edges {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
+  overflow: visible;
   pointer-events: none;
 }
 
-.matrix-node {
+/* Links: the line style says what kind of link it is (solid with an arrow for
+   a dependency, dashed for "connected to"); the colour says whether it works. */
+.topo-edge {
+  transition: opacity 0.2s ease;
+}
+
+.topo-edge-line {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.4);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  transition: stroke-width 0.2s ease;
+}
+
+.topo-edge--peer .topo-edge-line {
+  stroke-dasharray: 5 6;
+}
+
+.topo-edge.is-ok .topo-edge-line {
+  stroke: rgba(125, 211, 252, 0.55);
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.35));
+}
+
+.topo-edge.is-warn .topo-edge-line {
+  stroke: rgba(251, 191, 36, 0.7);
+  filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.3));
+}
+
+.topo-edge.is-down .topo-edge-line {
+  stroke: rgba(248, 113, 113, 0.8);
+  filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.35));
+}
+
+.topo-edge.is-off .topo-edge-line {
+  stroke: rgba(100, 116, 139, 0.35);
+}
+
+.topo-edge.is-loop .topo-edge-line {
+  stroke-dasharray: 2 5;
+}
+
+.topo-arrow path {
+  fill: rgba(148, 163, 184, 0.6);
+}
+.topo-arrow-ok path {
+  fill: rgba(125, 211, 252, 0.85);
+}
+.topo-arrow-warn path {
+  fill: rgba(251, 191, 36, 0.85);
+}
+.topo-arrow-down path {
+  fill: rgba(248, 113, 113, 0.9);
+}
+.topo-arrow-off path {
+  fill: rgba(100, 116, 139, 0.5);
+}
+
+.topo-edge-cross {
+  fill: none;
+  stroke: #f87171;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.topo-particle {
+  fill: #e0f2fe;
+  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.9));
+}
+
+/* Tracing: the hovered or focused service, everything it depends on, and
+   everything that needs it stay lit; the rest of the map steps back. */
+.topo.is-tracing .topo-edge:not(.is-active) {
+  opacity: 0.12;
+}
+
+.topo.is-tracing .topo-edge.is-active .topo-edge-line {
+  stroke-width: 2.5;
+}
+
+.topo.is-tracing .topo-node:not(.is-active) {
+  opacity: 0.3;
+}
+
+/* Services */
+.topo-node {
   position: absolute;
+  z-index: 2;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  transform: translateX(-50%);
-  pointer-events: auto;
+  gap: 5px;
+  width: 112px;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
-  transition: filter 0.2s;
-  z-index: 2;
+  transition: opacity 0.2s ease;
 }
 
-.matrix-node:hover {
+.topo-node .matrix-node-ring {
+  width: 48px;
+  height: 48px;
+}
+
+.topo-node:hover .matrix-node-ring,
+.topo-node.is-focus .matrix-node-ring {
   filter: brightness(1.3);
-  z-index: 10;
 }
 
+.topo-node:focus {
+  outline: none;
+}
+
+.topo-node:focus-visible .matrix-node-ring {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 4px;
+}
+
+.topo-node-name {
+  max-width: 112px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #f3f4f6;
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.topo-node-sub {
+  font-size: 10.5px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.topo-node[data-status="down"] .topo-node-sub {
+  color: #fca5a5;
+}
+.topo-node[data-status="degraded"] .topo-node-sub {
+  color: #fcd34d;
+}
+.topo-node[data-status="maintenance"] .topo-node-sub {
+  color: #fbbf24;
+}
+.topo-node[data-status="disabled"] .topo-node-sub,
+.topo-node[data-status="unknown"] .topo-node-sub {
+  color: #64748b;
+}
+
+.topo.is-narrow .topo-node {
+  width: 92px;
+}
+.topo.is-narrow .topo-node .matrix-node-ring {
+  width: 40px;
+  height: 40px;
+}
+.topo.is-narrow .topo-node-name {
+  max-width: 92px;
+  font-size: 11px;
+}
+
+/* Services without links, in a row under the map */
+.topo-standalone {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.topo-scroll + .topo-standalone {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.topo-standalone-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.topo-standalone-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 4px;
+}
+
+.topo-standalone-nodes .topo-node {
+  position: relative;
+  transform: none;
+}
+
+.topo-empty,
+.topo-empty-hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.topo-empty {
+  padding: 48px;
+  text-align: center;
+}
+
+/* Hover card */
+.topo-card {
+  position: absolute;
+  z-index: 20;
+  width: 230px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  color: #e5e7eb;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.topo-card[hidden] {
+  display: none;
+}
+
+.topo-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.topo-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+.topo-card-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+}
+.topo-card-status.is-up::before {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+.topo-card-status.is-down::before {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
+}
+.topo-card-status.is-degraded::before {
+  background: #fbbf24;
+}
+.topo-card-status.is-maintenance::before {
+  background: #f59e0b;
+}
+
+.topo-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+}
+
+.topo-card dt {
+  color: #94a3b8;
+}
+
+.topo-card dd {
+  margin: 0;
+  color: #e5e7eb;
+}
+
+.topo-card-hint {
+  color: #7dd3fc;
+  font-size: 11px;
+}
+
+/* Legend */
+.topo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 22px;
+  padding: 12px 20px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 11.5px;
+  color: #cbd5e1;
+}
+
+.topo-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topo-legend-swatch {
+  width: 34px;
+  height: 10px;
+  overflow: visible;
+}
+
+.topo-legend-dep,
+.topo-legend-peer,
+.topo-legend-down {
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+
+.topo-legend-dep {
+  stroke: rgba(125, 211, 252, 0.7);
+}
+
+.topo-legend-arrow {
+  fill: rgba(125, 211, 252, 0.85);
+}
+
+.topo-legend-peer {
+  stroke: rgba(125, 211, 252, 0.7);
+  stroke-dasharray: 5 6;
+}
+
+.topo-legend-down {
+  stroke: rgba(248, 113, 113, 0.8);
+}
+
+.topo-legend-x {
+  fill: none;
+  stroke: #f87171;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.topo-legend-hint {
+  margin-left: auto;
+  color: #94a3b8;
+}
+
+/* Status rings, shared by the map and the link editor */
 .matrix-node-ring {
   width: 44px;
   height: 44px;
@@ -240,83 +578,6 @@
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
 
-.matrix-node-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: #f3f4f6;
-  text-align: center;
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-  margin-top: 2px;
-}
-
-.matrix-node-ms {
-  font-size: 10px;
-  color: #9ca3af;
-  font-weight: 400;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-}
-
-/* Centre hub */
-.matrix-hub {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #0f111a;
-  border: 2px solid rgba(99, 102, 241, 0.6);
-  box-shadow:
-    0 0 24px rgba(99, 102, 241, 0.3),
-    inset 0 0 15px rgba(99, 102, 241, 0.2);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: matrix-hub-glow 4s ease-in-out infinite;
-  backdrop-filter: blur(4px);
-}
-
-.matrix-hub::before {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  animation: matrix-ring-pulse 4s ease-in-out infinite reverse;
-}
-
-.matrix-hub svg {
-  width: 24px;
-  height: 24px;
-  color: #818cf8;
-  filter: drop-shadow(0 0 6px rgba(129, 140, 248, 0.6));
-}
-
-/* Tooltip */
-.matrix-tooltip {
-  position: fixed;
-  background: rgba(0, 0, 0, 0.92);
-  color: #e5e7eb;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
-  z-index: 200;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(99, 102, 241, 0.25);
-}
-
-.matrix-tooltip.visible {
-  opacity: 1;
-}
-
 /* Animations */
 @keyframes matrix-ring-pulse {
   0%,
@@ -330,98 +591,20 @@
   }
 }
 
-@keyframes matrix-hub-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 20px rgba(99, 102, 241, 0.2),
-      inset 0 0 10px rgba(99, 102, 241, 0.1);
-  }
-  50% {
-    box-shadow:
-      0 0 30px rgba(99, 102, 241, 0.4),
-      inset 0 0 15px rgba(99, 102, 241, 0.2);
-  }
-}
-
-/* Matrix legend / key */
-.matrix-legend {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  padding: 10px 14px;
-  z-index: 5;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.matrix-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 11px;
-  color: #cbd5e1;
-  letter-spacing: 0.2px;
-}
-
-.matrix-legend-line {
-  display: inline-block;
-  width: 24px;
-  height: 0;
-  border-top: 2px solid;
-  flex-shrink: 0;
-}
-
-/* Status link: solid indigo */
-.matrix-legend-line.ml-status {
-  border-color: rgba(129, 140, 248, 0.7);
-}
-
-/* Depends on: dashed orange/amber */
-.matrix-legend-line.ml-depends {
-  border-style: dashed;
-  border-color: rgba(251, 146, 60, 0.8);
-}
-
-/* Connected to: solid emerald */
-.matrix-legend-line.ml-connected {
-  border-color: rgba(52, 211, 153, 0.8);
-}
-
-/* Responsive matrix */
 @media (max-width: 600px) {
-  .matrix-container {
-    min-height: 260px;
-  }
-  .matrix-node-ring {
-    width: 36px;
-    height: 36px;
-  }
-  .matrix-node-icon {
-    width: 18px;
-    height: 18px;
-  }
-  .matrix-node-label {
-    font-size: 9px;
-    max-width: 70px;
-  }
-  .matrix-node-ms {
-    font-size: 8px;
-  }
-  .matrix-hub {
-    width: 36px;
-    height: 36px;
+  .topo-legend-hint {
+    margin-left: 0;
   }
 }
 
-/* ============ Depends-on & Form Utilities ============ */
+@media (prefers-reduced-motion: reduce) {
+  .matrix-node-ring,
+  .matrix-node-ring::before {
+    animation: none;
+  }
+}
+
+/* ============ Service links editor & form utilities ============ */
 
 /* Badge - generic */
 .badge {
@@ -448,40 +631,199 @@
   }
 }
 
-/* Depends-on checkbox list */
-.depends-on-checklist {
+/* Links: what a service depends on and what it's connected to. Selectors go
+   through .link-picker-list so they outrank the admin form's generic
+   ".form-group label:has(input[type=checkbox])" rule. */
+.links-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.links-section legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.service-form .links-intro {
+  margin: 0;
+}
+
+.service-form .link-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.link-picker-head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 160px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.service-form .link-picker-head label {
+  margin: 0;
+}
+
+.link-picker-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.service-form .link-picker-search {
+  width: 100%;
+  padding: 8px 12px;
+}
+
+.link-picker-list {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  max-height: 216px;
   overflow-y: auto;
-  padding: 8px 10px;
+  padding: 4px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
-.depends-on-option {
-  display: flex;
+.service-form .link-picker-list .link-option {
+  display: grid;
+  grid-template-columns: 16px 24px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
+  column-gap: 10px;
+  row-gap: 1px;
+  margin: 0;
+  padding: 6px 8px;
   border-radius: 6px;
-  font-size: 13px;
-  color: var(--text);
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text);
   transition: background 0.15s;
 }
 
-.depends-on-option:hover {
+.service-form .link-picker-list .link-option[hidden] {
+  display: none;
+}
+
+.service-form .link-picker-list .link-option:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.depends-on-cb {
-  accent-color: #6366f1;
+.service-form .link-picker-list .link-option:has(input:checked) {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.service-form .link-picker-list .link-option:has(input:focus-visible) {
+  outline: 2px solid #7dd3fc;
+  outline-offset: -2px;
+}
+
+.service-form .link-picker-list .link-option.is-disabled {
+  cursor: not-allowed;
+}
+
+.service-form .link-picker-list .link-option.is-disabled .link-option-icon,
+.service-form .link-picker-list .link-option.is-disabled .link-option-name {
+  opacity: 0.5;
+}
+
+.service-form .link-picker-list .link-option input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  cursor: pointer;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: #6366f1;
+  cursor: inherit;
+}
+
+.link-option-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.link-option-icon .matrix-node-icon,
+.link-option-icon .matrix-node-icon-placeholder {
+  width: 20px;
+  height: 20px;
+}
+
+.link-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The dot carries the status colour; the word stays in ink. */
+.link-option-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.link-option-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+}
+.link-option-status.up::before {
+  background: #22c55e;
+}
+.link-option-status.down::before {
+  background: #f87171;
+}
+.link-option-status.degraded::before {
+  background: #fbbf24;
+}
+.link-option-status.maintenance::before {
+  background: #f59e0b;
+}
+
+.link-option-note {
+  grid-column: 3 / -1;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.link-option-note.is-warning {
+  color: #fbbf24;
+}
+
+.service-form .link-picker-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.link-picker-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .help-text {

@@ -300,31 +300,10 @@ function openServiceModal(service = null) {
   // If editing, disable template selection
   $('#serviceTemplate').disabled = !!service;
 
-  // Populate depends-on checkbox list
-  populateDependsOnDropdown(service?.key);
-  // Set selected dependencies if editing
-  if (service?.depends_on) {
-    const deps = service.depends_on.split(',').map(d => d.trim()).filter(Boolean);
-    const container = $('#serviceDependsOnList');
-    if (container) {
-      container.querySelectorAll('.depends-on-cb').forEach(cb => {
-        cb.checked = deps.includes(cb.value);
-      });
-    }
-  }
-
-  // Populate connected-to checkbox list
-  populateConnectedToList(service?.key);
-  // Set selected connections if editing
-  if (service?.connected_to) {
-    const conns = service.connected_to.split(',').map(c => c.trim()).filter(Boolean);
-    const container = $('#serviceConnectedToList');
-    if (container) {
-      container.querySelectorAll('.connected-to-cb').forEach(cb => {
-        cb.checked = conns.includes(cb.value);
-      });
-    }
-  }
+  // Links: what this service depends on and what it's connected to
+  resetLinkFilters();
+  populateDependsOnDropdown(service?.key, linkKeys(service?.depends_on));
+  populateConnectedToList(service?.key, linkKeys(service?.connected_to));
 
   modal.showModal();
 }
@@ -466,17 +445,16 @@ async function testServiceConnection() {
 }
 
 async function saveService() {
-  // Collect depends_on from checkboxes
-  const dependsOnContainer = $('#serviceDependsOnList');
-  const dependsOn = dependsOnContainer
-    ? Array.from(dependsOnContainer.querySelectorAll('.depends-on-cb:checked')).map(cb => cb.value).join(',')
-    : '';
-
-  // Collect connected_to from checkboxes
-  const connectedToContainer = $('#serviceConnectedToList');
-  const connectedTo = connectedToContainer
-    ? Array.from(connectedToContainer.querySelectorAll('.connected-to-cb:checked')).map(cb => cb.value).join(',')
-    : '';
+  // Collect links from the pickers. Disabled rows show links stored on the
+  // other service, so they are not this service's to save.
+  const checkedKeys = (listSel, cls) => {
+    const list = $(listSel);
+    return list
+      ? Array.from(list.querySelectorAll(cls + ':checked:not(:disabled)')).map(cb => cb.value).join(',')
+      : '';
+  };
+  const dependsOn = checkedKeys('#serviceDependsOnList', '.depends-on-cb');
+  const connectedTo = checkedKeys('#serviceConnectedToList', '.connected-to-cb');
 
   const serviceData = {
     name: $('#serviceName').value.trim(),
@@ -539,7 +517,10 @@ async function saveService() {
     console.error('Failed to save service', e);
     const errEl = $('#serviceError');
     if (errEl) {
-      errEl.textContent = e.body?.error || 'Failed to save service';
+      // Validation errors arrive as plain text (http.Error), others as JSON.
+      const body = e.body;
+      errEl.textContent = (body && typeof body === 'object' && body.error) ||
+        (typeof body === 'string' && body.trim()) || 'Failed to save service';
       errEl.classList.remove('hidden');
     }
   }
@@ -618,6 +599,8 @@ function initServicesManagement() {
   if (templateSelect) {
     templateSelect.addEventListener('change', handleTemplateChange);
   }
+
+  initLinkPickers();
 
   // Update icon preview when URL changes
   const iconUrlInput = $('#serviceIconUrl');

@@ -186,49 +186,221 @@ function initStoredCredentialControls() {
   });
 }
 
-// ============ Service Dependencies ============
+// ============ Service links ============
+// The service editor's "Depends on" and "Connected to" pickers list the other
+// services with their icon and status. A service that already needs this one,
+// directly or through others, can't also be one of its dependencies: the loop
+// would let the two silence each other's alerts, and the server rejects it.
 
-function populateDependsOnDropdown(currentServiceKey) {
+function linkKeys(value) {
+  return String(value || '').split(',').map(k => k.trim()).filter(Boolean);
+}
+
+// Admins link against the full list, hidden services included.
+function linkCandidates() {
+  if (Array.isArray(adminServicesData)) return adminServicesData;
+  return Array.isArray(servicesData) ? servicesData : [];
+}
+
+// The chain of keys from "from" to "target" along depends_on links, or null
+// when "from" doesn't need "target".
+function linkDependencyPath(services, from, target) {
+  const deps = new Map(services.map(s => [s.key, linkKeys(s.depends_on)]));
+  const prev = new Map([[from, null]]);
+  const queue = [from];
+  while (queue.length) {
+    const key = queue.shift();
+    for (const next of deps.get(key) || []) {
+      if (prev.has(next)) continue;
+      prev.set(next, key);
+      if (next === target) {
+        const path = [next];
+        for (let at = key; at !== null; at = prev.get(at)) path.unshift(at);
+        return path;
+      }
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
+function linkStatus(svc) {
+  if (svc.visible === false) return { cls: 'hidden-svc', text: 'Hidden' };
+  const st = matrixStatusOf(svc);
+  return st.statusClass === 'unknown' ? null : { cls: st.statusClass, text: st.statusLabel };
+}
+
+function buildLinkOption(svc, cls, opts) {
+  const label = document.createElement('label');
+  label.className = 'link-option' + (opts.disabled ? ' is-disabled' : '');
+  label.dataset.search = ((svc.name || '') + ' ' + svc.key).toLowerCase();
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.value = svc.key;
+  cb.className = cls;
+  cb.checked = !!opts.checked;
+  cb.disabled = !!opts.disabled;
+  const icon = document.createElement('span');
+  icon.className = 'link-option-icon';
+  icon.innerHTML = serviceIconMarkup(svc);
+  const name = document.createElement('span');
+  name.className = 'link-option-name';
+  name.textContent = svc.name || svc.key;
+  const status = document.createElement('span');
+  const st = linkStatus(svc);
+  if (st) {
+    status.className = 'link-option-status ' + st.cls;
+    status.textContent = st.text;
+  }
+  label.append(cb, icon, name, status);
+  if (opts.note) {
+    const note = document.createElement('span');
+    note.className = 'link-option-note' + (opts.warn ? ' is-warning' : '');
+    note.textContent = opts.note;
+    label.appendChild(note);
+  }
+  return label;
+}
+
+function fillLinkList(container, rows, searchId) {
+  container.innerHTML = '';
+  if (rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'link-picker-empty';
+    empty.textContent = 'No other services yet';
+    container.appendChild(empty);
+  }
+  rows.forEach(row => container.appendChild(row));
+  // A filter only earns its place once the list scrolls.
+  const search = document.getElementById(searchId);
+  if (search) search.hidden = rows.length <= 6;
+}
+
+// Linked services first, then the rest, with unavailable ones last.
+function orderLinkRows(entries) {
+  const rank = e => (e.opts.checked ? 0 : e.opts.disabled ? 2 : 1);
+  return entries
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => (rank(a.e) - rank(b.e)) || (a.i - b.i))
+    .map(({ e }) => e.row);
+}
+
+function populateDependsOnDropdown(currentServiceKey, selectedKeys = []) {
   const container = $('#serviceDependsOnList');
   if (!container) return;
-  container.innerHTML = '';
-  const available = servicesData.filter(svc => svc.key !== currentServiceKey);
-  if (available.length === 0) {
-    container.innerHTML = '<span class="muted" style="font-size:12px;">No other services available</span>';
-    return;
+  const all = linkCandidates();
+  const nameOf = key => {
+    const svc = all.find(s => s.key === key);
+    return svc ? (svc.name || svc.key) : key;
+  };
+  const selected = new Set(selectedKeys);
+
+  const entries = all.filter(svc => svc.key !== currentServiceKey).map(svc => {
+    const opts = { checked: selected.has(svc.key) };
+    const path = currentServiceKey ? linkDependencyPath(all, svc.key, currentServiceKey) : null;
+    if (path) {
+      const via = path.slice(1, -1).map(nameOf);
+      const reason = 'depends on ' + nameOf(currentServiceKey) + (via.length ? ' through ' + via.join(', ') : '');
+      if (opts.checked) {
+        // Older data can hold a loop; leave it editable so it can be fixed.
+        opts.note = 'Loop: ' + reason + '. Uncheck to save.';
+        opts.warn = true;
+      } else {
+        opts.disabled = true;
+        opts.note = reason.charAt(0).toUpperCase() + reason.slice(1);
+      }
+    }
+    return { opts, row: buildLinkOption(svc, 'depends-on-cb', opts) };
+  });
+  fillLinkList(container, orderLinkRows(entries), 'dependsOnSearch');
+
+  const note = $('#neededByNote');
+  if (note) {
+    const neededBy = currentServiceKey
+      ? all.filter(svc => linkKeys(svc.depends_on).includes(currentServiceKey)).map(svc => svc.name || svc.key)
+      : [];
+    note.hidden = neededBy.length === 0;
+    note.textContent = neededBy.length
+      ? 'Needed by ' + neededBy.join(', ') + ' (set on ' + (neededBy.length === 1 ? 'that service' : 'those services') + ').'
+      : '';
   }
-  available.forEach(svc => {
-    const label = document.createElement('label');
-    label.className = 'depends-on-option';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = svc.key;
-    cb.className = 'depends-on-cb';
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + (svc.name || svc.key)));
-    container.appendChild(label);
+  updateLinkCounts();
+}
+
+function populateConnectedToList(currentServiceKey, selectedKeys = []) {
+  const container = $('#serviceConnectedToList');
+  if (!container) return;
+  const all = linkCandidates();
+  const selected = new Set(selectedKeys);
+
+  const entries = all.filter(svc => svc.key !== currentServiceKey).map(svc => {
+    // The map draws a connection set on either service, so show both here.
+    const fromOther = !!currentServiceKey && linkKeys(svc.connected_to).includes(currentServiceKey);
+    const name = svc.name || svc.key;
+    const opts = { checked: selected.has(svc.key) || fromOther };
+    if (fromOther && !selected.has(svc.key)) {
+      opts.disabled = true;
+      opts.note = 'Set on ' + name;
+    } else if (fromOther) {
+      opts.note = 'Also set on ' + name;
+    }
+    return { opts, row: buildLinkOption(svc, 'connected-to-cb', opts) };
+  });
+  fillLinkList(container, orderLinkRows(entries), 'connectedToSearch');
+  updateLinkCounts();
+}
+
+function updateLinkCounts() {
+  [['#serviceDependsOnList', '#dependsOnCount'], ['#serviceConnectedToList', '#connectedToCount']].forEach(([listSel, countSel]) => {
+    const list = $(listSel), count = $(countSel);
+    if (!list || !count) return;
+    const n = list.querySelectorAll('input[type="checkbox"]:checked').length;
+    count.textContent = n ? n + ' linked' : 'None';
   });
 }
 
-function populateConnectedToList(currentServiceKey) {
-  const container = $('#serviceConnectedToList');
-  if (!container) return;
-  container.innerHTML = '';
-  const available = servicesData.filter(svc => svc.key !== currentServiceKey);
-  if (available.length === 0) {
-    container.innerHTML = '<span class="muted" style="font-size:12px;">No other services available</span>';
-    return;
+function filterLinkOptions(input) {
+  const list = document.getElementById(input.dataset.linkFilter);
+  if (!list) return;
+  const query = input.value.trim().toLowerCase();
+  let shown = 0;
+  list.querySelectorAll('.link-option').forEach(opt => {
+    opt.hidden = !!query && !opt.dataset.search.includes(query);
+    if (!opt.hidden) shown++;
+  });
+  let empty = list.querySelector('.link-picker-empty[data-filter-empty]');
+  if (!empty) {
+    empty = document.createElement('div');
+    empty.className = 'link-picker-empty';
+    empty.dataset.filterEmpty = '';
+    list.appendChild(empty);
   }
-  available.forEach(svc => {
-    const label = document.createElement('label');
-    label.className = 'depends-on-option';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = svc.key;
-    cb.className = 'connected-to-cb';
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(' ' + (svc.name || svc.key)));
-    container.appendChild(label);
+  empty.hidden = shown > 0 || !query;
+  empty.textContent = empty.hidden ? '' : 'No services match "' + input.value.trim() + '"';
+}
+
+function resetLinkFilters() {
+  $$('.link-picker-search').forEach(input => {
+    input.value = '';
+    filterLinkOptions(input);
+  });
+}
+
+let linkPickersReady = false;
+function initLinkPickers() {
+  if (linkPickersReady) return;
+  const section = $('#serviceLinks');
+  if (!section) return;
+  linkPickersReady = true;
+  section.addEventListener('input', e => {
+    if (e.target.matches('.link-picker-search')) filterLinkOptions(e.target);
+  });
+  section.addEventListener('change', e => {
+    if (e.target.matches('.depends-on-cb, .connected-to-cb')) updateLinkCounts();
+  });
+  // Enter in a filter box must not submit the service form.
+  section.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('.link-picker-search')) e.preventDefault();
   });
 }
 
