@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -373,6 +374,14 @@ func HandleCreateService(w http.ResponseWriter, r *http.Request) {
 	s.Visible = true
 	// Auto-append to the end of the list
 	s.DisplayOrder = -1
+	if !serviceKeyPattern.MatchString(s.Key) {
+		http.Error(w, "Service key must start with a letter or digit and use only lowercase letters, digits, hyphens or underscores (max 64)", http.StatusBadRequest)
+		return
+	}
+	if err := validateServiceConfig(&s); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	id, err := database.CreateService(&s)
 	if err != nil {
@@ -433,6 +442,10 @@ func HandleUpdateService(w http.ResponseWriter, r *http.Request) {
 	// If token is empty or looks like a masked value, keep the existing token
 	if s.APIToken == "" || strings.HasPrefix(s.APIToken, "\u2022") {
 		s.APIToken = existing.APIToken
+	}
+	if err := validateServiceConfig(&s); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	if err := database.UpdateService(&s); err != nil {
@@ -534,7 +547,50 @@ func generateServiceKey(name string) string {
 	key = reg.ReplaceAllString(key, "-")
 	// Trim hyphens from ends
 	key = strings.Trim(key, "-")
+	// Keep keys within serviceKeyPattern's length for long names.
+	if len(key) > 64 {
+		key = strings.TrimRight(key[:64], "-")
+	}
 	return key
+}
+
+// serviceKeyPattern matches keys the UI generates from service names. Keys
+// appear in element IDs and URLs, so arbitrary characters are not accepted.
+var serviceKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+// validateServiceConfig enforces the same bounds as the service form. Without
+// them a single service with a very long timeout could stall every scheduler
+// tick and public status refresh while its check waits. Keys are checked only
+// on create: they are immutable afterwards, and services from the setup wizard
+// or older backups may use keys that predate serviceKeyPattern.
+func validateServiceConfig(s *models.ServiceConfig) error {
+	s.Name = strings.TrimSpace(s.Name)
+	s.URL = strings.TrimSpace(s.URL)
+	switch {
+	case s.Name == "" || s.URL == "":
+		return errors.New("Name and URL are required")
+	case len(s.Name) > 100:
+		return errors.New("Name must be at most 100 characters")
+	case s.CheckInterval < 10 || s.CheckInterval > 3600:
+		return errors.New("Check interval must be between 10 and 3600 seconds")
+	case s.Timeout < 1 || s.Timeout > 60:
+		return errors.New("Timeout must be between 1 and 60 seconds")
+	case s.ExpectedMin < 100 || s.ExpectedMax > 599 || s.ExpectedMin > s.ExpectedMax:
+		return errors.New("Expected status range must be within 100-599 with min <= max")
+	}
+	switch s.CheckType {
+	case "http":
+		if !strings.HasPrefix(s.URL, "http://") && !strings.HasPrefix(s.URL, "https://") {
+			return errors.New("HTTP checks need a URL starting with http:// or https://")
+		}
+		if err := checker.ValidateURLTarget(s.URL); err != nil {
+			return err
+		}
+	case "tcp", "dns", "always_up":
+	default:
+		return errors.New("Check type must be http, tcp, dns or always_up")
+	}
+	return nil
 }
 
 // HandleTestServiceConnection tests if a service URL is reachable

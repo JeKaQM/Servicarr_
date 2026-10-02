@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"status/app/internal/database"
 	"testing"
-	"time"
 )
 
 // initTestDB creates an in-memory SQLite database with full schema for security tests
@@ -15,13 +14,6 @@ func initTestDB(t *testing.T) {
 	if err := database.Init(":memory:"); err != nil {
 		t.Fatalf("failed to init db: %v", err)
 	}
-}
-
-// resetRateLimiter clears the in-memory rate limiter map between tests
-func resetRateLimiter() {
-	rlMu.Lock()
-	rl = map[string]*rlEntry{}
-	rlMu.Unlock()
 }
 
 // --- SecureHeaders ---
@@ -592,168 +584,6 @@ func TestListBlacklist_PermanentField(t *testing.T) {
 		if ip == "30.0.0.2" && perm {
 			t.Error("30.0.0.2 should not be permanent")
 		}
-	}
-}
-
-// ======================== MIDDLEWARE: RateLimit ========================
-
-func TestRateLimit_AllowsRequests(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	called := false
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "100.0.0.1:1234"
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if !called {
-		t.Error("handler should have been called")
-	}
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestRateLimit_ExhaustsTokens(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// Make 11 requests rapidly (bucket starts at 10, -1 per request)
-	var lastCode int
-	for i := 0; i < 11; i++ {
-		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "101.0.0.1:1234"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		lastCode = rr.Code
-	}
-
-	if lastCode != http.StatusTooManyRequests {
-		t.Errorf("expected 429 after exhausting tokens, got %d", lastCode)
-	}
-}
-
-func TestRateLimit_SkipsWhitelistedIPs(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	AddToWhitelist("102.0.0.1", "trusted")
-
-	callCount := 0
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// Make 15 requests — should all pass for whitelisted IP
-	for i := 0; i < 15; i++ {
-		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "102.0.0.1:1234"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("request %d: expected 200 for whitelisted IP, got %d", i, rr.Code)
-		}
-	}
-	if callCount != 15 {
-		t.Errorf("expected 15 calls for whitelisted IP, got %d", callCount)
-	}
-}
-
-func TestRateLimit_BlockedIP_API(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	database.DB.Exec(`INSERT INTO ip_blocks (ip_address, blocked_at, attempts, expires_at, reason)
-		VALUES ('103.0.0.1', datetime('now'), 3, datetime('now', '+1 hour'), 'blocked')`)
-
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("blocked IP handler should not be called")
-	}))
-
-	req := httptest.NewRequest("GET", "/api/status", nil)
-	req.RemoteAddr = "103.0.0.1:1234"
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("expected 403 for blocked IP API request, got %d", rr.Code)
-	}
-	var resp map[string]interface{}
-	json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["error"] != "access_blocked" {
-		t.Errorf("expected error=access_blocked, got %v", resp["error"])
-	}
-}
-
-func TestRateLimit_BlockedIP_Web(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	database.DB.Exec(`INSERT INTO ip_blocks (ip_address, blocked_at, attempts, expires_at, reason)
-		VALUES ('104.0.0.1', datetime('now'), 3, datetime('now', '+1 hour'), 'blocked')`)
-
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("blocked IP handler should not be called")
-	}))
-
-	req := httptest.NewRequest("GET", "/dashboard", nil)
-	req.RemoteAddr = "104.0.0.1:1234"
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	// Should redirect to blocked page
-	if rr.Code != http.StatusSeeOther {
-		t.Errorf("expected 303 redirect for blocked IP web request, got %d", rr.Code)
-	}
-	location := rr.Header().Get("Location")
-	if !containsStr(location, "/static/blocked.html") {
-		t.Errorf("expected redirect to blocked.html, got %s", location)
-	}
-}
-
-func TestRateLimit_TokenRefill(t *testing.T) {
-	initTestDB(t)
-	resetRateLimiter()
-
-	handler := RateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	ip := "105.0.0.1:1234"
-
-	// Exhaust all tokens
-	for i := 0; i < 10; i++ {
-		req := httptest.NewRequest("GET", "/", nil)
-		req.RemoteAddr = ip
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-	}
-
-	// Manually set the last time back 5 seconds to simulate refill
-	rlMu.Lock()
-	if e, ok := rl["105.0.0.1"]; ok {
-		e.last = time.Now().Add(-5 * time.Second)
-	}
-	rlMu.Unlock()
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = ip
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 after token refill, got %d", rr.Code)
 	}
 }
 

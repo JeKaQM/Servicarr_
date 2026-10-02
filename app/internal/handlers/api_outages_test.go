@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"status/app/internal/cache"
 	"status/app/internal/database"
 	"status/app/internal/models"
 	"status/app/internal/monitor"
@@ -21,6 +22,7 @@ func initAPIOutageTest(t *testing.T) {
 	if err := stats.EnsureStatsSchema(); err != nil {
 		t.Fatal(err)
 	}
+	cache.PublicCache.Clear()
 }
 
 func createAPIOutageService(t *testing.T, key, name, url string) {

@@ -98,6 +98,11 @@ func decryptCrowdSecSecret(name, stored string) (string, error) {
 // Secrets must be encrypted before persisting; a failed encryption fails
 // the save rather than storing plaintext (LAPI credentials are high-privilege).
 func SaveCrowdSecConfig(config *models.CrowdSecConfig) error {
+	return SaveCrowdSecConfigWith(DB, config)
+}
+
+// SaveCrowdSecConfigWith saves the CrowdSec configuration using q, which may be a transaction.
+func SaveCrowdSecConfigWith(q Querier, config *models.CrowdSecConfig) error {
 	config.LAPIURL = strings.TrimSpace(config.LAPIURL)
 	config.MachineID = strings.TrimSpace(config.MachineID)
 
@@ -112,7 +117,7 @@ func SaveCrowdSecConfig(config *models.CrowdSecConfig) error {
 
 	enabled := boolInt(config.Enabled)
 	skipVerify := boolInt(config.TLSSkipVerify)
-	_, err = DB.Exec(`INSERT INTO crowdsec_config
+	_, err = q.Exec(`INSERT INTO crowdsec_config
 		(id, enabled, lapi_url, lapi_machine_id, lapi_machine_password, bouncer_api_key, poll_interval, tls_skip_verify, map_home_lat, map_home_lng, updated_at)
 		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET

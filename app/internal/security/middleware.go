@@ -9,13 +9,16 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
-	"time"
 )
 
-// SecureHeaders adds security headers to responses
+// SecureHeaders adds security headers to responses.
+//
+// No CDN is allowed to serve scripts: a whole-CDN source such as jsDelivr would
+// let injected markup load arbitrary published code. jsDelivr, GitHub and Simple
+// Icons remain image sources for service icons only; Cloudflare Insights is the
+// optional analytics beacon a Cloudflare proxy injects.
 func SecureHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com 'sha256-vlVlwb1evOfBxgr/T5qmkb6aludOm0Z8t44+tMBCnS0='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	const csp = "default-src 'none'; script-src 'self' https://static.cloudflareinsights.com 'sha256-vlVlwb1evOfBxgr/T5qmkb6aludOm0Z8t44+tMBCnS0='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://raw.githubusercontent.com https://*.githubusercontent.com https://cdn.simpleicons.org https://cdn.jsdelivr.net; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Limit request body to 70MB (covers multipart uploads + overhead)
 		r.Body = http.MaxBytesReader(w, r.Body, 70<<20)
@@ -40,91 +43,6 @@ func SecureHeaders(next http.Handler) http.Handler {
 				return
 			}
 		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// Rate limiter state
-type rlEntry struct {
-	tokens int
-	last   time.Time
-}
-
-var (
-	rl   = map[string]*rlEntry{}
-	rlMu sync.Mutex
-)
-
-func init() {
-	// Cleanup stale rate limiter entries every 5 minutes
-	go func() {
-		for range time.Tick(5 * time.Minute) {
-			rlMu.Lock()
-			now := time.Now()
-			for k, e := range rl {
-				if now.Sub(e.last) > 10*time.Minute {
-					delete(rl, k)
-				}
-			}
-			rlMu.Unlock()
-		}
-	}()
-}
-
-// RateLimit implements token bucket rate limiting
-func RateLimit(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := ClientIP(r)
-
-		// Skip rate limiting for whitelisted IPs
-		if IsWhitelisted(ip) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Check if IP is blocked
-		if block, err := GetIPBlock(ip); block != nil {
-			// For API requests, return JSON
-			if strings.HasPrefix(r.URL.Path, "/api/") {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"error":      "access_blocked",
-					"message":    "Your access has been temporarily blocked due to excessive failed login attempts",
-					"expires_at": block.ExpiresAt,
-				})
-				return
-			}
-
-			// For web requests, show blocked page
-			serveBlockedPage(w, r, block)
-			return
-		} else if err != nil {
-			log.Printf("error checking IP block: %v", err)
-		}
-
-		rlMu.Lock()
-		e := rl[ip]
-		now := time.Now()
-		if e == nil {
-			e = &rlEntry{tokens: 10, last: now}
-			rl[ip] = e
-		}
-		refill := int(now.Sub(e.last).Seconds())
-		if refill > 0 {
-			e.tokens += refill
-			if e.tokens > 10 {
-				e.tokens = 10
-			}
-			e.last = now
-		}
-		if e.tokens <= 0 {
-			rlMu.Unlock()
-			http.Error(w, "too many requests", http.StatusTooManyRequests)
-			return
-		}
-		e.tokens--
-		rlMu.Unlock()
 		next.ServeHTTP(w, r)
 	})
 }

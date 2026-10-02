@@ -13,6 +13,7 @@ import (
 	"status/app/internal/models"
 	"status/app/internal/resources"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -20,6 +21,10 @@ import (
 // initTestDB sets up an in-memory SQLite database for testing.
 func initTestDB(t *testing.T) {
 	t.Helper()
+	// Deliveries queued by an earlier test still write logs through
+	// database.DB; let them finish before the global is replaced.
+	waitForDeliveries(t)
+	t.Cleanup(func() { waitForDeliveries(t) })
 	if err := database.Init(":memory:"); err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
@@ -367,9 +372,9 @@ func TestCheckAndSendAlerts_NilConfig(t *testing.T) {
 func TestCheckAndSendAlerts_FirstTimeDown(t *testing.T) {
 	initTestDB(t)
 	// Use a webhook server to verify an alert is dispatched
-	var received bool
+	var received atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received = true
+		received.Store(true)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -387,14 +392,14 @@ func TestCheckAndSendAlerts_FirstTimeDown(t *testing.T) {
 		t.Fatal("configured webhook should report a queued alert")
 	}
 	// dispatchAll sends via goroutine, give it time
-	waitForCondition(t, func() bool { return received }, "webhook should have been called for first-time down")
+	waitForCondition(t, received.Load, "webhook should have been called for first-time down")
 }
 
 func TestCheckAndSendAlerts_FirstTimeDegraded(t *testing.T) {
 	initTestDB(t)
-	var received bool
+	var received atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received = true
+		received.Store(true)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -409,7 +414,7 @@ func TestCheckAndSendAlerts_FirstTimeDegraded(t *testing.T) {
 	}
 
 	m.CheckAndSendAlerts("deg-svc", "Degraded Service", true, true)
-	waitForCondition(t, func() bool { return received }, "webhook should have been called for first-time degraded")
+	waitForCondition(t, received.Load, "webhook should have been called for first-time degraded")
 }
 
 func TestCheckAndSendAlerts_StatusChangeDownToUp(t *testing.T) {
@@ -454,9 +459,9 @@ func TestCheckAndSendAlerts_StatusChangeDownToUp(t *testing.T) {
 
 func TestCheckAndSendAlerts_NoAlertWhenNoChange(t *testing.T) {
 	initTestDB(t)
-	callCount := 0
+	var callCount atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -473,15 +478,15 @@ func TestCheckAndSendAlerts_NoAlertWhenNoChange(t *testing.T) {
 
 	// First call: down → triggers alert
 	m.CheckAndSendAlerts("stable-svc", "Stable Svc", false, false)
-	waitForCondition(t, func() bool { return callCount >= 1 }, "initial down alert")
+	waitForCondition(t, func() bool { return callCount.Load() >= 1 }, "initial down alert")
 
-	beforeCount := callCount
+	beforeCount := callCount.Load()
 	// Second call: still down → no change → NO alert
 	m.CheckAndSendAlerts("stable-svc", "Stable Svc", false, false)
 	// Wait briefly to make sure no extra call happens
 	waitBriefly()
-	if callCount != beforeCount {
-		t.Errorf("should not send alert when status unchanged, got %d extra calls", callCount-beforeCount)
+	if got := callCount.Load(); got != beforeCount {
+		t.Errorf("should not send alert when status unchanged, got %d extra calls", got-beforeCount)
 	}
 }
 
@@ -507,9 +512,9 @@ func TestCheckAndSendAlerts_DependencySuppression(t *testing.T) {
 	// Mark upstream as down in status history
 	database.DB.Exec(`INSERT INTO service_status_history (service_key, ok, degraded, updated_at) VALUES ('upstream-svc', 0, 0, datetime('now'))`)
 
-	callCount := 0
+	var callCount atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -526,8 +531,8 @@ func TestCheckAndSendAlerts_DependencySuppression(t *testing.T) {
 	// Downstream goes down, but upstream is already down → suppress
 	m.CheckAndSendAlerts("downstream-svc", "Downstream", false, false)
 	waitBriefly()
-	if callCount != 0 {
-		t.Errorf("alert should be suppressed when upstream dependency is down, got %d calls", callCount)
+	if got := callCount.Load(); got != 0 {
+		t.Errorf("alert should be suppressed when upstream dependency is down, got %d calls", got)
 	}
 }
 
@@ -764,6 +769,13 @@ func waitForCondition(t *testing.T, cond func() bool, msg string) {
 		time.Sleep(1 * time.Millisecond)
 	}
 	t.Errorf("timed out: %s", msg)
+}
+
+func waitForDeliveries(t *testing.T) {
+	t.Helper()
+	if !WaitForDeliveries(5 * time.Second) {
+		t.Fatal("notification deliveries did not finish")
+	}
 }
 
 func waitBriefly() {

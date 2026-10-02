@@ -34,6 +34,26 @@ describe('renderCrowdsecTimeline', () => {
     expect(svg.textContent).toContain('events');
   });
 
+  test('plots reported events in their own panel, never on a second y-axis', () => {
+    renderCrowdsecTimeline({ hourly: hourly() }, 24);
+    const svg = document.querySelector('#crowdsecTimeline svg');
+    const width = Number(svg.getAttribute('width'));
+    // Every y-axis label sits on the left; nothing is anchored to a right-hand scale.
+    const yLabels = svg.querySelectorAll('.crowdsec-chart-axis[text-anchor="end"]');
+    expect(yLabels.length).toBeGreaterThan(0);
+    yLabels.forEach((label) => {
+      expect(Number(label.getAttribute('x'))).toBeLessThan(width / 2);
+    });
+    expect(svg.querySelector('.crowdsec-chart-panel-label').textContent).toBe('Reported events');
+
+    // The events line lives entirely below the lowest bar.
+    const barBottoms = [...svg.querySelectorAll('.crowdsec-bar-observed')]
+      .map((bar) => Number(bar.getAttribute('y')) + Number(bar.getAttribute('height')));
+    const lineYs = svg.querySelector('.crowdsec-events-line').getAttribute('points')
+      .split(' ').map((point) => Number(point.split(',')[1]));
+    expect(Math.min(...lineYs)).toBeGreaterThan(Math.max(...barBottoms));
+  });
+
   test('uses compact chart geometry without shrinking phone labels from a desktop viewBox', () => {
     const container = document.getElementById('crowdsecTimeline');
     container.getBoundingClientRect = () => ({ width: 320, height: 0 });

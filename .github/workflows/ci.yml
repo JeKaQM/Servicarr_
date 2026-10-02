@@ -55,8 +55,9 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests with coverage
-        run: go test -count=1 -coverprofile=coverage.out ./...
+      # The race detector covers the scheduler, alert queues and shared caches.
+      - name: Run tests with race detector and coverage
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
 
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1

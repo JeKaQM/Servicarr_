@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"status/app/internal/auth"
 	"status/app/internal/crypto"
 	"status/app/internal/database"
-	"status/app/internal/maintenance"
 	"status/app/internal/models"
 
 	"golang.org/x/crypto/bcrypt"
@@ -338,166 +336,18 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 			return
 		}
 
-		// Parse multipart form
-		if err := r.ParseMultipartForm(64 << 20); err != nil { // 64MB max
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid form data"})
-			return
-		}
-		defer r.MultipartForm.RemoveAll()
-
-		file, _, err := r.FormFile("backup")
+		export, err := readBackupUpload(r)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "No backup file provided"})
+			writeBackupError(w, err)
 			return
 		}
-		defer file.Close()
-
-		// Read and parse JSON
-		data, err := io.ReadAll(file)
+		result, err := importBackup(export)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to read file"})
+			log.Printf("Setup backup import failed: %v", err)
+			writeBackupError(w, err)
 			return
 		}
-
-		var export DatabaseExport
-		if err := json.Unmarshal(data, &export); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup format"})
-			return
-		}
-
-		// Validate export
-		if export.Version == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid backup file: missing version"})
-			return
-		}
-		if export.DatabaseSchema > database.SchemaVersion {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Backup requires a newer Servicarr database schema"})
-			return
-		}
-
-		// Import services
-		if len(export.Services) > 0 {
-			_, _ = database.DB.Exec(`DELETE FROM services`)
-			_, _ = database.DB.Exec(`DELETE FROM service_state`)
-			_, _ = database.DB.Exec(`DELETE FROM service_status_history`)
-			_, _ = database.DB.Exec(`DELETE FROM service_outage_state`)
-			_, _ = database.DB.Exec(`DELETE FROM stat_minutely`)
-			_, _ = database.DB.Exec(`DELETE FROM stat_hourly`)
-			_, _ = database.DB.Exec(`DELETE FROM stat_daily`)
-			_, _ = database.DB.Exec(`DELETE FROM heartbeats`)
-			for _, s := range export.Services {
-				svc := &models.ServiceConfig{
-					Key:           s.Key,
-					Name:          s.Name,
-					URL:           s.URL,
-					ServiceType:   s.ServiceType,
-					Icon:          s.Icon,
-					IconURL:       s.IconURL,
-					DisplayOrder:  s.DisplayOrder,
-					Visible:       s.Visible,
-					CheckType:     s.CheckType,
-					CheckInterval: s.CheckInterval,
-					Timeout:       s.Timeout,
-					ExpectedMin:   s.ExpectedMin,
-					ExpectedMax:   s.ExpectedMax,
-				}
-				_, _ = database.CreateService(svc)
-			}
-		}
-
-		// Import alert config
-		if export.AlertConfig != nil {
-			alertCfg := &models.AlertConfig{
-				Enabled:                 export.AlertConfig.Enabled,
-				SMTPHost:                export.AlertConfig.SMTPHost,
-				SMTPPort:                export.AlertConfig.SMTPPort,
-				SMTPUser:                export.AlertConfig.SMTPUser,
-				AlertEmail:              export.AlertConfig.AlertEmail,
-				FromEmail:               export.AlertConfig.FromEmail,
-				StatusPageURL:           export.AlertConfig.StatusPageURL,
-				SMTPSkipVerify:          export.AlertConfig.SMTPSkipVerify,
-				AlertOnDown:             export.AlertConfig.AlertOnDown,
-				AlertOnDegraded:         export.AlertConfig.AlertOnDegraded,
-				AlertOnUp:               export.AlertConfig.AlertOnUp,
-				AlertOnDegradedRecovery: export.AlertConfig.AlertOnDegradedRecovery,
-			}
-			_ = database.SaveAlertConfig(alertCfg)
-		}
-
-		// Import resources config
-		if export.Resources != nil {
-			resCfg := &models.ResourcesUIConfig{
-				Enabled:    export.Resources.Enabled,
-				GlancesURL: export.Resources.GlancesURL,
-				NUTHost:    export.Resources.NUTHost,
-				UPSName:    export.Resources.UPSName,
-				CPU:        export.Resources.CPU,
-				Memory:     export.Resources.Memory,
-				Network:    export.Resources.Network,
-				Temp:       export.Resources.Temp,
-				Storage:    export.Resources.Storage,
-				Swap:       export.Resources.Swap,
-				Load:       export.Resources.Load,
-				GPU:        export.Resources.GPU,
-				Containers: export.Resources.Containers,
-				Processes:  export.Resources.Processes,
-				Uptime:     export.Resources.Uptime,
-				UPS:        export.Resources.UPS,
-			}
-			_ = database.SaveResourcesUIConfig(resCfg)
-		}
-
-		// Import CrowdSec config (no secrets in backups; imported disabled)
-		if export.CrowdSec != nil {
-			csCfg := &models.CrowdSecConfig{
-				Enabled:       false,
-				LAPIURL:       export.CrowdSec.LAPIURL,
-				MachineID:     export.CrowdSec.MachineID,
-				PollIntervalS: export.CrowdSec.PollIntervalS,
-				TLSSkipVerify: export.CrowdSec.TLSSkipVerify,
-				MapHomeLat:    export.CrowdSec.MapHomeLat,
-				MapHomeLng:    export.CrowdSec.MapHomeLng,
-			}
-			if csCfg.PollIntervalS < 10 {
-				csCfg.PollIntervalS = 30
-			}
-			_ = database.SaveCrowdSecConfig(csCfg)
-		}
-
-		// Import samples
-		if len(export.Samples) > 0 {
-			_, _ = database.DB.Exec(`DELETE FROM samples`)
-			for _, s := range export.Samples {
-				ok := 0
-				if s.OK {
-					ok = 1
-				}
-				_, _ = database.DB.Exec(`INSERT INTO samples (taken_at, service_key, ok, http_status, latency_ms) VALUES (?, ?, ?, ?, ?)`,
-					s.TakenAt, s.ServiceKey, ok, s.HTTPStatus, s.LatencyMS)
-			}
-		}
-
-		if export.MaintenanceSchedules != nil {
-			_, _ = database.DB.Exec(`DELETE FROM maintenance_schedules`)
-			for i := range export.MaintenanceSchedules {
-				if maintenance.ValidateSchedule(&export.MaintenanceSchedules[i]) == nil {
-					_ = database.SaveMaintenanceSchedule(&export.MaintenanceSchedules[i])
-				}
-			}
-		}
-		logBackupImport(export)
+		logBackupImport(*export, result)
 
 		// Now we need credentials - prompt user to create them
 		// But for import, we'll require them in a separate step or use the backup username
@@ -507,7 +357,7 @@ func HandleSetupImport(authMgr *auth.Auth) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":           true,
-			"services_imported": len(export.Services),
+			"services_imported": result.Services,
 			"needs_credentials": true,
 			"message":           "Backup restored. Please create admin credentials.",
 		})

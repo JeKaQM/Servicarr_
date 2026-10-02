@@ -2,26 +2,34 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"status/app/internal/database"
 	"status/app/internal/models"
+	"strconv"
 )
 
 // HandleGetLogs returns system logs with optional filtering
 func HandleGetLogs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// SQLite treats a negative LIMIT as "no limit", so bounds are enforced here.
 		limit := 100
 		if l := r.URL.Query().Get("limit"); l != "" {
-			fmt.Sscanf(l, "%d", &limit)
-			if limit > 500 {
-				limit = 500
+			n, err := strconv.Atoi(l)
+			if err != nil || n < 1 {
+				http.Error(w, "invalid limit", http.StatusBadRequest)
+				return
 			}
+			limit = min(n, 500)
 		}
 
 		offset := 0
 		if o := r.URL.Query().Get("offset"); o != "" {
-			fmt.Sscanf(o, "%d", &offset)
+			n, err := strconv.Atoi(o)
+			if err != nil || n < 0 {
+				http.Error(w, "invalid offset", http.StatusBadRequest)
+				return
+			}
+			offset = n
 		}
 
 		level := r.URL.Query().Get("level")
@@ -63,15 +71,17 @@ func HandleGetLogStats() http.HandlerFunc {
 func HandleClearLogs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Days int `json:"days"` // 0 means clear all
+			Days *int `json:"days"` // 0 means clear all
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			// Default to clearing all if no body
-			req.Days = 0
+		// Clearing everything must be explicit: a missing or malformed body is
+		// rejected rather than treated as days=0.
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Days == nil || *req.Days < 0 {
+			http.Error(w, "request body must be {\"days\": n} with n >= 0", http.StatusBadRequest)
+			return
 		}
 
-		if err := database.ClearLogs(req.Days); err != nil {
+		if err := database.ClearLogs(*req.Days); err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}

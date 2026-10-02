@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -174,14 +175,28 @@ func (a *Auth) Reload(user string, hash []byte, secret []byte) {
 	a.HmacSecret = secret
 }
 
+// timingHash is compared against when the username is wrong, so a failed
+// login always costs one bcrypt comparison and response times do not reveal
+// whether the username exists.
+var timingHash = sync.OnceValue(func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("servicarr-timing-equaliser"), bcrypt.DefaultCost)
+	if err != nil {
+		return nil
+	}
+	return hash
+})
+
 // CheckCredentials validates a username/password pair (thread-safe)
 func (a *Auth) CheckCredentials(username, password string) bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if username != a.User {
-		return false
+	userOK := a.User != "" && subtle.ConstantTimeCompare([]byte(username), []byte(a.User)) == 1
+	hash := a.Hash
+	if !userOK || len(hash) == 0 {
+		hash = timingHash()
 	}
-	return bcrypt.CompareHashAndPassword(a.Hash, []byte(password)) == nil
+	passwordOK := bcrypt.CompareHashAndPassword(hash, []byte(password)) == nil
+	return userOK && len(a.Hash) > 0 && passwordOK
 }
 
 // SessionMaxAge returns the session max age as a Duration (thread-safe)

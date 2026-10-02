@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS samples (
   latency_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_samples_taken ON samples(taken_at);
-CREATE INDEX IF NOT EXISTS idx_samples_service ON samples(service_key);
 
 CREATE TABLE IF NOT EXISTS ip_blocks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -311,11 +310,15 @@ CREATE TABLE IF NOT EXISTS crowdsec_history_state (
 		return err
 	}
 
-	// CrowdSec map geo enrichment (v7) — idempotent for existing installs.
-	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN latitude REAL;`)
-	_, _ = DB.Exec(`ALTER TABLE crowdsec_alerts ADD COLUMN longitude REAL;`)
-	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lat REAL NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE crowdsec_config ADD COLUMN map_home_lng REAL NOT NULL DEFAULT 0;`)
+	// CrowdSec map geo enrichment (v7) must exist before the archive rebuild below.
+	if err := addMissingColumns([]columnSpec{
+		{"crowdsec_alerts", "latitude", "REAL"},
+		{"crowdsec_alerts", "longitude", "REAL"},
+		{"crowdsec_config", "map_home_lat", "REAL NOT NULL DEFAULT 0"},
+		{"crowdsec_config", "map_home_lng", "REAL NOT NULL DEFAULT 0"},
+	}); err != nil {
+		return err
+	}
 	if err := migrateCrowdSecArchiveSources(); err != nil {
 		return err
 	}
@@ -328,70 +331,74 @@ CREATE TABLE IF NOT EXISTS crowdsec_history_state (
 		return err
 	}
 
-	// For existing installs: add any newly introduced columns.
-	// SQLite doesn't support IF NOT EXISTS on ADD COLUMN, so we ignore the error
-	// if the column already exists.
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN storage INTEGER NOT NULL DEFAULT 1;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN glances_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN nut_host TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN ups_name TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN swap INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN load INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN gpu INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN containers INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN processes INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN uptime INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE resources_ui_config ADD COLUMN ups INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN status_page_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN smtp_skip_verify INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN alert_on_degraded_recovery INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN icon_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE app_settings ADD COLUMN app_name TEXT DEFAULT 'Service Status';`)
-	_, _ = DB.Exec(`ALTER TABLE ups_monitor_state ADD COLUMN loss_notified INTEGER NOT NULL DEFAULT 0;`)
+	// Columns introduced after the original release, added for existing installs.
+	if err := addMissingColumns([]columnSpec{
+		{"resources_ui_config", "storage", "INTEGER NOT NULL DEFAULT 1"},
+		{"resources_ui_config", "glances_url", "TEXT"},
+		{"resources_ui_config", "nut_host", "TEXT"},
+		{"resources_ui_config", "ups_name", "TEXT"},
+		{"resources_ui_config", "swap", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "load", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "gpu", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "containers", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "processes", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "uptime", "INTEGER NOT NULL DEFAULT 0"},
+		{"resources_ui_config", "ups", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "status_page_url", "TEXT"},
+		{"alert_config", "smtp_skip_verify", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "alert_on_degraded_recovery", "INTEGER NOT NULL DEFAULT 0"},
+		{"services", "icon_url", "TEXT"},
+		{"app_settings", "app_name", "TEXT DEFAULT 'Service Status'"},
+		{"ups_monitor_state", "loss_notified", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "discord_webhook_url", "TEXT"},
+		{"alert_config", "discord_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "discord_username", "TEXT NOT NULL DEFAULT ''"},
+		{"alert_config", "discord_silent", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "telegram_bot_token", "TEXT"},
+		{"alert_config", "telegram_chat_id", "TEXT"},
+		{"alert_config", "telegram_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"alert_config", "webhook_url", "TEXT"},
+		{"alert_config", "webhook_secret", "TEXT"},
+		{"alert_config", "webhook_enabled", "INTEGER NOT NULL DEFAULT 0"},
+		{"services", "depends_on", "TEXT DEFAULT ''"},
+		{"services", "connected_to", "TEXT DEFAULT ''"},
+	}); err != nil {
+		return err
+	}
 
-	// Multi-channel notification columns
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_webhook_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_enabled INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_username TEXT NOT NULL DEFAULT '';`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN discord_silent INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_bot_token TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_chat_id TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN telegram_enabled INTEGER NOT NULL DEFAULT 0;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN webhook_url TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN webhook_secret TEXT;`)
-	_, _ = DB.Exec(`ALTER TABLE alert_config ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0;`)
-
-	// Service dependencies
-	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN depends_on TEXT DEFAULT '';`)
-
-	// Connected/integrated services
-	_, _ = DB.Exec(`ALTER TABLE services ADD COLUMN connected_to TEXT DEFAULT '';`)
-
-	// Maintenance windows
-	_, _ = DB.Exec(`CREATE TABLE IF NOT EXISTS maintenance_windows (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		service_key TEXT NOT NULL DEFAULT '',
-		title TEXT NOT NULL,
-		start_time TEXT NOT NULL,
-		end_time TEXT NOT NULL,
-		created_at TEXT NOT NULL DEFAULT (datetime('now'))
-	);`)
-
-	// Incident events (auto-generated timeline)
-	_, _ = DB.Exec(`CREATE TABLE IF NOT EXISTS incident_events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		service_key TEXT NOT NULL,
-		service_name TEXT NOT NULL DEFAULT '',
-		event_type TEXT NOT NULL DEFAULT 'down',
-		started_at TEXT NOT NULL,
-		resolved_at TEXT,
-		duration_s INTEGER DEFAULT 0,
-		details TEXT DEFAULT '',
-		postmortem TEXT DEFAULT '',
-		created_at TEXT NOT NULL DEFAULT (datetime('now'))
-	);`)
-	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_service ON incident_events(service_key);`)
-	_, _ = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_started ON incident_events(started_at);`)
+	// Legacy maintenance windows and the auto-generated incident timeline.
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS maintenance_windows (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			service_key TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);`,
+		`CREATE TABLE IF NOT EXISTS incident_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			service_key TEXT NOT NULL,
+			service_name TEXT NOT NULL DEFAULT '',
+			event_type TEXT NOT NULL DEFAULT 'down',
+			started_at TEXT NOT NULL,
+			resolved_at TEXT,
+			duration_s INTEGER DEFAULT 0,
+			details TEXT DEFAULT '',
+			postmortem TEXT DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_incidents_service ON incident_events(service_key);`,
+		`CREATE INDEX IF NOT EXISTS idx_incidents_started ON incident_events(started_at);`,
+		// Per-service range scans (day detail, last result) need both columns;
+		// the composite index also serves service_key-only lookups.
+		`CREATE INDEX IF NOT EXISTS idx_samples_service_taken ON samples(service_key, taken_at)`,
+		`DROP INDEX IF EXISTS idx_samples_service`,
+	} {
+		if _, err := DB.Exec(stmt); err != nil {
+			return fmt.Errorf("schema migration failed: %w", err)
+		}
+	}
 
 	if _, err := DB.Exec(`INSERT INTO app_metadata (key, value) VALUES ('database_schema_version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.Itoa(SchemaVersion)); err != nil {
@@ -474,4 +481,35 @@ func migrateCrowdSecArchiveSources() error {
 		}
 	}
 	return tx.Commit()
+}
+
+// columnSpec describes a column added after a table's original definition.
+type columnSpec struct {
+	table, column, definition string
+}
+
+// addMissingColumns adds columns that older databases lack. SQLite has no
+// ADD COLUMN IF NOT EXISTS, so existence is checked first; unlike ignoring every
+// ALTER TABLE error, genuine failures (disk full, read-only file) are reported.
+func addMissingColumns(specs []columnSpec) error {
+	for _, spec := range specs {
+		exists, err := columnExists(spec.table, spec.column)
+		if err != nil {
+			return fmt.Errorf("inspect %s.%s: %w", spec.table, spec.column, err)
+		}
+		if exists {
+			continue
+		}
+		// #nosec G201 -- identifiers come from the fixed lists in EnsureSchema
+		if _, err := DB.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", spec.table, spec.column, spec.definition)); err != nil {
+			return fmt.Errorf("add column %s.%s: %w", spec.table, spec.column, err)
+		}
+	}
+	return nil
+}
+
+func columnExists(table, column string) (bool, error) {
+	var n int
+	err := DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&n)
+	return n > 0, err
 }

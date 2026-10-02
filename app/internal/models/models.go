@@ -52,6 +52,16 @@ type ServiceTemplate struct {
 	HelpText      string `json:"help_text"`
 }
 
+// DegradedLatencyMS is the response time above which a successful check is
+// reported as degraded. Every status path must use IsDegraded so the
+// dashboard, scheduler and notifications agree.
+const DegradedLatencyMS = 200
+
+// IsDegraded reports whether a successful check was slower than DegradedLatencyMS.
+func IsDegraded(ok bool, ms *int) bool {
+	return ok && ms != nil && *ms > DegradedLatencyMS
+}
+
 // LiveResult represents the current status of a service
 type LiveResult struct {
 	Label       string `json:"label"`

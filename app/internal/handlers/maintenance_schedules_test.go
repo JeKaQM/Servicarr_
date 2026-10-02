@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"status/app/internal/cache"
 	"status/app/internal/database"
 	"status/app/internal/maintenance"
 	"status/app/internal/models"
@@ -19,6 +20,7 @@ func initMaintenanceHandlerDB(t *testing.T) {
 	if err := database.Init(":memory:"); err != nil {
 		t.Fatal(err)
 	}
+	cache.PublicCache.Clear()
 }
 
 func activeScheduleAt(now time.Time) *models.MaintenanceSchedule {

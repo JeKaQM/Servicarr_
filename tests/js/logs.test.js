@@ -35,3 +35,28 @@ describe('audit log presentation', () => {
     expect(summarizeLogDetails('status=200, latency=20ms')).toBe('status=200, latency=20ms');
   });
 });
+
+describe('errors and warnings highlights', () => {
+  afterEach(() => {
+    delete global.j;
+  });
+
+  test('queries both levels directly and shows the newest first', async () => {
+    document.body.innerHTML = '<div id="errorLogsList"></div>';
+    global.j = jest.fn(async (url) => {
+      if (url.includes('level=error')) {
+        return { logs: [{ id: 3, timestamp: '2026-10-01 09:00:00', level: 'error', category: 'check', message: 'Service check failed' }] };
+      }
+      return { logs: [{ id: 7, timestamp: '2026-10-01 10:00:00', level: 'warn', category: 'audit', message: 'Login failed' }] };
+    });
+
+    await loadErrorHighlights();
+
+    expect(global.j).toHaveBeenCalledWith('/api/admin/logs?limit=10&level=error');
+    expect(global.j).toHaveBeenCalledWith('/api/admin/logs?limit=10&level=warn');
+    const text = document.querySelector('#errorLogsList').textContent;
+    expect(text).toContain('Login failed');
+    expect(text).toContain('Service check failed');
+    expect(text.indexOf('Login failed')).toBeLessThan(text.indexOf('Service check failed'));
+  });
+});
