@@ -961,6 +961,14 @@
   text-shadow: 0 10px 30px rgba(239, 68, 68, 0.28);
 }
 
+/* No readable UPS data: show "N/A" in muted ink, not the healthy green. */
+.ups-tile.ups-unknown .ups-output-value,
+.ups-tile.ups-unknown .ups-battery-row strong,
+.ups-tile.ups-unknown .ups-runtime-row strong {
+  color: var(--muted);
+  text-shadow: none;
+}
+
 .ups-tile.ups-warning .ups-meter .meter-fill {
   background: linear-gradient(90deg, #f59e0b, #fbbf24);
   box-shadow: 0 0 16px rgba(245, 158, 11, 0.32);
