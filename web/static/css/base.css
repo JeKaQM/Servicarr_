@@ -8,6 +8,12 @@
   --muted: #9ca3af;
   --text: #e5e7eb;
   --primary: #22c55e;
+  /* Names used by the setup page, the blocked page and the uptime "N/A"
+     label. They were never defined, so those rules fell back to inherited
+     colours or no background at all. */
+  --fg: var(--text);
+  --text-dim: var(--muted);
+  --up: var(--primary);
 }
 
 * {
