@@ -1,4 +1,5 @@
 let servicesData = [];
+let adminServicesData = null;   // full admin list (hidden services, URLs, unfiltered links)
 let serviceTemplates = [];
 let editingServiceId = null;
 
@@ -148,6 +149,7 @@ async function loadAllServices() {
       headers: { 'X-CSRF-Token': getCsrf() }
     });
     servicesData = services;
+    adminServicesData = services;
     renderAdminServicesList(services);
     populateBannerScopeDropdown(); // Update banner scope dropdown
     return services;
