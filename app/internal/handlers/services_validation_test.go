@@ -80,3 +80,64 @@ func TestCreateServiceRejectsUnsafeKeyButDerivesLongNames(t *testing.T) {
 		t.Fatalf("long name: status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func linkedServices() []models.ServiceConfig {
+	return []models.ServiceConfig{
+		{Key: "router", Name: "Router"},
+		{Key: "nas", Name: "NAS", DependsOn: "router"},
+		{Key: "plex", Name: "Plex", DependsOn: "nas"},
+		{Key: "overseerr", Name: "Overseerr", DependsOn: "plex", ConnectedTo: "sonarr"},
+		{Key: "sonarr", Name: "Sonarr", DependsOn: "nas"},
+	}
+}
+
+func TestValidateServiceLinks(t *testing.T) {
+	tests := []struct {
+		name        string
+		svc         models.ServiceConfig
+		wantErr     string
+		wantDepends string
+		wantConns   string
+	}{
+		{"new service with links", models.ServiceConfig{Key: "radarr", Name: "Radarr", DependsOn: "nas, router", ConnectedTo: "plex"}, "", "nas,router", "plex"},
+		{"duplicates and blanks are dropped", models.ServiceConfig{Key: "radarr", Name: "Radarr", DependsOn: " nas,,nas ,", ConnectedTo: ""}, "", "nas", ""},
+		{"edit keeps existing links", models.ServiceConfig{Key: "plex", Name: "Plex", DependsOn: "nas"}, "", "nas", ""},
+		{"self dependency", models.ServiceConfig{Key: "plex", Name: "Plex", DependsOn: "plex"}, "itself", "", ""},
+		{"self connection", models.ServiceConfig{Key: "plex", Name: "Plex", ConnectedTo: "plex"}, "itself", "", ""},
+		{"unknown service", models.ServiceConfig{Key: "plex", Name: "Plex", DependsOn: "gone"}, `Unknown service "gone"`, "", ""},
+		{"direct loop", models.ServiceConfig{Key: "plex", Name: "Plex", DependsOn: "nas,overseerr"}, "Plex can't depend on Overseerr: Overseerr depends on Plex", "", ""},
+		{"indirect loop", models.ServiceConfig{Key: "router", Name: "Router", DependsOn: "overseerr"}, "Overseerr depends on Plex, which depends on NAS, which depends on Router", "", ""},
+		{"peer links never loop", models.ServiceConfig{Key: "sonarr", Name: "Sonarr", DependsOn: "nas", ConnectedTo: "overseerr"}, "", "nas", "overseerr"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			err := validateServiceLinks(&svc, linkedServices())
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateServiceLinks() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateServiceLinks() unexpected error: %v", err)
+			}
+			if svc.DependsOn != tt.wantDepends || svc.ConnectedTo != tt.wantConns {
+				t.Fatalf("normalised links = %q / %q, want %q / %q", svc.DependsOn, svc.ConnectedTo, tt.wantDepends, tt.wantConns)
+			}
+		})
+	}
+}
+
+func TestValidateServiceLinksToleratesExistingLoops(t *testing.T) {
+	// Older data may already contain a loop between other services; checking
+	// an unrelated service must still terminate and pass.
+	all := append(linkedServices(),
+		models.ServiceConfig{Key: "a", Name: "A", DependsOn: "b"},
+		models.ServiceConfig{Key: "b", Name: "B", DependsOn: "a"},
+	)
+	svc := models.ServiceConfig{Key: "radarr", Name: "Radarr", DependsOn: "a"}
+	if err := validateServiceLinks(&svc, all); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
