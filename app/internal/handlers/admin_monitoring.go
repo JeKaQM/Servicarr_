@@ -22,8 +22,8 @@ func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC()
-		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
-		if maintenanceActive {
+		pause, _, _ := maintenance.PausedAt(now)
+		if pause.All {
 			tracker.ResetAll()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"saved": false, "maintenance": true, "t": now})
@@ -36,9 +36,13 @@ func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 		}
 
 		for _, sc := range dbServices {
-			// Skip disabled services
+			// Skip disabled services and those in a maintenance window
 			disabled, _ := database.GetServiceDisabledState(sc.Key)
 			if disabled {
+				continue
+			}
+			if pause.Covers(sc.Key) {
+				tracker.Reset(sc.Key)
 				continue
 			}
 
@@ -56,12 +60,16 @@ func HandleIngestNow(tracker *monitor.FailureTracker) http.HandlerFunc {
 				ServiceType: sc.ServiceType,
 				APIToken:    sc.APIToken,
 			})
-			maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
-			if maintenanceStarted {
+			after, _, _ := maintenance.PausedAt(time.Now())
+			if after.All {
 				tracker.ResetAll()
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]any{"saved": false, "maintenance": true, "t": time.Now().UTC()})
 				return
+			}
+			if after.Covers(sc.Key) {
+				tracker.Reset(sc.Key)
+				continue
 			}
 
 			stats.RecordHeartbeat(sc.Key, checkOK, ms, code, errMsg)
@@ -133,9 +141,8 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			return
 		}
 
-		maintenanceActive, _, _ := maintenance.MonitoringSuppressed(time.Now())
-		if maintenanceActive {
-			tracker.ResetAll()
+		if pause, _, _ := maintenance.PausedAt(time.Now()); pause.Covers(sc.Key) {
+			resetPausedTracker(tracker, pause, sc.Key)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(models.LiveResult{
 				Label: sc.Name, OK: true, Status: 0, Maintenance: true, CheckType: sc.CheckType,
@@ -158,9 +165,8 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 			ServiceType: sc.ServiceType,
 			APIToken:    sc.APIToken,
 		})
-		maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
-		if maintenanceStarted {
-			tracker.ResetAll()
+		if after, _, _ := maintenance.PausedAt(time.Now()); after.Covers(sc.Key) {
+			resetPausedTracker(tracker, after, sc.Key)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(models.LiveResult{
 				Label: sc.Name, OK: true, Status: 0, Maintenance: true, CheckType: sc.CheckType,
@@ -175,6 +181,16 @@ func HandleAdminCheck(tracker *monitor.FailureTracker) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(models.LiveResult{Label: sc.Name, OK: checkOK, Status: code, MS: ms, Degraded: degraded, CheckType: sc.CheckType})
 	}
+}
+
+// resetPausedTracker clears failure counts for a paused service, or for every
+// service when the window covers them all.
+func resetPausedTracker(tracker *monitor.FailureTracker, pause maintenance.Pause, key string) {
+	if pause.All {
+		tracker.ResetAll()
+		return
+	}
+	tracker.Reset(key)
 }
 
 // HandleToggleMonitoring enables or disables monitoring for a service

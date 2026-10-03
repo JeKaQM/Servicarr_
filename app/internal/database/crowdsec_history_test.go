@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -41,7 +42,7 @@ func TestCrowdSecArchive_V7MigrationPreservesSourceAndPayload(t *testing.T) {
 	if source != CrowdSecSourceID(config.LAPIURL, config.MachineID) || message != "preserve me" || events != 17 || lat != 51.5 || lng != -0.1 {
 		t.Fatalf("migration lost source or payload: %q %q %d %v %v", source, message, events, lat, lng)
 	}
-	if err := DB.QueryRow(`SELECT value FROM app_metadata WHERE key = 'database_schema_version'`).Scan(&version); err != nil || version != "8" {
+	if err := DB.QueryRow(`SELECT value FROM app_metadata WHERE key = 'database_schema_version'`).Scan(&version); err != nil || version != strconv.Itoa(SchemaVersion) {
 		t.Fatalf("schema version = %q, %v", version, err)
 	}
 	if _, err := DB.Exec(`INSERT INTO crowdsec_alerts (source_id, alert_id, synced_at) VALUES ('other-source', '42', '')`); err != nil {

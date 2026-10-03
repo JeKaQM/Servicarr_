@@ -144,3 +144,39 @@ func TestImportBackupNormalizesSampleTimes(t *testing.T) {
 		t.Fatalf("taken_at = %v, want %v", got, want)
 	}
 }
+
+func TestMaintenanceWindowSettingsSurviveBackupRoundTrip(t *testing.T) {
+	initBackupTestDB(t)
+	window := &models.MaintenanceSchedule{
+		ID: "disk", Name: "NAS disk", Message: "New disk", Level: "warning", ScheduleType: "daily",
+		StartTime: "02:00", DurationMinutes: 30, Timezone: "Europe/London", Enabled: true,
+		SuppressMonitoring: true, ServiceKeys: []string{"nas", "plex"}, NoticeMinutes: 1440,
+	}
+	if err := database.SaveMaintenanceSchedule(window); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	HandleExportDatabase()(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/settings/export", nil))
+	var export DatabaseExport
+	if err := json.Unmarshal(recorder.Body.Bytes(), &export); err != nil {
+		t.Fatal(err)
+	}
+
+	initBackupTestDB(t)
+	if _, err := importBackup(&export); err != nil {
+		t.Fatal(err)
+	}
+	schedules, err := database.GetMaintenanceSchedules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range schedules {
+		if got.ID == "disk" {
+			if strings.Join(got.ServiceKeys, ",") != "nas,plex" || got.NoticeMinutes != 1440 {
+				t.Fatalf("imported window = %+v", got)
+			}
+			return
+		}
+	}
+	t.Fatal("window missing after import")
+}

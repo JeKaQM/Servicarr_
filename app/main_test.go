@@ -1,9 +1,13 @@
 package main
 
 import (
+	"status/app/internal/alerts"
 	"status/app/internal/buildinfo"
 	"status/app/internal/database"
+	"status/app/internal/maintenance"
 	"status/app/internal/models"
+	"status/app/internal/monitor"
+	"status/app/internal/stats"
 	"testing"
 	"time"
 )
@@ -104,4 +108,54 @@ type testServiceAlertNotifier struct {
 func (n *testServiceAlertNotifier) CheckAndSendAlerts(_ string, _ string, _ bool, _ bool) bool {
 	n.calls++
 	return n.queued
+}
+
+func TestTickPausesOnlyTheServicesAWindowCovers(t *testing.T) {
+	if err := database.Init(":memory:"); err != nil {
+		t.Fatal(err)
+	}
+	if err := stats.EnsureStatsSchema(); err != nil {
+		t.Fatal(err)
+	}
+	// The seeded Monday window covers every service; it must not interfere.
+	if _, err := database.DB.Exec(`DELETE FROM maintenance_schedules`); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"nas", "plex"} {
+		if _, err := database.CreateService(&models.ServiceConfig{
+			Key: key, Name: key, URL: "http://" + key + ".test", ServiceType: "custom", CheckType: "always_up",
+			CheckInterval: 60, Timeout: 2, ExpectedMin: 200, ExpectedMax: 299, Visible: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	window := &models.MaintenanceSchedule{
+		ID: "nas-disk", Name: "NAS disk", Message: "New disk", Level: "warning", ScheduleType: "once",
+		StartsAt: time.Now().UTC().Add(-time.Minute).Format("2006-01-02T15:04"), Timezone: "UTC",
+		SuppressMonitoring: true, Enabled: true, ServiceKeys: []string{"nas"},
+	}
+	if err := maintenance.ValidateSchedule(window); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SaveMaintenanceSchedule(window); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &scheduler{
+		alertMgr:        alerts.NewManager(""),
+		defaultInterval: time.Minute,
+		tracker:         monitor.NewFailureTracker(),
+		timers:          map[string]*serviceTimer{},
+	}
+	s.tick()
+
+	for key, want := range map[string]int{"nas": 0, "plex": 1} {
+		var samples int
+		if err := database.DB.QueryRow(`SELECT COUNT(*) FROM samples WHERE service_key = ?`, key).Scan(&samples); err != nil {
+			t.Fatal(err)
+		}
+		if samples != want {
+			t.Fatalf("%s has %d samples, want %d", key, samples, want)
+		}
+	}
 }

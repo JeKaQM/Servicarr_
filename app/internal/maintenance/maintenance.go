@@ -14,6 +14,12 @@ import (
 // MaxDurationMinutes prevents time.Duration overflow; it is approximately 292 years.
 const MaxDurationMinutes = math.MaxInt64 / int64(time.Minute)
 
+// MaxNoticeMinutes caps how early an upcoming-maintenance banner appears.
+const MaxNoticeMinutes = 7 * 24 * 60
+
+// maxServiceKeys bounds the services one window can list.
+const maxServiceKeys = 500
+
 // ActiveWindow is one occurrence of a maintenance schedule. A zero EndsAt has no end.
 type ActiveWindow struct {
 	Schedule models.MaintenanceSchedule
@@ -37,6 +43,7 @@ func ValidateSchedule(schedule *models.MaintenanceSchedule) error {
 	if schedule.ScheduleType == "" {
 		schedule.ScheduleType = "weekly"
 	}
+	schedule.ServiceKeys = normalizeServiceKeys(schedule.ServiceKeys)
 
 	if schedule.Name == "" {
 		return errors.New("name is required")
@@ -60,6 +67,12 @@ func ValidateSchedule(schedule *models.MaintenanceSchedule) error {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		return fmt.Errorf("invalid timezone: %w", err)
+	}
+	if len(schedule.ServiceKeys) > maxServiceKeys {
+		return fmt.Errorf("choose at most %d services", maxServiceKeys)
+	}
+	if schedule.NoticeMinutes < 0 || schedule.NoticeMinutes > MaxNoticeMinutes {
+		return fmt.Errorf("notice_minutes must be between 0 and %d", MaxNoticeMinutes)
 	}
 	if schedule.ScheduleType == "once" {
 		start, err := parseScheduledDate(schedule.StartsAt, location)
@@ -225,13 +238,115 @@ func Current(now time.Time) ([]ActiveWindow, error) {
 	return ActiveAt(schedules, now)
 }
 
-// MonitoringSuppressed reports whether any active window pauses monitoring.
-func MonitoringSuppressed(now time.Time) (bool, []ActiveWindow, error) {
-	active, err := Current(now)
+// Pause says which services the active windows pause monitoring for.
+type Pause struct {
+	All  bool            // A window covers every service
+	Keys map[string]bool // Services covered by windows limited to chosen services
+}
+
+// Covers reports whether monitoring of the service is paused.
+func (p Pause) Covers(key string) bool {
+	return p.All || p.Keys[key]
+}
+
+// PauseOf combines the monitoring pauses of active windows. Banner-only
+// windows pause nothing.
+func PauseOf(active []ActiveWindow) Pause {
+	pause := Pause{Keys: map[string]bool{}}
 	for _, window := range active {
-		if window.Schedule.SuppressMonitoring {
-			return true, active, err
+		if !window.Schedule.SuppressMonitoring {
+			continue
+		}
+		if len(window.Schedule.ServiceKeys) == 0 {
+			pause.All = true
+			continue
+		}
+		for _, key := range window.Schedule.ServiceKeys {
+			pause.Keys[key] = true
 		}
 	}
-	return false, active, err
+	return pause
+}
+
+// PausedAt loads the schedules and reports which services are paused at now.
+func PausedAt(now time.Time) (Pause, []ActiveWindow, error) {
+	active, err := Current(now)
+	return PauseOf(active), active, err
+}
+
+// NextWindow returns the first occurrence of an enabled schedule that starts
+// after now. Recurring schedules are searched three weeks ahead, which covers
+// a weekly occurrence skipped by a clock change.
+func NextWindow(stored models.MaintenanceSchedule, now time.Time) (ActiveWindow, bool) {
+	schedule := stored
+	if !schedule.Enabled || ValidateSchedule(&schedule) != nil {
+		return ActiveWindow{}, false
+	}
+	if schedule.ScheduleType == "once" {
+		start, _ := time.Parse(time.RFC3339, schedule.StartsAt)
+		if !start.After(now) {
+			return ActiveWindow{}, false
+		}
+		var end time.Time
+		if schedule.EndsAt != "" {
+			end, _ = time.Parse(time.RFC3339, schedule.EndsAt)
+		}
+		return ActiveWindow{Schedule: schedule, StartsAt: start, EndsAt: end}, true
+	}
+
+	location, _ := time.LoadLocation(schedule.Timezone)
+	localNow := now.In(location)
+	clock, _ := time.Parse("15:04", schedule.StartTime)
+	date := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.UTC)
+	for dayOffset := 0; dayOffset <= 21; dayOffset++ {
+		day := date.AddDate(0, 0, dayOffset)
+		if schedule.ScheduleType == "weekly" && !slices.Contains(schedule.Weekdays, int(day.Weekday())) {
+			continue
+		}
+		start, exists := wallClock(day.Year(), day.Month(), day.Day(), clock.Hour(), clock.Minute(), location)
+		if !exists || !start.After(now) {
+			continue
+		}
+		end := start.Add(time.Duration(schedule.DurationMinutes) * time.Minute)
+		return ActiveWindow{Schedule: schedule, StartsAt: start, EndsAt: end}, true
+	}
+	return ActiveWindow{}, false
+}
+
+// UpcomingAt returns the next occurrence of each schedule with advance notice
+// that starts within its notice period. A schedule that is running gets no
+// notice, so a daily window doesn't announce tomorrow's while today's runs.
+func UpcomingAt(schedules []models.MaintenanceSchedule, active []ActiveWindow, now time.Time) []ActiveWindow {
+	running := make(map[string]bool, len(active))
+	for _, window := range active {
+		running[window.Schedule.ID] = true
+	}
+	upcoming := make([]ActiveWindow, 0)
+	for _, schedule := range schedules {
+		if schedule.NoticeMinutes <= 0 || running[schedule.ID] {
+			continue
+		}
+		next, ok := NextWindow(schedule, now)
+		if ok && next.StartsAt.Sub(now) <= time.Duration(next.Schedule.NoticeMinutes)*time.Minute {
+			upcoming = append(upcoming, next)
+		}
+	}
+	return upcoming
+}
+
+func normalizeServiceKeys(keys []string) []string {
+	normalized := make([]string, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalized = append(normalized, key)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }

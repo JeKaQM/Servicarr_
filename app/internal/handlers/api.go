@@ -93,7 +93,7 @@ func buildPublicLiveStatus(now time.Time) (models.LivePayload, error) {
 	}
 
 	filterPublicRelationships(dbServices)
-	maintenanceActive, _, _ := maintenance.MonitoringSuppressed(now)
+	pause, _, _ := maintenance.PausedAt(now)
 
 	maintenanceResult := func(sc models.ServiceConfig) models.LiveResult {
 		return models.LiveResult{
@@ -118,7 +118,7 @@ func buildPublicLiveStatus(now time.Time) (models.LivePayload, error) {
 				DependsOn:   sc.DependsOn,
 				ConnectedTo: sc.ConnectedTo,
 			}
-		case maintenanceActive:
+		case pause.Covers(sc.Key):
 			out.Status[sc.Key] = maintenanceResult(sc)
 		default:
 			toCheck = append(toCheck, sc)
@@ -132,9 +132,9 @@ func buildPublicLiveStatus(now time.Time) (models.LivePayload, error) {
 	results := checker.CheckAll(opts, maxConcurrentChecks)
 
 	// A batch can straddle the start of a maintenance window. Report maintenance.
-	maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now())
+	after, _, _ := maintenance.PausedAt(time.Now())
 	for i, sc := range toCheck {
-		if maintenanceStarted {
+		if after.Covers(sc.Key) {
 			out.Status[sc.Key] = maintenanceResult(sc)
 			continue
 		}

@@ -150,17 +150,25 @@ type BlockInfo struct {
 // StatusAlert represents a site-wide or service-specific alert banner
 type StatusAlert struct {
 	ID         string `json:"id"`
-	ServiceKey string `json:"service_key"`
-	Message    string `json:"message"`
-	Level      string `json:"level"`
-	CreatedAt  string `json:"created_at"`
-	Scheduled  bool   `json:"scheduled,omitempty"`
-	Automatic  bool   `json:"automatic,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	EndsAt     string `json:"ends_at,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Editable   bool   `json:"editable,omitempty"`
-	Hidden     bool   `json:"hidden,omitempty"`
+	ServiceKey string `json:"service_key"` // First of ServiceKeys, for older clients
+	// ServiceKeys lists the services whose cards show the banner; empty shows it
+	// at the top of the page.
+	ServiceKeys []string `json:"service_keys,omitempty"`
+	Message     string   `json:"message"`
+	Level       string   `json:"level"`
+	CreatedAt   string   `json:"created_at"`
+	Scheduled   bool     `json:"scheduled,omitempty"`
+	Automatic   bool     `json:"automatic,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
+	StartsAt    string   `json:"starts_at,omitempty"` // Empty shows a manual banner from creation
+	EndsAt      string   `json:"ends_at,omitempty"`   // Empty shows it until removed
+	Source      string   `json:"source,omitempty"`
+	Editable    bool     `json:"editable,omitempty"`
+	Hidden      bool     `json:"hidden,omitempty"`
+	// State is "live", "scheduled" or "ended"; only the admin list carries it.
+	State string `json:"state,omitempty"`
+	// ScheduleID names the maintenance window a scheduled banner comes from.
+	ScheduleID string `json:"schedule_id,omitempty"`
 }
 
 // MaintenanceSchedule describes a one-time, daily, or weekly maintenance banner.
@@ -179,8 +187,13 @@ type MaintenanceSchedule struct {
 	Timezone           string `json:"timezone"`
 	SuppressMonitoring bool   `json:"suppress_monitoring"`
 	Enabled            bool   `json:"enabled"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
+	// ServiceKeys limits the window to these services; empty covers every service.
+	ServiceKeys []string `json:"service_keys,omitempty"`
+	// NoticeMinutes shows an "upcoming maintenance" banner this long before
+	// each occurrence starts; zero shows none.
+	NoticeMinutes int    `json:"notice_minutes,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // AppSettings stores application configuration including auth credentials
