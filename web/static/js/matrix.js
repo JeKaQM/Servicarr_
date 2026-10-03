@@ -438,6 +438,12 @@ function topologyNode(svc) {
   const ring = document.createElement('span');
   ring.className = 'matrix-node-ring unknown';
   ring.innerHTML = serviceIconMarkup(svc);
+  // A banner on this service shows as a badge on its ring.
+  const notice = document.createElement('span');
+  notice.className = 'topo-node-notice';
+  notice.setAttribute('aria-hidden', 'true');
+  notice.hidden = true;
+  ring.appendChild(notice);
   const name = document.createElement('span');
   name.className = 'topo-node-name';
   name.textContent = svc.name || svc.key;
@@ -687,7 +693,40 @@ function topologyDescription(key) {
   if (model.deps.get(key).length) parts.push('Depends on ' + list(model.deps.get(key)) + '.');
   if (model.dependents.get(key).length) parts.push('Needed by ' + list(model.dependents.get(key)) + '.');
   if (model.peers.get(key).size) parts.push('Connected to ' + list([...model.peers.get(key)]) + '.');
+  topologyNotices(key).forEach(b => parts.push('Notice: ' + (b.message || '') + '.'));
   return parts.join(' ');
+}
+
+/* ── Banners on services ────────────────────────────────── */
+const TOPO_NOTICE_RANK = { info: 1, warning: 2, error: 3 };
+
+function topologyNotices(key) {
+  const byKey = typeof serviceBannersByKey !== 'undefined' ? serviceBannersByKey : null;
+  return (byKey && byKey[key]) || [];
+}
+
+// Badges each service that has a banner, in the colour of its most serious
+// one, with a mark that doesn't rely on colour: "i" for info, "!" otherwise.
+function updateTopologyNotices() {
+  if (!topoState) return;
+  topoState.nodes.forEach((buttons, key) => {
+    const notices = topologyNotices(key);
+    const level = notices.reduce((worst, b) => {
+      const lvl = TOPO_NOTICE_RANK[b.level] ? b.level : 'info';
+      return TOPO_NOTICE_RANK[lvl] > TOPO_NOTICE_RANK[worst] ? lvl : worst;
+    }, 'info');
+    buttons.forEach(btn => {
+      const badge = btn.querySelector('.topo-node-notice');
+      if (badge) {
+        badge.hidden = notices.length === 0;
+        badge.className = 'topo-node-notice is-' + level;
+        badge.textContent = level === 'info' ? 'i' : '!';
+      }
+      btn.classList.toggle('has-notice', notices.length > 0);
+      btn.setAttribute('aria-label', topologyDescription(key));
+    });
+  });
+  if (topoState.focusKey && topoState.card && !topoState.card.hidden) fillTopologyCard(topoState.focusKey);
 }
 
 function updateTopologyStatus() {
@@ -704,7 +743,7 @@ function updateTopologyStatus() {
     });
   });
   topoState.edges.forEach(edge => setTopologyEdgeState(edge, topologyEdgeState(edge, topoState.status)));
-  if (topoState.focusKey && topoState.card && !topoState.card.hidden) fillTopologyCard(topoState.focusKey);
+  updateTopologyNotices();
 }
 
 /* ── Tracing a service's links ──────────────────────────── */
@@ -767,6 +806,18 @@ function fillTopologyCard(key) {
     ['Needed by', model.dependents.get(key)],
     ['Connected to', [...model.peers.get(key)]]
   ].filter(([, keys]) => keys.length);
+  const notices = topologyNotices(key);
+  if (notices.length) {
+    const list = document.createElement('ul');
+    list.className = 'topo-card-notices';
+    notices.slice(0, 3).forEach(b => {
+      const item = document.createElement('li');
+      item.className = 'topo-card-notice is-' + (TOPO_NOTICE_RANK[b.level] ? b.level : 'info');
+      item.textContent = b.message || '';
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+  }
   if (rows.length) {
     const dl = document.createElement('dl');
     rows.forEach(([label, keys]) => {

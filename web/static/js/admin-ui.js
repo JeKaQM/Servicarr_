@@ -484,9 +484,7 @@ window.addEventListener('load', async () => {
       if (tabName === 'security') {
         loadSecurityData();
       } else if (tabName === 'banners') {
-        loadAdminBanners();
-        loadMaintenanceSchedules();
-        populateBannerScopeDropdown();
+        showBannersTab();
       }
     });
   });
@@ -545,38 +543,5 @@ window.addEventListener('load', async () => {
     toggle.addEventListener('change', (e) => toggleMonitoring(e.target.closest('.card'), e.target.checked))
   );
 
-  // Banner management
-  const createBannerBtn = $('#createBanner');
-  if (createBannerBtn) {
-    createBannerBtn.addEventListener('click', createBanner);
-  }
-
-  const cancelBannerEdit = $('#cancelBannerEdit');
-  if (cancelBannerEdit) {
-    cancelBannerEdit.addEventListener('click', resetBannerForm);
-  }
-
-  const maintenanceForm = $('#maintenanceScheduleForm');
-  if (maintenanceForm) {
-    maintenanceForm.addEventListener('submit', saveMaintenanceSchedule);
-    maintenanceForm.addEventListener('change', updateMaintenanceScheduleForm);
-    updateMaintenanceScheduleForm();
-  }
-
-  const cancelMaintenanceBtn = $('#cancelMaintenanceSchedule');
-  if (cancelMaintenanceBtn) {
-    cancelMaintenanceBtn.addEventListener('click', resetMaintenanceScheduleForm);
-  }
-
-  // Banner template selection
-  const bannerTemplate = $('#bannerTemplate');
-  if (bannerTemplate) {
-    bannerTemplate.addEventListener('change', () => {
-      const msgInput = $('#bannerMessage');
-      if (msgInput && bannerTemplate.value) {
-        msgInput.value = bannerTemplate.value;
-        bannerTemplate.value = ''; // Reset dropdown
-      }
-    });
-  }
+  // The Banners tab wires itself up (banners-admin.js).
 });

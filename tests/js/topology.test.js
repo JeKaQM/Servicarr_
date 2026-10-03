@@ -455,3 +455,43 @@ describe('editing links from the map', () => {
     }
   });
 });
+
+/* ── Banners on the map ─────────────────────────────────── */
+describe('banners on the map', () => {
+  afterEach(() => {
+    delete globalThis.serviceBannersByKey;
+  });
+
+  test('a service with a banner gets a badge and the banner in its card', () => {
+    const container = render(SAMPLE, LIVE);
+    globalThis.serviceBannersByKey = {
+      plex: [{ id: 'a', level: 'warning', message: 'Transcoding is slow' }, { id: 'b', level: 'info', message: 'New library' }],
+    };
+    updateTopologyNotices();
+
+    const plex = node(container, 'plex');
+    const badge = plex.querySelector('.topo-node-notice');
+    expect(badge.hidden).toBe(false);
+    expect(badge.className).toBe('topo-node-notice is-warning');
+    expect(badge.textContent).toBe('!');
+    expect(plex.getAttribute('aria-label')).toContain('Notice: Transcoding is slow.');
+    expect(node(container, 'nas').querySelector('.topo-node-notice').hidden).toBe(true);
+
+    plex.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect([...container.querySelectorAll('.topo-card-notice')].map(li => li.textContent))
+      .toEqual(['Transcoding is slow', 'New library']);
+  });
+
+  test('badges come back after a rebuild and go when the banner does', () => {
+    globalThis.serviceBannersByKey = { demo: [{ id: 'a', level: 'info', message: 'Demo notice' }] };
+    const container = render(SAMPLE, LIVE);
+    const badge = () => node(container, 'demo').querySelector('.topo-node-notice');
+    expect(badge().hidden).toBe(false);
+    expect(badge().textContent).toBe('i');
+
+    globalThis.serviceBannersByKey = {};
+    updateTopologyNotices();
+    expect(badge().hidden).toBe(true);
+    expect(node(container, 'demo').getAttribute('aria-label')).not.toContain('Notice');
+  });
+});

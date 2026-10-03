@@ -200,6 +200,46 @@
   outline-offset: 4px;
 }
 
+/* A banner on the service: a badge on its ring, coloured by the most serious
+   banner, with "i" or "!" so it doesn't rely on colour. */
+.topo-node-notice {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 3;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font:
+    800 11px/1 system-ui,
+    sans-serif;
+  color: #0b1220;
+  background: #7dd3fc;
+  box-shadow:
+    0 0 0 2px #0f111a,
+    0 0 8px rgba(125, 211, 252, 0.6);
+}
+
+.topo-node-notice.is-warning {
+  background: #fbbf24;
+  box-shadow:
+    0 0 0 2px #0f111a,
+    0 0 8px rgba(251, 191, 36, 0.6);
+}
+
+.topo-node-notice.is-error {
+  background: #f87171;
+  box-shadow:
+    0 0 0 2px #0f111a,
+    0 0 8px rgba(248, 113, 113, 0.6);
+}
+
+.topo-node-notice[hidden] {
+  display: none;
+}
+
 .topo-node-name {
   max-width: var(--topo-node-w, 112px);
   font-size: 12px;
@@ -366,6 +406,32 @@
 .topo-card dd {
   margin: 0;
   color: #e5e7eb;
+}
+
+.topo-card-notices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.topo-card-notice {
+  padding: 6px 8px;
+  border-left: 3px solid #7dd3fc;
+  border-radius: 6px;
+  background: rgba(125, 211, 252, 0.08);
+  color: #e5e7eb;
+}
+
+.topo-card-notice.is-warning {
+  border-left-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.topo-card-notice.is-error {
+  border-left-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
 }
 
 .topo-card-hint {
@@ -661,7 +727,7 @@
   margin: 0;
 }
 
-.service-form .link-picker {
+:is(.service-form, .banner-form) .link-picker {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -675,7 +741,7 @@
   gap: 8px;
 }
 
-.service-form .link-picker-head label {
+:is(.service-form, .banner-form) .link-picker-head label {
   margin: 0;
 }
 
@@ -685,7 +751,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.service-form .link-picker-search {
+:is(.service-form, .banner-form) .link-picker-search {
   width: 100%;
   padding: 8px 12px;
 }
@@ -702,7 +768,7 @@
   border-radius: 8px;
 }
 
-.service-form .link-picker-list .link-option {
+:is(.service-form, .banner-form) .link-picker-list .link-option {
   display: grid;
   grid-template-columns: 16px 24px minmax(0, 1fr) auto;
   align-items: center;
@@ -720,33 +786,46 @@
   transition: background 0.15s;
 }
 
-.service-form .link-picker-list .link-option[hidden] {
+:is(.service-form, .banner-form) .link-picker-list .link-option[hidden] {
   display: none;
 }
 
-.service-form .link-picker-list .link-option:hover {
+:is(.service-form, .banner-form) .link-picker-list .link-option:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.service-form .link-picker-list .link-option:has(input:checked) {
+:is(.service-form, .banner-form)
+  .link-picker-list
+  .link-option:has(input:checked) {
   background: rgba(99, 102, 241, 0.14);
 }
 
-.service-form .link-picker-list .link-option:has(input:focus-visible) {
+:is(.service-form, .banner-form)
+  .link-picker-list
+  .link-option:has(input:focus-visible) {
   outline: 2px solid #7dd3fc;
   outline-offset: -2px;
 }
 
-.service-form .link-picker-list .link-option.is-disabled {
+:is(.service-form, .banner-form) .link-picker-list .link-option.is-disabled {
   cursor: not-allowed;
 }
 
-.service-form .link-picker-list .link-option.is-disabled .link-option-icon,
-.service-form .link-picker-list .link-option.is-disabled .link-option-name {
+:is(.service-form, .banner-form)
+  .link-picker-list
+  .link-option.is-disabled
+  .link-option-icon,
+:is(.service-form, .banner-form)
+  .link-picker-list
+  .link-option.is-disabled
+  .link-option-name {
   opacity: 0.5;
 }
 
-.service-form .link-picker-list .link-option input[type="checkbox"] {
+:is(.service-form, .banner-form)
+  .link-picker-list
+  .link-option
+  input[type="checkbox"] {
   width: 16px;
   height: 16px;
   min-height: 0;
@@ -814,7 +893,7 @@
   color: #fbbf24;
 }
 
-.service-form .link-picker-note {
+:is(.service-form, .banner-form) .link-picker-note {
   margin: 0;
   font-size: 12px;
   color: var(--muted);

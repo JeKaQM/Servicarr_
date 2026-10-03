@@ -1012,24 +1012,6 @@
     font-size: 13px;
   }
 
-  /* Banners List - Mobile */
-  .banners-list {
-    gap: 10px;
-  }
-
-  .banner-item {
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px;
-    text-align: left;
-  }
-
-  .banner-item .banner-actions {
-    width: 100%;
-    justify-content: flex-start;
-    gap: 10px;
-  }
-
   /* Security Lists - Mobile */
   .blocks-list {
     gap: 8px;

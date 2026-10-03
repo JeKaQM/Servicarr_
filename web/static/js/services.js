@@ -151,7 +151,8 @@ async function loadAllServices() {
     servicesData = services;
     adminServicesData = services;
     renderAdminServicesList(services);
-    populateBannerScopeDropdown(); // Update banner scope dropdown
+    // The Banners tab's service pickers follow the service list.
+    if (typeof refreshBannerPickers === 'function') refreshBannerPickers();
     return services;
   } catch (e) {
     console.error('Failed to load all services', e);
