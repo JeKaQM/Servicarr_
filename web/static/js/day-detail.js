@@ -8,7 +8,7 @@ async function openDayDetail(serviceKey, dateStr) {
   const serviceName = svc ? (svc.name || svc.key) : serviceKey;
 
   const dateObj = new Date(dateStr);
-  const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const formattedDate = dateObj.toLocaleDateString(APP_LOCALE, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   $('#dayDetailTitle').textContent = serviceName + ' - ' + formattedDate;
 
@@ -125,7 +125,7 @@ function renderDayDetailEvents(events, container) {
     const ts = new Date(ev.time);
     const timeStr = ev.all_day
       ? (ev.ongoing ? 'ONGOING' : 'ALL DAY')
-      : ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      : ts.toLocaleTimeString(APP_LOCALE, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     let detail = '';
     if (ev.all_day) detail = ev.ongoing ? 'Ongoing outage: every recorded check failed' : 'Every recorded check failed this day';
@@ -180,7 +180,7 @@ async function refresh() {
 
   try {
     const live = await j('/api/check');
-    $('#updated').textContent = new Date(live.t).toLocaleString();
+    $('#updated').textContent = new Date(live.t).toLocaleString(APP_LOCALE);
 
     // Update cards dynamically based on services returned from API
     if (live.status) {

@@ -437,21 +437,26 @@ describe('banner time labels', () => {
     expect(bannerTimeLabel({ source: 'manual', created_at: at(-600), starts_at: at(-2) })).toBe('2m ago');
   });
 
+  // Times use UK formats in the viewer's timezone, whatever the browser's
+  // language; these dates are local, so the expectations hold anywhere.
   test('upcoming maintenance gives its window', () => {
-    const label = bannerTimeLabel({ kind: 'maintenance_upcoming', scheduled: true, starts_at: '2026-10-04T21:00:00Z', ends_at: '2026-10-04T22:30:00Z' });
-    expect(label).toMatch(/\d{2}:\d{2}[–-]\d{2}:\d{2}$/);
+    const start = new Date(2026, 9, 4, 22, 0);
+    const end = new Date(2026, 9, 4, 23, 30);
+    const label = bannerTimeLabel({ kind: 'maintenance_upcoming', scheduled: true, starts_at: start.toISOString(), ends_at: end.toISOString() });
+    expect(label).toBe('Sun 4 Oct, 22:00–23:30');
+    expect(formatUpcomingBannerTime(start.toISOString(), '')).toBe('From Sun 4 Oct, 22:00');
     expect(formatUpcomingBannerTime('', '')).toBe('Planned maintenance');
   });
 
   test('running maintenance still says when it ends', () => {
-    expect(bannerTimeLabel({ kind: 'maintenance', scheduled: true, ends_at: at(30) })).toMatch(/^Ends /);
+    expect(bannerTimeLabel({ kind: 'maintenance', scheduled: true, ends_at: at(30) })).toMatch(/^Ends \d{2}:\d{2}$/);
   });
 
   test('times say which day once they are not today', () => {
     const now = new Date(2026, 9, 3, 12, 0);
-    expect(formatBannerClock(new Date(2026, 9, 3, 23, 30), now)).toMatch(/^\d{2}:\d{2}$/);
-    expect(formatBannerClock(new Date(2026, 9, 5, 9, 0), now)).toMatch(/^\S+ \d{2}:\d{2}$/);
-    expect(formatBannerClock(new Date(2026, 11, 25, 9, 0), now)).toMatch(/25/);
+    expect(formatBannerClock(new Date(2026, 9, 3, 23, 30), now)).toBe('23:30');
+    expect(formatBannerClock(new Date(2026, 9, 5, 9, 0), now)).toBe('Mon 09:00');
+    expect(formatBannerClock(new Date(2026, 11, 25, 9, 0), now)).toBe('25 Dec 09:00');
   });
 
   test('upcoming banners are marked for styling', () => {

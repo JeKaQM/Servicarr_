@@ -203,7 +203,7 @@ func CreateHTMLEmail(subject, statusType, serviceName, serviceKey, message, stat
     </tr>
   </table>
 </body>
-</html>`, safeSubject, message, color, statusText, safeSubject, message, safeServiceName, color, statusText, time.Now().Format("Monday, January 2, 2006 at 3:04 PM MST"), safeStatusPageURL)
+</html>`, safeSubject, message, color, statusText, safeSubject, message, safeServiceName, color, statusText, time.Now().Format("Monday 2 January 2006 at 15:04 MST"), safeStatusPageURL)
 
 	return html
 }

@@ -400,7 +400,7 @@ function crowdsecRemainingTime(expiresAt, fallback, nowMs = Date.now()) {
 
 function crowdsecDisplayNumber(value) {
   const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString() : '—';
+  return Number.isFinite(number) ? number.toLocaleString(APP_LOCALE) : '—';
 }
 
 // Fill the overview, charts, and aggregate panels. These figures come from
@@ -496,11 +496,11 @@ function renderCrowdsecBreakdown(selector, items, labelFn, options = {}) {
     const label = escapeHtml(rawLabel);
     const count = Math.max(0, Number(item.count) || 0);
     const pct = count ? Math.max(3, Math.round((count / max) * 100)) : 0;
-    const attrTitle = escapeHtml(`${rawLabel}: ${count.toLocaleString()}`);
+    const attrTitle = escapeHtml(`${rawLabel}: ${count.toLocaleString(APP_LOCALE)}`);
     return `<div class="crowdsec-breakdown-row${item._crowdsecOther ? ' is-other' : ''}" title="${attrTitle}" aria-label="${attrTitle}">
       <span class="crowdsec-breakdown-label">${label}</span>
       <div class="crowdsec-breakdown-track"><div class="crowdsec-breakdown-bar" style="width:${pct}%"></div></div>
-      <span class="crowdsec-breakdown-count">${escapeHtml(count.toLocaleString())}</span>
+      <span class="crowdsec-breakdown-count">${escapeHtml(count.toLocaleString(APP_LOCALE))}</span>
     </div>`;
   }).join('');
 }
@@ -527,7 +527,7 @@ function crowdsecHistoryLabel() {
 
 function crowdsecHistoryOldest(value) {
   const date = new Date(value || '');
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(undefined, {
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(APP_LOCALE, {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
   }).format(date);
 }

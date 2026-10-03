@@ -49,19 +49,19 @@ function formatBannerTime(isoString) {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
 
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleDateString(APP_LOCALE, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 // A time with as much date as it needs: "23:30" today, "Sat 23:30" within
 // the coming week, "4 Oct 23:30" further out.
 function formatBannerClock(date, now = new Date()) {
-  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = date.toLocaleTimeString(APP_LOCALE, { hour: '2-digit', minute: '2-digit' });
   if (date.toDateString() === now.toDateString()) return time;
   const days = (date - now) / 86400000;
   if (days > -6 && days < 6) {
-    return `${date.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+    return `${date.toLocaleDateString(APP_LOCALE, { weekday: 'short' })} ${time}`;
   }
-  return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
+  return `${date.toLocaleDateString(APP_LOCALE, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
 function formatScheduledBannerTime(endsAt) {
@@ -75,8 +75,8 @@ function formatScheduledBannerTime(endsAt) {
 function formatUpcomingBannerTime(startsAt, endsAt) {
   const start = new Date(startsAt);
   if (!startsAt || Number.isNaN(start.getTime())) return 'Planned maintenance';
-  const day = start.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
-  const clock = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const day = start.toLocaleDateString(APP_LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
+  const clock = d => d.toLocaleTimeString(APP_LOCALE, { hour: '2-digit', minute: '2-digit' });
   const end = endsAt ? new Date(endsAt) : null;
   if (!end || Number.isNaN(end.getTime())) return `From ${day}, ${clock(start)}`;
   if (end.toDateString() === start.toDateString()) return `${day}, ${clock(start)}–${clock(end)}`;
@@ -89,7 +89,7 @@ function formatAutomaticBannerTime(banner) {
   if (banner?.kind === 'services_restored' && banner.ends_at) {
     const end = new Date(banner.ends_at);
     if (!Number.isNaN(end.getTime())) {
-      return `Monitoring until ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      return `Monitoring until ${end.toLocaleTimeString(APP_LOCALE, { hour: '2-digit', minute: '2-digit' })}`;
     }
   }
   return 'Automatic status update';

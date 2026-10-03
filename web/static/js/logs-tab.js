@@ -127,7 +127,7 @@ function appendLogs(selector, logs) {
 }
 
 function renderLogEntry(log) {
-  const time = new Date(log.timestamp).toLocaleString();
+  const time = new Date(log.timestamp).toLocaleString(APP_LOCALE);
   const level = ['error', 'warn', 'info', 'debug'].includes(log.level) ? log.level : 'info';
   const category = log.category || '';
   const service = log.service || '';

@@ -1,4 +1,8 @@
 // Shared utility functions
+
+// Dates, times and numbers use UK formats (24-hour clock, day before month)
+// whatever the browser's language is. Times stay in the viewer's timezone.
+const APP_LOCALE = 'en-GB';
 window.getCsrf = function() {
     return (document.cookie.split('; ').find(s => s.startsWith('csrf=')) || '').split('=')[1] || '';
 };

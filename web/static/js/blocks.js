@@ -42,7 +42,7 @@ function setupBlocksAdmin() {
                     <div class="block-info">
                         <strong>${safeIp}</strong>
                         <span class="muted">Attempts: ${parseInt(block.attempts, 10) || 0}</span>
-                        <span class="muted">Expires: ${expires.toLocaleString()}</span>
+                        <span class="muted">Expires: ${expires.toLocaleString(APP_LOCALE)}</span>
                     </div>
                     <button class="btn mini unblock" data-ip="${safeIp}">Unblock</button>
                 `;
