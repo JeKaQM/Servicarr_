@@ -65,9 +65,9 @@ describe('Depends on picker', () => {
     expect(document.getElementById('dependsOnCount').textContent).toBe('1 linked');
   });
 
-  test('shows status with a word, and marks hidden services', () => {
+  test('flags services that are not healthy, in words, and hidden ones', () => {
     populateDependsOnDropdown('plex', ['nas', 'proxmox']);
-    expect(row('serviceDependsOnList', 'router').status).toBe('Operational');
+    expect(row('serviceDependsOnList', 'router').status).toBe('');
     expect(row('serviceDependsOnList', 'nas').status).toBe('Down');
     expect(row('serviceDependsOnList', 'backup').status).toBe('Hidden');
     expect(row('serviceDependsOnList', 'proxmox').status).toBe('');

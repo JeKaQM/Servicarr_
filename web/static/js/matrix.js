@@ -123,9 +123,12 @@ function serviceIconMarkup(svc) {
 // Arrows point at the service that needs the other one, so an outage can be
 // followed left to right along the red links. Narrow screens use rows.
 
+// label: how far a one-line name and the status reach below the ring (the
+// rendered size replaces it once measured). nodeGap: space under a label in a
+// column; rowSpace: space between a label and the next row on phones.
 const TOPO_SIZES = {
-  wide:   { ring: 48, nodeSlot: 104, dummySlot: 26, padMain: 96, padCross: 28, minGap: 190, maxGap: 420, rowGap: 0, label: 36 },
-  narrow: { ring: 40, nodeSlot: 96,  dummySlot: 22, padMain: 28, padCross: 24, minGap: 0,   maxGap: 0,   rowGap: 136, label: 34 }
+  wide:   { ring: 48, nodeWidth: 112, label: 38, nodeGap: 20, dummySlot: 26, padMain: 96, padCross: 28, minGap: 190, maxGap: 520, portSpan: 18, bowMax: 78 },
+  narrow: { ring: 40, nodeWidth: 92, label: 38, nodeSlot: 96, dummySlot: 22, padCross: 24, rowSpace: 60, minScale: 0.8, portSpan: 14, bowMax: 66 }
 };
 const TOPO_NARROW_BELOW = 640;   // container width (px) under which layers become rows
 const TOPO_SVG_NS = 'http://www.w3.org/2000/svg';
@@ -173,8 +176,9 @@ function buildTopologyModel(services) {
 
 // Layered layout (longest-path layers, a lane per column for links that skip
 // columns, barycentre ordering to cut crossings). Returns ring-centre
-// positions and an SVG path per link, in stage pixels.
-function layoutTopology(model, containerWidth) {
+// positions and an SVG path per link, in stage pixels. `labels` optionally maps
+// a service to how far its rendered name and status reach below the ring.
+function layoutTopology(model, containerWidth, labels) {
   const narrow = containerWidth < TOPO_NARROW_BELOW;
   const S = narrow ? TOPO_SIZES.narrow : TOPO_SIZES.wide;
   const R = S.ring / 2;
@@ -208,11 +212,11 @@ function layoutTopology(model, containerWidth) {
   const layerCount = model.linked.length ? Math.max(...model.linked.map(k => layer.get(k))) + 1 : 0;
   const columns = Array.from({ length: layerCount }, () => []);
   const seed = new Map(model.order.map((k, i) => [k, i]));
-  const items = new Map();
-  const addItem = item => { items.set(item.id, item); columns[item.layer].push(item); };
+  const addItem = item => columns[item.layer].push(item);
   model.linked.forEach(key => addItem({ id: key, key, layer: layer.get(key), dummy: false, seed: seed.get(key) }));
 
-  // 2. Dependency chains, with a lane in every column a link passes through.
+  // 2. Chains. A link between columns gets a lane in every column it crosses;
+  // a link within one column (peers, or a loop in stored data) bows out instead.
   const upNbrs = new Map(), downNbrs = new Map();
   const connect = (a, b) => {
     if (!downNbrs.has(a)) downNbrs.set(a, []);
@@ -220,18 +224,30 @@ function layoutTopology(model, containerWidth) {
     downNbrs.get(a).push(b);
     upNbrs.get(b).push(a);
   };
-  const chains = model.depEdges.map(edge => {
-    const from = layer.get(edge.from), to = layer.get(edge.to);
-    if (loopLinks.has(edge.from + '>' + edge.to) || to <= from) return { edge, ids: [edge.from, edge.to], loop: true };
-    const ids = [edge.from];
-    for (let l = from + 1; l < to; l++) {
-      const id = '~' + edge.from + '>' + edge.to + '@' + l;
-      addItem({ id, key: null, layer: l, dummy: true, seed: (seed.get(edge.from) + seed.get(edge.to)) / 2 });
+  const chains = [];
+  const chain = (edge, a, b) => {
+    const ids = [a];
+    for (let l = layer.get(a) + 1; l < layer.get(b); l++) {
+      const id = '~' + edge.type + ':' + a + '>' + b + '@' + l;
+      addItem({ id, key: null, layer: l, dummy: true, seed: (seed.get(a) + seed.get(b)) / 2 });
       ids.push(id);
     }
-    ids.push(edge.to);
+    ids.push(b);
     for (let i = 1; i < ids.length; i++) connect(ids[i - 1], ids[i]);
-    return { edge, ids, loop: false };
+    chains.push({ edge, ids, bow: false, loop: false });
+  };
+  model.depEdges.forEach(edge => {
+    if (loopLinks.has(edge.from + '>' + edge.to) || layer.get(edge.to) <= layer.get(edge.from)) {
+      chains.push({ edge, ids: [edge.from, edge.to], bow: true, loop: true });
+    } else {
+      chain(edge, edge.from, edge.to);
+    }
+  });
+  model.peerEdges.forEach(edge => {
+    const a = layer.get(edge.from), b = layer.get(edge.to);
+    if (a === b) chains.push({ edge, ids: [edge.from, edge.to], bow: true, loop: false });
+    else if (a < b) chain(edge, edge.from, edge.to);
+    else chain(edge, edge.to, edge.from);
   });
   columns.forEach(col => col.sort((a, b) => a.seed - b.seed));
 
@@ -256,15 +272,35 @@ function layoutTopology(model, containerWidth) {
     }
   }
 
-  // 4. Coordinates. "Main" runs across layers, "cross" along a layer.
-  const slotOf = it => (it.dummy ? S.dummySlot : S.nodeSlot);
-  const extents = columns.map(col => col.reduce((sum, it) => sum + slotOf(it), 0));
+  // 4. Coordinates. "Main" runs across layers, "cross" along a layer. On
+  // phones the slots shrink, down to a floor, so the widest row fits.
+  const labelOf = key => (labels && labels.get(key)) || S.label;
+  let nodeSlot = S.nodeSlot, dummySlot = S.dummySlot;
+  const slotOf = it => (it.dummy ? dummySlot : narrow ? nodeSlot : S.ring + labelOf(it.key) + S.nodeGap);
+  const extentsNow = () => columns.map(col => col.reduce((sum, it) => sum + slotOf(it), 0));
+  if (narrow) {
+    const room = containerWidth - 2 * S.padCross;
+    const widest = Math.max(0, ...extentsNow());
+    if (widest > room) {
+      const k = Math.max(S.minScale, room / widest);
+      nodeSlot = Math.floor(S.nodeSlot * k);
+      dummySlot = Math.floor(S.dummySlot * k);
+    }
+  }
+  const extents = extentsNow();
   const crossContent = Math.max(0, ...extents);
   let width, height, mainAt;
   if (narrow) {
+    // Each row is as tall as its longest label. Bows between services in the
+    // top row rise above it, so that row gets headroom.
+    const rowLabel = columns.map(col => Math.max(S.label, ...col.filter(it => !it.dummy).map(it => labelOf(it.key))));
+    const topBow = chains.some(c => c.bow && layer.get(c.ids[0]) === 0);
+    const rowY = [];
+    let y = S.padCross + 8 + (topBow ? Math.max(0, S.bowMax * 0.75 + 3 - S.padCross) : 0) + R;
+    rowLabel.forEach(lab => { rowY.push(y); y += S.ring + lab + S.rowSpace; });
     width = Math.max(containerWidth, crossContent + 2 * S.padCross);
-    height = 2 * S.padCross + (layerCount - 1) * S.rowGap + S.ring + S.label + 16;
-    mainAt = l => S.padCross + 8 + R + l * S.rowGap;
+    height = layerCount ? rowY[layerCount - 1] + R + rowLabel[layerCount - 1] + S.padCross + 8 : 0;
+    mainAt = l => rowY[l];
   } else {
     const span = layerCount > 1 ? (containerWidth - 2 * S.padMain) / (layerCount - 1) : 0;
     const gap = Math.min(S.maxGap, Math.max(S.minGap, span));
@@ -279,59 +315,93 @@ function layoutTopology(model, containerWidth) {
   columns.forEach((col, l) => {
     let at = (crossSpace - extents[l]) / 2;
     col.forEach(it => {
-      const cross = it.dummy ? at + S.dummySlot / 2 : at + (narrow ? S.nodeSlot / 2 : 8 + R);
+      const cross = it.dummy ? at + dummySlot / 2 : at + (narrow ? nodeSlot / 2 : 8 + R);
       at += slotOf(it);
       const main = mainAt(l);
       point.set(it.id, narrow ? { x: cross, y: main } : { x: main, y: cross });
     });
   });
 
-  // 5. Link paths. Links leave a ring on its outgoing side (below the label on
-  // narrow screens) and stop short of the next ring to leave room for the arrow.
-  const leave = p => (narrow ? { x: p.x, y: p.y + R + S.label } : { x: p.x + R + 3, y: p.y });
-  const arrive = p => (narrow ? { x: p.x, y: p.y - R - 7 } : { x: p.x - R - 7, y: p.y });
+  // 5. Ports. A ring's links are spread over a few pixels in the order of
+  // where their other ends sit, so they don't all meet at one point.
+  const crossOf = p => (narrow ? p.x : p.y);
+  const portLists = { out: new Map(), in: new Map() };
+  const addPort = (side, id, chainIndex, toward) => {
+    const lists = portLists[side];
+    if (!lists.has(id)) lists.set(id, []);
+    lists.get(id).push({ chainIndex, toward });
+  };
+  chains.forEach((c, i) => {
+    if (c.bow) return;
+    const last = c.ids.length - 1;
+    addPort('out', c.ids[0], i, crossOf(point.get(c.ids[1])));
+    addPort('in', c.ids[last], i, crossOf(point.get(c.ids[last - 1])));
+  });
+  const offsetsFor = lists => {
+    const offsets = new Map();
+    lists.forEach(list => {
+      list.sort((a, b) => a.toward - b.toward);
+      const span = Math.min(S.portSpan, (list.length - 1) * 6);
+      list.forEach((p, i) => offsets.set(p.chainIndex, list.length > 1 ? -span / 2 + (i * span) / (list.length - 1) : 0));
+    });
+    return offsets;
+  };
+  const outOffset = offsetsFor(portLists.out), inOffset = offsetsFor(portLists.in);
+
+  // 6. Link paths. Links leave a ring on its outgoing side (below the label on
+  // narrow screens) and stop short of the next ring; arrows need 7px of room.
+  const shift = (p, d) => (narrow ? { x: p.x + d, y: p.y } : { x: p.x, y: p.y + d });
+  const leave = (key, d) => {
+    const p = point.get(key);
+    return shift(narrow ? { x: p.x, y: p.y + R + labelOf(key) + 3 } : { x: p.x + R + 3, y: p.y }, d);
+  };
+  const arrive = (p, d, gap) => shift(narrow ? { x: p.x, y: p.y - R - gap } : { x: p.x - R - gap, y: p.y }, d);
   const segment = (a, b) => (narrow
     ? ' C ' + a.x + ' ' + (a.y + b.y) / 2 + ' ' + b.x + ' ' + (a.y + b.y) / 2 + ' ' + b.x + ' ' + b.y
     : ' C ' + (a.x + b.x) / 2 + ' ' + a.y + ' ' + (a.x + b.x) / 2 + ' ' + b.y + ' ' + b.x + ' ' + b.y);
+  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
   // Two rings in the same layer (or a loop): a bow beside the column, or above
-  // the row on narrow screens where labels sit under the rings.
+  // the row on narrow screens where labels sit under the rings. The bend is
+  // capped so a bow stays inside the map and clear of the row above.
   const bow = (a, b, gapEnd) => {
-    const bend = 40 + Math.abs(narrow ? b.x - a.x : b.y - a.y) * 0.18;
-    if (narrow) {
-      const s = { x: a.x, y: a.y - R - 3 }, e = { x: b.x, y: b.y - R - gapEnd };
-      return { d: 'M ' + s.x + ' ' + s.y + ' C ' + s.x + ' ' + (s.y - bend) + ' ' + e.x + ' ' + (e.y - bend) + ' ' + e.x + ' ' + e.y,
-        mid: { x: (s.x + e.x) / 2, y: (s.y + e.y) / 2 - bend * 0.75 } };
-    }
-    const s = { x: a.x + R + 3, y: a.y }, e = { x: b.x + R + gapEnd, y: b.y };
-    return { d: 'M ' + s.x + ' ' + s.y + ' C ' + (s.x + bend) + ' ' + s.y + ' ' + (e.x + bend) + ' ' + e.y + ' ' + e.x + ' ' + e.y,
-      mid: { x: (s.x + e.x) / 2 + bend * 0.75, y: (s.y + e.y) / 2 } };
+    const bend = Math.min(S.bowMax, 40 + Math.abs(narrow ? b.x - a.x : b.y - a.y) * 0.18);
+    const s = narrow ? { x: a.x, y: a.y - R - 3 } : { x: a.x + R + 3, y: a.y };
+    const e = narrow ? { x: b.x, y: b.y - R - gapEnd } : { x: b.x + R + gapEnd, y: b.y };
+    const c1 = narrow ? { x: s.x, y: s.y - bend } : { x: s.x + bend, y: s.y };
+    const c2 = narrow ? { x: e.x, y: e.y - bend } : { x: e.x + bend, y: e.y };
+    return {
+      d: 'M ' + s.x + ' ' + s.y + ' C ' + c1.x + ' ' + c1.y + ' ' + c2.x + ' ' + c2.y + ' ' + e.x + ' ' + e.y,
+      mid: narrow ? { x: (s.x + e.x) / 2, y: (s.y + e.y) / 2 - bend * 0.75 } : { x: (s.x + e.x) / 2 + bend * 0.75, y: (s.y + e.y) / 2 },
+      length: dist(s, e) + 1.5 * bend
+    };
   };
   const along = pts => {
-    let d = 'M ' + pts[0].x + ' ' + pts[0].y;
-    for (let i = 1; i < pts.length; i++) d += segment(pts[i - 1], pts[i]);
+    let d = 'M ' + pts[0].x + ' ' + pts[0].y, length = 0;
+    for (let i = 1; i < pts.length; i++) {
+      d += segment(pts[i - 1], pts[i]);
+      length += dist(pts[i - 1], pts[i]);
+    }
     const m = Math.floor((pts.length - 1) / 2);
-    return { d, mid: { x: (pts[m].x + pts[m + 1].x) / 2, y: (pts[m].y + pts[m + 1].y) / 2 } };
+    return { d, mid: { x: (pts[m].x + pts[m + 1].x) / 2, y: (pts[m].y + pts[m + 1].y) / 2 }, length };
   };
 
-  const routes = [];
-  chains.forEach(chain => {
-    const { from, to } = chain.edge;
-    const geo = chain.loop
-      ? bow(point.get(from), point.get(to), 7)
-      : along(chain.ids.map((id, i) => (i === 0 ? leave(point.get(id)) : i === chain.ids.length - 1 ? arrive(point.get(id)) : point.get(id))));
-    routes.push({ type: 'dep', from, to, loop: chain.loop, d: geo.d, mid: geo.mid, length: geo.d.length });
-  });
-  model.peerEdges.forEach(edge => {
-    let a = point.get(edge.from), b = point.get(edge.to);
-    const sameLayer = layer.get(edge.from) === layer.get(edge.to);
-    if (!sameLayer && layer.get(edge.from) > layer.get(edge.to)) [a, b] = [b, a];
-    const geo = sameLayer ? bow(a, b, 3) : along([leave(a), { x: arrive(b).x + (narrow ? 0 : 4), y: arrive(b).y + (narrow ? 4 : 0) }]);
-    routes.push({ type: 'peer', from: edge.from, to: edge.to, loop: false, d: geo.d, mid: geo.mid });
+  const routes = chains.map((c, i) => {
+    const { edge, ids } = c;
+    const gapEnd = edge.type === 'dep' ? 7 : 3;
+    const last = ids.length - 1;
+    const geo = c.bow
+      ? bow(point.get(ids[0]), point.get(ids[last]), gapEnd)
+      : along(ids.map((id, k) => (k === 0 ? leave(id, outOffset.get(i))
+        : k === last ? arrive(point.get(id), inOffset.get(i), gapEnd) : point.get(id))));
+    return { type: edge.type, from: edge.from, to: edge.to, loop: c.loop, d: geo.d, mid: geo.mid, length: geo.length };
   });
 
   const pos = new Map();
   model.linked.forEach(key => pos.set(key, point.get(key)));
-  return { narrow, ring: S.ring, width: Math.round(width), height: Math.round(height), pos, routes, layerCount };
+  return {
+    narrow, ring: S.ring, nodeWidth: narrow ? nodeSlot - 4 : S.nodeWidth,
+    width: Math.round(width), height: Math.round(height), pos, routes, layerCount
+  };
 }
 
 /* ── Rendering ──────────────────────────────────────────── */
@@ -373,6 +443,7 @@ function topologyNode(svc) {
   name.textContent = svc.name || svc.key;
   const sub = document.createElement('span');
   sub.className = 'topo-node-sub';
+  sub.textContent = topologyStatusText(matrixStatusOf(svc));
   btn.append(ring, name, sub);
   return btn;
 }
@@ -402,7 +473,9 @@ function topologyLegend(adminHint) {
       '<line x1="1" y1="5" x2="33" y2="5" class="topo-legend-peer"/></svg>Connected to</span>' +
     '<span class="topo-legend-item"><svg class="topo-legend-swatch" viewBox="0 0 34 10" aria-hidden="true">' +
       '<line x1="1" y1="5" x2="33" y2="5" class="topo-legend-down"/><path d="M 13 1 L 21 9 M 21 1 L 13 9" class="topo-legend-x"/></svg>Link down</span>' +
-    '<span class="topo-legend-hint">Hover or tab to a service to trace its links.' + (adminHint ? ' Click a service to edit them.' : '') + '</span>';
+    '<span class="topo-legend-hint">' + (adminHint
+      ? 'Hover or tab to a service to trace its links; click it to edit them.'
+      : 'Hover, tap or tab to a service to trace its links.') + '</span>';
   return legend;
 }
 
@@ -430,7 +503,7 @@ function renderMatrix() {
 
 function buildTopology(container, services, width, signature) {
   const model = buildTopologyModel(services);
-  const layout = layoutTopology(model, width);
+  let layout = layoutTopology(model, width);
   const admin = typeof isAdminUser !== 'undefined' && isAdminUser && typeof openServiceModal === 'function';
   const root = document.createElement('div');
   root.className = 'topo' + (layout.narrow ? ' is-narrow' : '');
@@ -438,46 +511,29 @@ function buildTopology(container, services, width, signature) {
   root.setAttribute('aria-label', 'Service topology');
   const nodes = new Map();
   const remember = (key, btn) => { if (!nodes.has(key)) nodes.set(key, []); nodes.get(key).push(btn); };
-  const edges = [];
+  let stage = null;
 
   if (model.linked.length) {
     const scroller = document.createElement('div');
     scroller.className = 'topo-scroll';
-    const stage = document.createElement('div');
+    stage = document.createElement('div');
     stage.className = 'topo-stage';
-    stage.style.width = layout.width + 'px';
-    stage.style.height = layout.height + 'px';
-    const svg = topologySvg('svg', {
-      class: 'topo-edges', width: layout.width, height: layout.height,
-      viewBox: '0 0 ' + layout.width + ' ' + layout.height, 'aria-hidden': 'true', focusable: 'false'
-    });
-    svg.appendChild(topologyMarkers());
-    layout.routes.forEach((route, i) => {
-      const g = topologySvg('g', { class: 'topo-edge topo-edge--' + route.type + (route.loop ? ' is-loop' : '') });
-      const path = topologySvg('path', { id: 'topo-edge-' + i, class: 'topo-edge-line', d: route.d });
-      g.appendChild(path);
-      svg.appendChild(g);
-      edges.push(Object.assign({ g, path, state: null, particle: null, cross: null }, route));
-    });
-    stage.appendChild(svg);
-
     // Tab order follows the columns, top to bottom.
     [...layout.pos.entries()]
       .sort((a, b) => (layout.narrow ? (a[1].y - b[1].y) || (a[1].x - b[1].x) : (a[1].x - b[1].x) || (a[1].y - b[1].y)))
-      .forEach(([key, p]) => {
+      .forEach(([key]) => {
         const btn = topologyNode(model.byKey.get(key));
-        btn.style.left = p.x + 'px';
-        btn.style.top = (p.y - layout.ring / 2) + 'px';
         stage.appendChild(btn);
         remember(key, btn);
       });
-
+    scroller.appendChild(stage);
+    root.appendChild(scroller);
+    // The card about a traced service floats beside it, or sits under the
+    // map on phones, where it would cover the services being traced.
     const card = document.createElement('div');
     card.className = 'topo-card';
     card.hidden = true;
-    stage.appendChild(card);
-    scroller.appendChild(stage);
-    root.appendChild(scroller);
+    (layout.narrow ? root : stage).appendChild(card);
   }
 
   if (model.standalone.length) {
@@ -510,10 +566,64 @@ function buildTopology(container, services, width, signature) {
 
   container.innerHTML = '';
   container.appendChild(root);
+  let edges = [];
+  if (stage) {
+    edges = drawTopology(root, stage, nodes, layout);
+    // A name that wraps reaches further below its ring than the layout
+    // assumed; lay out again with the rendered sizes.
+    const labels = measureTopologyLabels(nodes, layout);
+    if (labels) {
+      layout = layoutTopology(model, width, labels);
+      edges = drawTopology(root, stage, nodes, layout);
+    }
+  }
   topoState = { signature, model, layout, root, nodes, edges, admin, card: root.querySelector('.topo-card'), focusKey: null, pinned: null, status: new Map() };
   bindTopologyEvents(root);
   observeTopologyResize(container);
   updateTopologyStatus();
+}
+
+// Places the services on the stage and draws the links of a layout.
+function drawTopology(root, stage, nodes, layout) {
+  root.style.setProperty('--topo-node-w', layout.nodeWidth + 'px');
+  stage.style.width = layout.width + 'px';
+  stage.style.height = layout.height + 'px';
+  layout.pos.forEach((p, key) => {
+    const btn = nodes.get(key)[0];
+    btn.style.left = p.x + 'px';
+    btn.style.top = (p.y - layout.ring / 2) + 'px';
+  });
+  const old = stage.querySelector('.topo-edges');
+  if (old) old.remove();
+  const svg = topologySvg('svg', {
+    class: 'topo-edges', width: layout.width, height: layout.height,
+    viewBox: '0 0 ' + layout.width + ' ' + layout.height, 'aria-hidden': 'true', focusable: 'false'
+  });
+  svg.appendChild(topologyMarkers());
+  const edges = layout.routes.map((route, i) => {
+    const g = topologySvg('g', { class: 'topo-edge topo-edge--' + route.type + (route.loop ? ' is-loop' : '') });
+    const path = topologySvg('path', { id: 'topo-edge-' + i, class: 'topo-edge-line', d: route.d });
+    g.appendChild(path);
+    svg.appendChild(g);
+    return Object.assign({ g, path, state: null, particle: null, cross: null }, route);
+  });
+  stage.insertBefore(svg, stage.firstChild);
+  return edges;
+}
+
+// How far each service's name and status reach below its ring, once rendered;
+// null when that matches the layout's allowance or nothing could be measured.
+function measureTopologyLabels(nodes, layout) {
+  const allowance = (layout.narrow ? TOPO_SIZES.narrow : TOPO_SIZES.wide).label;
+  const labels = new Map();
+  let differs = false;
+  layout.pos.forEach((_, key) => {
+    const below = nodes.get(key)[0].offsetHeight - layout.ring;
+    if (below <= 0) return;
+    labels.set(key, below);
+    if (Math.abs(below - allowance) > 2) differs = true;
+  });
+  return differs ? labels : null;
 }
 
 /* ── Live status ────────────────────────────────────────── */
@@ -539,7 +649,7 @@ function setTopologyEdgeState(edge, state) {
   if (wantsParticle && !edge.particle) {
     const dot = topologySvg('circle', { r: '2.6', class: 'topo-particle' });
     const motion = topologySvg('animateMotion', {
-      dur: Math.min(6, Math.max(2.2, edge.length / 140)).toFixed(2) + 's',
+      dur: Math.min(6, Math.max(2.2, edge.length / 150)).toFixed(2) + 's',
       repeatCount: 'indefinite', begin: '-' + (Math.random() * 3).toFixed(2) + 's'
     });
     const mpath = topologySvg('mpath');
@@ -677,19 +787,42 @@ function fillTopologyCard(key) {
 }
 
 function showTopologyCard(key) {
-  const { card, nodes } = topoState;
-  const btn = card && (nodes.get(key) || []).find(b => card.parentNode.contains(b));
+  const { card, nodes, layout } = topoState;
+  const btn = card && (nodes.get(key) || []).find(b => b.closest('.topo-stage'));
   if (!card || !btn) return;
   fillTopologyCard(key);
   card.hidden = false;
+  if (layout.narrow) return;
+
+  // Right of the ring, left of it, under the label or above the ring: the
+  // spot that hides least of the traced services wins, the earliest on a tie.
   const stage = card.parentNode;
-  const ring = topoState.layout.ring;
-  const x = btn.offsetLeft, y = btn.offsetTop;
   const w = card.offsetWidth || 230, h = card.offsetHeight || 120;
-  const right = x + ring / 2 + 14;
-  const left = right + w > stage.offsetWidth - 8 ? x - ring / 2 - 14 - w : right;
-  card.style.left = Math.max(8, left) + 'px';
-  card.style.top = Math.max(8, Math.min(y - 6, stage.offsetHeight - h - 8)) + 'px';
+  const ring = layout.ring, cx = btn.offsetLeft, top = btn.offsetTop;
+  // A service shows as its ring plus the name and status centred under it.
+  const boxes = b => {
+    const text = Math.max(...[...b.querySelectorAll('.topo-node-name, .topo-node-sub')].map(el => el.offsetWidth));
+    return [
+      { x: b.offsetLeft - ring / 2, y: b.offsetTop, w: ring, h: ring },
+      { x: b.offsetLeft - text / 2, y: b.offsetTop + ring, w: text, h: b.offsetHeight - ring }
+    ];
+  };
+  const spots = [
+    { x: cx + ring / 2 + 14, y: top - 6 },
+    { x: cx - ring / 2 - 14 - w, y: top - 6 },
+    { x: cx - w / 2, y: top + btn.offsetHeight + 8 },
+    { x: cx - w / 2, y: top - h - 8 }
+  ].map(spot => ({
+    x: Math.max(8, Math.min(spot.x, stage.offsetWidth - w - 8)),
+    y: Math.max(8, Math.min(spot.y, stage.offsetHeight - h - 8))
+  }));
+  const traced = [...stage.querySelectorAll('.topo-node.is-active')].flatMap(boxes);
+  const hidden = spot => traced.reduce((sum, b) =>
+    sum + Math.max(0, Math.min(spot.x + w, b.x + b.w) - Math.max(spot.x, b.x)) *
+          Math.max(0, Math.min(spot.y + h, b.y + b.h) - Math.max(spot.y, b.y)), 0);
+  const best = spots.reduce((a, b) => (hidden(b) < hidden(a) ? b : a));
+  card.style.left = best.x + 'px';
+  card.style.top = best.y + 'px';
 }
 
 function bindTopologyEvents(root) {
@@ -747,7 +880,8 @@ async function openTopologyEditor(key) {
   const links = document.getElementById('serviceLinks');
   if (!links) return;
   if (typeof links.scrollIntoView === 'function') links.scrollIntoView({ block: 'start' });
-  const first = [...links.querySelectorAll('.link-picker-search, .depends-on-cb')].find(el => !el.hidden && !el.disabled);
+  // A checkbox rather than the filter box, so phones don't open the keyboard.
+  const first = [...links.querySelectorAll('.depends-on-cb')].find(el => !el.disabled);
   if (first) first.focus({ preventScroll: true });
 }
 

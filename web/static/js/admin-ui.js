@@ -224,10 +224,11 @@ function linkDependencyPath(services, from, target) {
   return null;
 }
 
+// Rows flag anything other than a healthy service, in words.
 function linkStatus(svc) {
   if (svc.visible === false) return { cls: 'hidden-svc', text: 'Hidden' };
   const st = matrixStatusOf(svc);
-  return st.statusClass === 'unknown' ? null : { cls: st.statusClass, text: st.statusLabel };
+  return st.statusClass === 'up' || st.statusClass === 'unknown' ? null : { cls: st.statusClass, text: st.statusLabel };
 }
 
 function buildLinkOption(svc, cls, opts) {
