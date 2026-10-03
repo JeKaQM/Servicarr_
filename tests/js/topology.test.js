@@ -106,7 +106,8 @@ describe('layoutTopology', () => {
     const layout = layoutTopology(model, 1200);
     const points = [...layout.pos.values()];
     points.forEach((a, i) => points.slice(i + 1).forEach(b => {
-      if (Math.abs(a.x - b.x) < 1) expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(TOPO_SIZES.wide.nodeSlot - 0.5);
+      const { ring, label, nodeGap } = TOPO_SIZES.wide;
+      if (Math.abs(a.x - b.x) < 1) expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(ring + label + nodeGap - 0.5);
     }));
     points.forEach(p => {
       expect(p.x - 56).toBeGreaterThanOrEqual(0);
@@ -140,6 +141,85 @@ describe('layoutTopology', () => {
     expect(layout.pos.get('nas').y).toBe(layout.pos.get('pihole').y);
   });
 
+  test('links leaving or entering a ring are spread apart, in order', () => {
+    const layout = layoutTopology(model, 1200);
+    const start = r => r.d.match(/^M ([\d.-]+) ([\d.-]+)/).slice(1).map(Number);
+    const fromNas = layout.routes.filter(r => r.from === 'nas' && r.type === 'dep');
+    const ys = fromNas.map(r => start(r)[1]);
+    expect(new Set(ys).size).toBe(fromNas.length);
+    ys.forEach(y => expect(Math.abs(y - layout.pos.get('nas').y)).toBeLessThanOrEqual(TOPO_SIZES.wide.portSpan / 2));
+    // The link to the service placed highest leaves from the top.
+    const highest = fromNas.reduce((a, b) => (layout.pos.get(a.to).y < layout.pos.get(b.to).y ? a : b));
+    expect(start(highest)[1]).toBe(Math.min(...ys));
+  });
+
+  test('a peer link that skips a column gets a lane too', () => {
+    const chainModel = buildTopologyModel([
+      { key: 'a' },
+      { key: 'b', depends_on: 'a' },
+      { key: 'c', depends_on: 'b', connected_to: 'a' },
+    ]);
+    const layout = layoutTopology(chainModel, 1200);
+    const peer = layout.routes.find(r => r.type === 'peer');
+    expect(peer.d.match(/ C /g)).toHaveLength(2);
+  });
+
+  test('on phones the widest row shrinks to fit the screen', () => {
+    const wideRow = buildTopologyModel([
+      { key: 'hub' },
+      ...['a', 'b', 'c', 'd'].map(key => ({ key, depends_on: 'hub' })),
+    ]);
+    const layout = layoutTopology(wideRow, 368);
+    expect(layout.width).toBe(368);
+    expect(layout.nodeWidth).toBeLessThan(TOPO_SIZES.narrow.nodeWidth);
+    const row = [...layout.pos.entries()].filter(([, p]) => p.y === layout.pos.get('a').y).map(([, p]) => p.x).sort((a, b) => a - b);
+    expect(row).toHaveLength(4);
+    expect(row[0] - layout.nodeWidth / 2).toBeGreaterThanOrEqual(0);
+    expect(row[3] + layout.nodeWidth / 2).toBeLessThanOrEqual(368);
+    row.slice(1).forEach((x, i) => expect(x - row[i]).toBeGreaterThanOrEqual(layout.nodeWidth));
+  });
+
+  test('a name that wraps pushes its links and the next row down on phones', () => {
+    const plain = layoutTopology(model, 390);
+    const tall = layoutTopology(model, 390, new Map([['nas', TOPO_SIZES.narrow.label + 18]]));
+    const start = (layout, from, to) => Number(layout.routes.find(r => r.from === from && r.to === to).d.split(' ')[2]);
+    // Links from the NAS leave below its longer label...
+    expect(start(tall, 'nas', 'plex') - start(plain, 'nas', 'plex')).toBe(18);
+    // ...while its row-mates' links don't move, and the next row makes room.
+    expect(start(tall, 'proxmox', 'plex')).toBe(start(plain, 'proxmox', 'plex'));
+    expect(tall.pos.get('plex').y - plain.pos.get('plex').y).toBe(18);
+    expect(tall.height - plain.height).toBe(18);
+  });
+
+  test('a name that wraps gets a taller slot in its column', () => {
+    const tall = layoutTopology(model, 1200, new Map([['nas', TOPO_SIZES.wide.label + 20]]));
+    const column = [...tall.pos.entries()].filter(([, p]) => p.x === tall.pos.get('nas').x).sort((a, b) => a[1].y - b[1].y);
+    const below = column[column.findIndex(([key]) => key === 'nas') + 1][1];
+    const { ring, label, nodeGap } = TOPO_SIZES.wide;
+    expect(below.y - tall.pos.get('nas').y).toBeGreaterThanOrEqual(ring + label + 20 + nodeGap);
+  });
+
+  test('bows between services in one column stay inside the map', () => {
+    const peers = buildTopologyModel([
+      { key: 'modem', connected_to: 'router' },
+      { key: 'router' },
+      { key: 'a', depends_on: 'modem' },
+      { key: 'b', depends_on: 'router' },
+      { key: 'c', depends_on: 'router' },
+      { key: 'd', depends_on: 'router' },
+      { key: 'e', depends_on: 'router', connected_to: 'a' },
+    ]);
+    [390, 1200].forEach(width => {
+      const layout = layoutTopology(peers, width);
+      const bows = layout.routes.filter(r => r.type === 'peer' && layout.pos.get(r.from)[layout.narrow ? 'y' : 'x'] === layout.pos.get(r.to)[layout.narrow ? 'y' : 'x']);
+      expect(bows.length).toBeGreaterThan(0);
+      bows.forEach(r => {
+        expect(r.mid.y).toBeGreaterThanOrEqual(0);
+        expect(r.mid.x).toBeLessThanOrEqual(layout.width);
+      });
+    });
+  });
+
   test('a dependency loop in stored data still lays out', () => {
     const loop = buildTopologyModel([
       { key: 'a', depends_on: 'b' },
@@ -169,7 +249,8 @@ describe('renderMatrix', () => {
     expect(legend).toContain('Needed by');
     expect(legend).toContain('Connected to');
     expect(legend).toContain('Link down');
-    expect(legend).not.toContain('Click a service');
+    expect(legend).toContain('Hover, tap or tab');
+    expect(legend).not.toContain('edit');
   });
 
   test('a down service shows its status in words and breaks its outgoing links', () => {
@@ -222,9 +303,33 @@ describe('renderMatrix', () => {
     expect(container.querySelectorAll('.topo-edge--dep')).toHaveLength(10);
   });
 
-  test('narrow containers get the stacked layout', () => {
+  test('lays out again when a rendered name is taller than allowed for', () => {
+    // jsdom doesn't lay out text, so report a two-line name for the NAS.
+    const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        if (!this.classList.contains('topo-node')) return 0;
+        return 40 + (this.dataset.key === 'nas' ? 62 : 38);
+      },
+    });
+    try {
+      const container = render(SAMPLE, LIVE, { width: 390 });
+      const from = key => Number(edge(key, 'plex').path.getAttribute('d').split(' ')[2]);
+      expect(from('nas') - from('proxmox')).toBe(24);
+      expect(container.querySelectorAll('.topo-edges')).toHaveLength(1);
+      expect(topoState.edges.every(e => e.g.isConnected)).toBe(true);
+      expect(edge('router', 'nas').g.classList.contains('is-ok')).toBe(true);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', real);
+    }
+  });
+
+  test('narrow containers get the stacked layout, with the card under the map', () => {
     const container = render(SAMPLE, LIVE, { width: 390 });
     expect(container.querySelector('.topo').classList.contains('is-narrow')).toBe(true);
+    expect(container.querySelector('.topo-stage .topo-card')).toBeNull();
+    expect(container.querySelector('.topo > .topo-scroll + .topo-card')).not.toBeNull();
   });
 
   test('no services, and services without any links', () => {
@@ -329,7 +434,7 @@ describe('editing links from the map', () => {
     globalThis.openServiceModal = jest.fn();
     globalThis.adminServicesData = ADMIN;
     const container = render(SAMPLE, LIVE, { admin: true });
-    expect(container.querySelector('.topo-legend-hint').textContent).toContain('Click a service to edit them.');
+    expect(container.querySelector('.topo-legend-hint').textContent).toContain('click it to edit them');
     node(container, 'plex').click();
     await Promise.resolve();
     expect(openServiceModal).toHaveBeenCalledWith(expect.objectContaining({ key: 'plex', url: 'http://plex.lan' }));
