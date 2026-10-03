@@ -69,3 +69,19 @@ func SaveStatusAlertOverride(override StatusAlertOverride) error {
 		boolToDatabaseInt(override.Hidden), time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
+
+// DeleteStatusAlertOverrides drops every stored adjustment of the given
+// generated banners, for example a maintenance window's after the window
+// itself changes.
+func DeleteStatusAlertOverrides(alertIDs ...string) error {
+	if len(alertIDs) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(alertIDs)), ",")
+	args := make([]any, len(alertIDs))
+	for i, id := range alertIDs {
+		args[i] = id
+	}
+	_, err := DB.Exec(`DELETE FROM status_alert_overrides WHERE alert_id IN (`+placeholders+`)`, args...)
+	return err
+}

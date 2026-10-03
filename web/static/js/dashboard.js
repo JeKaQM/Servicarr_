@@ -82,7 +82,7 @@ function updCard(id, data) {
   const lastCheckEl = $(`#last-check-${id.split('-').pop()}`);
   if (lastCheckEl) {
     const now = new Date();
-    lastCheckEl.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    lastCheckEl.textContent = now.toLocaleTimeString(APP_LOCALE, { hour: '2-digit', minute: '2-digit' });
   }
 }
 
@@ -122,7 +122,7 @@ function renderIncidents(items) {
     let ts = '';
     if (rawTs) {
       const d = new Date(rawTs);
-      ts = Number.isNaN(d.getTime()) ? String(rawTs) : d.toLocaleString();
+      ts = Number.isNaN(d.getTime()) ? String(rawTs) : d.toLocaleString(APP_LOCALE);
     }
     const timeLabel = ongoing ? `Started ${ts}` : ts;
 
@@ -299,7 +299,7 @@ function renderUptimeBars(metrics, days) {
   const globalTimestamp = $('#timestamp-global');
   if (globalTimestamp) {
     if (earliestDate) {
-      const startDate = earliestDate.toLocaleDateString();
+      const startDate = earliestDate.toLocaleDateString(APP_LOCALE);
       globalTimestamp.textContent = `Tracking since ${startDate} • Hover over blocks for details`;
     } else {
       globalTimestamp.textContent = `No data yet • Hover over blocks for details`;
@@ -388,7 +388,7 @@ function renderUptimeBars(metrics, days) {
 
       const uptime = point.uptime;
       const dayDate = new Date(point.day);
-      const formattedDate = dayDate.toLocaleDateString('en-US', {
+      const formattedDate = dayDate.toLocaleDateString(APP_LOCALE, {
         month: 'short',
         day: 'numeric',
         year: daysToShow > 90 ? 'numeric' : undefined

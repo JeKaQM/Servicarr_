@@ -1,4 +1,5 @@
 let servicesData = [];
+let adminServicesData = null;   // full admin list (hidden services, URLs, unfiltered links)
 let serviceTemplates = [];
 let editingServiceId = null;
 
@@ -148,8 +149,10 @@ async function loadAllServices() {
       headers: { 'X-CSRF-Token': getCsrf() }
     });
     servicesData = services;
+    adminServicesData = services;
     renderAdminServicesList(services);
-    populateBannerScopeDropdown(); // Update banner scope dropdown
+    // The Banners tab's service pickers follow the service list.
+    if (typeof refreshBannerPickers === 'function') refreshBannerPickers();
     return services;
   } catch (e) {
     console.error('Failed to load all services', e);

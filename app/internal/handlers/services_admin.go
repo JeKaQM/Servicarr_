@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -382,6 +383,9 @@ func HandleCreateService(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !checkServiceLinks(w, &s) {
+		return
+	}
 
 	id, err := database.CreateService(&s)
 	if err != nil {
@@ -445,6 +449,9 @@ func HandleUpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateServiceConfig(&s); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !checkServiceLinks(w, &s) {
 		return
 	}
 
@@ -589,6 +596,118 @@ func validateServiceConfig(s *models.ServiceConfig) error {
 	case "tcp", "dns", "always_up":
 	default:
 		return errors.New("Check type must be http, tcp, dns or always_up")
+	}
+	return nil
+}
+
+// splitServiceKeys parses a comma-separated key list, dropping blanks and
+// duplicates while keeping the original order.
+func splitServiceKeys(value string) []string {
+	keys := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, key := range strings.Split(value, ",") {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// validateServiceLinks normalises depends_on and connected_to and rejects
+// links to the service itself, to unknown services, and dependency loops.
+// Loops matter beyond the topology view: alerts are suppressed while an
+// upstream dependency is down, so two services that depend on each other
+// would silence each other's alerts when both fail.
+func validateServiceLinks(s *models.ServiceConfig, all []models.ServiceConfig) error {
+	names := make(map[string]string, len(all))
+	deps := make(map[string][]string, len(all))
+	for _, other := range all {
+		if other.Key == s.Key {
+			continue
+		}
+		names[other.Key] = other.Name
+		deps[other.Key] = splitServiceKeys(other.DependsOn)
+	}
+	nameOf := func(key string) string {
+		if key == s.Key {
+			return s.Name
+		}
+		return names[key]
+	}
+	normalise := func(field, value string) (string, error) {
+		keys := splitServiceKeys(value)
+		for _, key := range keys {
+			if key == s.Key {
+				return "", fmt.Errorf("%s can't be linked to itself in %s", s.Name, field)
+			}
+			if _, ok := names[key]; !ok {
+				return "", fmt.Errorf("Unknown service %q in %s", key, field)
+			}
+		}
+		return strings.Join(keys, ","), nil
+	}
+
+	var err error
+	if s.DependsOn, err = normalise("depends on", s.DependsOn); err != nil {
+		return err
+	}
+	if s.ConnectedTo, err = normalise("connected to", s.ConnectedTo); err != nil {
+		return err
+	}
+	for _, dep := range splitServiceKeys(s.DependsOn) {
+		path := dependencyPath(deps, dep, s.Key)
+		if path == nil {
+			continue
+		}
+		parts := []string{nameOf(path[0]) + " depends on " + nameOf(path[1])}
+		for _, key := range path[2:] {
+			parts = append(parts, "which depends on "+nameOf(key))
+		}
+		return fmt.Errorf("%s can't depend on %s: %s", s.Name, nameOf(dep), strings.Join(parts, ", "))
+	}
+	return nil
+}
+
+// checkServiceLinks validates s's links against the stored services and writes
+// the error response itself; it reports whether the request may continue.
+func checkServiceLinks(w http.ResponseWriter, s *models.ServiceConfig) bool {
+	all, err := database.GetAllServices()
+	if err != nil {
+		http.Error(w, "Failed to load services", http.StatusInternalServerError)
+		return false
+	}
+	if err := validateServiceLinks(s, all); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// dependencyPath returns the chain of keys from "from" to "target" following
+// depends_on links, or nil when target is not reachable.
+func dependencyPath(deps map[string][]string, from, target string) []string {
+	prev := map[string]string{from: ""}
+	queue := []string{from}
+	for len(queue) > 0 {
+		key := queue[0]
+		queue = queue[1:]
+		for _, next := range deps[key] {
+			if _, seen := prev[next]; seen {
+				continue
+			}
+			prev[next] = key
+			if next == target {
+				path := []string{next}
+				for at := key; at != ""; at = prev[at] {
+					path = append([]string{at}, path...)
+				}
+				return path
+			}
+			queue = append(queue, next)
+		}
 	}
 	return nil
 }

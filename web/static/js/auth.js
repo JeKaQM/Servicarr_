@@ -127,7 +127,7 @@ async function loadBlocks() {
       <div class="block-item">
         <div class="block-info">
           <strong>${escapeHtml(block.ip)}</strong>
-          <span class="muted">Attempts: ${block.attempts} • Expires: ${new Date(block.expires_at).toLocaleString()}</span>
+          <span class="muted">Attempts: ${block.attempts} • Expires: ${new Date(block.expires_at).toLocaleString(APP_LOCALE)}</span>
         </div>
         <button class="btn danger small" data-action="unblock" data-ip="${escapeHtml(block.ip)}">Unblock</button>
       </div>
@@ -182,7 +182,7 @@ async function loadWhitelist() {
       <div class="block-item">
         <div class="block-info">
           <strong>${escapeHtml(item.ip)}</strong>
-          <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString()}</span>
+          <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString(APP_LOCALE)}</span>
         </div>
         <button class="btn danger small" data-action="remove-whitelist" data-ip="${escapeHtml(item.ip)}">Remove</button>
       </div>
@@ -249,7 +249,7 @@ async function loadBlacklist() {
       <div class="block-item">
         <div class="block-info">
           <strong>${escapeHtml(item.ip)}${item.permanent ? '<span class="badge">PERMANENT</span>' : ''}</strong>
-          <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString()}</span>
+          <span class="muted">${item.note ? escapeHtml(item.note) : 'No note'} • Added: ${new Date(item.created_at).toLocaleDateString(APP_LOCALE)}</span>
         </div>
         <button class="btn danger small" data-action="remove-blacklist" data-ip="${escapeHtml(item.ip)}">Remove</button>
       </div>

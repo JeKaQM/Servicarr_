@@ -4,7 +4,7 @@
 const { loadSource } = require('./test-helpers');
 
 beforeAll(() => {
-  // banners.js depends on core.js ($, $$) and admin-ui.js (escapeHtml)
+  // banners.js depends on core.js ($, $$) and utils.js (escapeHtml)
   loadSource('core.js', 'utils.js', 'banners.js');
 });
 
@@ -385,110 +385,83 @@ describe('renderServiceBanners', () => {
   });
 });
 
-/* ── populateBannerScopeDropdown ────────────────────────── */
-describe('populateBannerScopeDropdown', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '<select id="bannerService"><option value="">Global (top of page)</option></select>';
-    // Set up global servicesData
-    globalThis.servicesData = [
-      { key: 'plex', name: 'Plex' },
-      { key: 'sonarr', name: 'Sonarr' },
-    ];
-  });
-
-  test('populates dropdown with services', () => {
-    populateBannerScopeDropdown();
-    const select = document.getElementById('bannerService');
-    expect(select.querySelectorAll('option')).toHaveLength(3); // Global + 2 services
-  });
-
-  test('keeps Global option first', () => {
-    populateBannerScopeDropdown();
-    const first = document.getElementById('bannerService').querySelector('option');
-    expect(first.value).toBe('');
-    expect(first.textContent).toContain('Global');
-  });
-
-  test('no-op when select not found', () => {
-    document.body.innerHTML = '';
-    expect(() => populateBannerScopeDropdown()).not.toThrow();
-  });
-
-  test('creates Global option if missing', () => {
-    document.body.innerHTML = '<select id="bannerService"></select>';
-    populateBannerScopeDropdown();
-    const first = document.getElementById('bannerService').querySelector('option');
-    expect(first.value).toBe('');
-    expect(first.textContent).toContain('Global');
-  });
-});
-
-describe('renderMaintenanceSchedules', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '<div id="maintenanceSchedulesList"></div>';
-  });
-
-  test('renders schedule timing and suppression state', () => {
-    renderMaintenanceSchedules([{
-      id: 'weekly',
-      name: 'Monday maintenance',
-      message: 'Maintenance in progress',
-      level: 'warning',
-      weekday: 1,
-      start_time: '02:55',
-      duration_minutes: 30,
-      timezone: 'Europe/London',
-      suppress_monitoring: true,
-      enabled: true
-    }]);
-    const text = document.getElementById('maintenanceSchedulesList').textContent;
-    expect(text).toContain('Monday at 02:55 for 30 min');
-    expect(text).toContain('Monitoring paused');
-    expect(text).toContain('Enabled');
-  });
-
-  test('escapes schedule content', () => {
-    renderMaintenanceSchedules([{
-      id: 'weekly', name: '<script>x</script>', message: '<b>bad</b>', level: 'info',
-      weekday: 1, start_time: '03:00', duration_minutes: 10, timezone: 'UTC', enabled: false
-    }]);
-    const list = document.getElementById('maintenanceSchedulesList');
-    expect(list.innerHTML).not.toContain('<script>');
-    expect(list.innerHTML).not.toContain('<b>bad</b>');
-    expect(list.textContent).toContain('<script>x</script>');
-  });
-});
-
-describe('banner editing form', () => {
+/* ── Banners on several services ────────────────────────── */
+describe('banners on several services', () => {
   beforeEach(() => {
     document.body.innerHTML = `
-      <h3 id="bannerFormTitle">Manual Banner</h3>
-      <select id="bannerService"><option value="">Global</option><option value="plex">Plex</option></select>
-      <select id="bannerTemplate"><option value=""></option></select>
-      <input id="bannerMessage">
-      <select id="bannerLevel"><option value="info">Info</option><option value="warning">Warning</option><option value="error">Error</option></select>
-      <button id="createBanner">Create Banner</button>
-      <button id="cancelBannerEdit" class="hidden">Cancel</button>
+      <div id="siteAlerts"></div>
+      <div id="card-plex"></div>
+      <div id="card-sonarr"></div>
     `;
+    globalThis.updateTopologyNotices = jest.fn();
   });
 
-  test('allows generated banner wording and severity to be adjusted', () => {
-    editBanner({
-      id: 'automatic:critical-outage', source: 'automatic', message: 'Outage', level: 'error', service_key: ''
-    });
-
-    expect(document.getElementById('bannerMessage').value).toBe('Outage');
-    expect(document.getElementById('bannerLevel').value).toBe('error');
-    expect(document.getElementById('bannerService').disabled).toBe(true);
-    expect(document.getElementById('createBanner').textContent).toBe('Save Changes');
+  afterEach(() => {
+    delete globalThis.updateTopologyNotices;
   });
 
-  test('reset returns the editor to manual banner creation', () => {
-    editBanner({ id: 'alert_1', source: 'manual', message: 'Notice', level: 'info', service_key: 'plex' });
-    resetBannerForm();
+  const shared = { id: 'alert_1', level: 'warning', message: 'Media is slow', service_key: 'plex', service_keys: ['plex', 'sonarr'] };
 
-    expect(document.getElementById('bannerMessage').value).toBe('');
-    expect(document.getElementById('bannerService').disabled).toBe(false);
-    expect(document.getElementById('createBanner').textContent).toBe('Create Banner');
+  test('shows on every card it names, and not at the top', () => {
+    renderSiteBanners([shared]);
+    renderServiceBanners([shared]);
+    expect(document.querySelectorAll('#card-plex .service-alert')).toHaveLength(1);
+    expect(document.querySelectorAll('#card-sonarr .service-alert')).toHaveLength(1);
+    expect(document.querySelectorAll('#siteAlerts .site-alert')).toHaveLength(0);
+  });
+
+  test('older payloads with one service still work', () => {
+    renderServiceBanners([{ id: 'old', level: 'info', message: 'Old style', service_key: 'sonarr' }]);
+    expect(document.querySelector('#card-sonarr .service-alert').textContent).toContain('Old style');
+  });
+
+  test('hands the notices to the map', () => {
+    renderServiceBanners([shared, { id: 'top', level: 'info', message: 'Everyone' }]);
+    expect(serviceBannersByKey.plex.map(b => b.id)).toEqual(['alert_1']);
+    expect(serviceBannersByKey.sonarr.map(b => b.id)).toEqual(['alert_1']);
+    expect(serviceBannersByKey.top).toBeUndefined();
+    expect(updateTopologyNotices).toHaveBeenCalled();
+  });
+});
+
+/* ── Time labels ────────────────────────────────────────── */
+describe('banner time labels', () => {
+  const at = (minutes) => new Date(Date.now() + minutes * 60000).toISOString();
+
+  test('a manual banner with an end says until when', () => {
+    expect(bannerTimeLabel({ source: 'manual', created_at: at(-5), ends_at: at(60) })).toMatch(/^Until /);
+  });
+
+  test('a manual banner without an end says how long it has shown', () => {
+    expect(bannerTimeLabel({ source: 'manual', created_at: at(-5) })).toBe('5m ago');
+    expect(bannerTimeLabel({ source: 'manual', created_at: at(-600), starts_at: at(-2) })).toBe('2m ago');
+  });
+
+  // Times use UK formats in the viewer's timezone, whatever the browser's
+  // language; these dates are local, so the expectations hold anywhere.
+  test('upcoming maintenance gives its window', () => {
+    const start = new Date(2026, 9, 4, 22, 0);
+    const end = new Date(2026, 9, 4, 23, 30);
+    const label = bannerTimeLabel({ kind: 'maintenance_upcoming', scheduled: true, starts_at: start.toISOString(), ends_at: end.toISOString() });
+    expect(label).toBe('Sun 4 Oct, 22:00–23:30');
+    expect(formatUpcomingBannerTime(start.toISOString(), '')).toBe('From Sun 4 Oct, 22:00');
+    expect(formatUpcomingBannerTime('', '')).toBe('Planned maintenance');
+  });
+
+  test('running maintenance still says when it ends', () => {
+    expect(bannerTimeLabel({ kind: 'maintenance', scheduled: true, ends_at: at(30) })).toMatch(/^Ends \d{2}:\d{2}$/);
+  });
+
+  test('times say which day once they are not today', () => {
+    const now = new Date(2026, 9, 3, 12, 0);
+    expect(formatBannerClock(new Date(2026, 9, 3, 23, 30), now)).toBe('23:30');
+    expect(formatBannerClock(new Date(2026, 9, 5, 9, 0), now)).toBe('Mon 09:00');
+    expect(formatBannerClock(new Date(2026, 11, 25, 9, 0), now)).toBe('25 Dec 09:00');
+  });
+
+  test('upcoming banners are marked for styling', () => {
+    document.body.innerHTML = '<div id="siteAlerts"></div>';
+    renderSiteBanners([{ id: 'upcoming:disk', kind: 'maintenance_upcoming', scheduled: true, level: 'info', message: 'Planned maintenance: Disk.', starts_at: at(30), ends_at: at(90) }]);
+    expect(document.querySelector('[data-upcoming="true"]')).not.toBeNull();
   });
 });

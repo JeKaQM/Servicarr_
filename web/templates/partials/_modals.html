@@ -74,6 +74,32 @@
       <small class="help-text">Optional: Enter a URL to a custom icon image (SVG, PNG, etc.)</small>
     </div>
     
+    <fieldset class="links-section" id="serviceLinks">
+      <legend>Links</legend>
+      <p class="help-text links-intro">Links draw the topology map. While a service this one depends on is down, alerts for this one are held back.</p>
+
+      <div class="form-group link-picker">
+        <div class="link-picker-head">
+          <label for="dependsOnSearch">Depends on</label>
+          <span class="link-picker-count" id="dependsOnCount" aria-live="polite"></span>
+        </div>
+        <input type="search" id="dependsOnSearch" class="link-picker-search" data-link-filter="serviceDependsOnList" aria-controls="serviceDependsOnList" placeholder="Filter services" autocomplete="off">
+        <div id="serviceDependsOnList" class="link-picker-list" role="group" aria-label="Depends on"></div>
+        <small class="help-text">Services this one needs in order to work, such as the server or NAS it runs on.</small>
+        <p class="link-picker-note" id="neededByNote" hidden></p>
+      </div>
+
+      <div class="form-group link-picker">
+        <div class="link-picker-head">
+          <label for="connectedToSearch">Connected to</label>
+          <span class="link-picker-count" id="connectedToCount" aria-live="polite"></span>
+        </div>
+        <input type="search" id="connectedToSearch" class="link-picker-search" data-link-filter="serviceConnectedToList" aria-controls="serviceConnectedToList" placeholder="Filter services" autocomplete="off">
+        <div id="serviceConnectedToList" class="link-picker-list" role="group" aria-label="Connected to"></div>
+        <small class="help-text">Services that share data or integrate with this one. Links set on the other service show here too.</small>
+      </div>
+    </fieldset>
+
     <details class="advanced-settings">
       <summary>Advanced Settings</summary>
       
@@ -116,22 +142,6 @@
           <input type="checkbox" id="serviceVisible" checked>
           Show on public dashboard
         </label>
-      </div>
-      
-      <div class="form-group">
-        <label>Depends On</label>
-        <div id="serviceDependsOnList" class="depends-on-checklist">
-          <!-- Populated dynamically with checkboxes -->
-        </div>
-        <small class="help-text">Select upstream dependencies. Alerts are suppressed when a dependency is down.</small>
-      </div>
-
-      <div class="form-group">
-        <label>Connected To</label>
-        <div id="serviceConnectedToList" class="depends-on-checklist">
-          <!-- Populated dynamically with checkboxes -->
-        </div>
-        <small class="help-text">Select services that share data or are integrated with this one.</small>
       </div>
     </details>
     

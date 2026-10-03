@@ -468,11 +468,11 @@ func (s *scheduler) tick() {
 	s.tracker.Prune(validKeys)
 
 	now := time.Now()
-	maintenanceActive, _, maintenanceErr := maintenance.MonitoringSuppressed(now)
+	pause, _, maintenanceErr := maintenance.PausedAt(now)
 	if maintenanceErr != nil {
 		log.Printf("Warning: Failed to evaluate maintenance schedules: %v", maintenanceErr)
 	}
-	if maintenanceActive {
+	if pause.All {
 		s.tracker.ResetAll()
 		return
 	}
@@ -481,6 +481,12 @@ func (s *scheduler) tick() {
 	for _, sc := range dbServices {
 		t := s.timers[sc.Key]
 		if t == nil {
+			continue
+		}
+		// A window covering this service pauses its checks; it runs again on
+		// the first tick after the window.
+		if pause.Covers(sc.Key) {
+			s.tracker.Reset(sc.Key)
 			continue
 		}
 
@@ -508,20 +514,29 @@ func (s *scheduler) tick() {
 	}
 	results := checker.CheckAll(opts, schedulerCheckConcurrency)
 
-	// A batch can straddle the start of a maintenance window. Discard it.
-	if maintenanceStarted, _, _ := maintenance.MonitoringSuppressed(time.Now()); maintenanceStarted {
+	// A batch can straddle the start of a maintenance window. Discard the
+	// results of the services it covers.
+	after, _, _ := maintenance.PausedAt(time.Now())
+	if after.All {
 		s.tracker.ResetAll()
 		results = nil
 	}
 
 	for i, res := range results {
+		if after.Covers(due[i].Key) {
+			s.tracker.Reset(due[i].Key)
+			continue
+		}
 		s.record(due[i], res, now)
 	}
 
-	// Prune old logs every 5 minutes
+	// Prune old logs and long-ended banners every 5 minutes
 	if now.Sub(s.lastPrune) > 5*time.Minute {
 		if err := database.PruneLogs(database.DefaultLogRetention); err != nil {
 			log.Printf("Warning: Failed to prune logs: %v", err)
+		}
+		if _, err := database.DeleteEndedStatusAlerts(now.Add(-database.EndedStatusAlertRetention)); err != nil {
+			log.Printf("Warning: Failed to prune ended banners: %v", err)
 		}
 		s.lastPrune = now
 	}

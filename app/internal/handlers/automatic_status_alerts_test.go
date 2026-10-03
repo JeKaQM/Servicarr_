@@ -277,7 +277,7 @@ func TestStatusAlertHandlersEditManualAndHideGeneratedBanners(t *testing.T) {
 	updateRequest := httptest.NewRequest(http.MethodPut, "/api/admin/status-alerts",
 		strings.NewReader(`{"id":"`+created.ID+`","message":"Updated","level":"error","service_key":""}`))
 	HandleUpdateStatusAlert().ServeHTTP(updateRecorder, updateRequest)
-	manual, err := getStatusAlerts()
+	manual, err := getManualStatusAlerts(time.Now(), true)
 	if err != nil {
 		t.Fatal(err)
 	}

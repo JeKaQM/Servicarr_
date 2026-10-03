@@ -4,7 +4,7 @@
 function formatSoftwareDate(value, fallback = 'Not recorded') {
   if (!value) return fallback;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString(APP_LOCALE);
 }
 
 function compactSoftwareCommit(value) {

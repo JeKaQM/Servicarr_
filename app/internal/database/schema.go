@@ -6,7 +6,7 @@ import (
 )
 
 // SchemaVersion identifies the current persistent database layout.
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 // EnsureSchema creates all necessary database tables
 func EnsureSchema() error {
@@ -148,7 +148,9 @@ CREATE TABLE IF NOT EXISTS status_alerts (
   service_key TEXT,
   message TEXT NOT NULL,
   level TEXT NOT NULL DEFAULT 'info',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  starts_at TEXT NOT NULL DEFAULT '',
+  ends_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS status_alert_overrides (
@@ -177,6 +179,8 @@ CREATE TABLE IF NOT EXISTS maintenance_schedules (
   timezone TEXT NOT NULL DEFAULT 'Europe/London',
   suppress_monitoring INTEGER NOT NULL DEFAULT 1,
   enabled INTEGER NOT NULL DEFAULT 1,
+  service_keys TEXT NOT NULL DEFAULT '[]',
+  notice_minutes INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -362,6 +366,12 @@ CREATE TABLE IF NOT EXISTS crowdsec_history_state (
 		{"alert_config", "webhook_enabled", "INTEGER NOT NULL DEFAULT 0"},
 		{"services", "depends_on", "TEXT DEFAULT ''"},
 		{"services", "connected_to", "TEXT DEFAULT ''"},
+		// v9: scheduled banners, and maintenance windows for chosen services
+		// with advance notice.
+		{"status_alerts", "starts_at", "TEXT NOT NULL DEFAULT ''"},
+		{"status_alerts", "ends_at", "TEXT NOT NULL DEFAULT ''"},
+		{"maintenance_schedules", "service_keys", "TEXT NOT NULL DEFAULT '[]'"},
+		{"maintenance_schedules", "notice_minutes", "INTEGER NOT NULL DEFAULT 0"},
 	}); err != nil {
 		return err
 	}

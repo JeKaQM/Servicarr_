@@ -23,164 +23,265 @@
 <!-- Banners Tab -->
 <div id="tab-banners" class="tab-content">
   <h2>Status Banners</h2>
-  <p class="muted">Show alerts/banners to visitors about service issues or maintenance</p>
-  
-  <div class="admin-section">
-    <h3 id="bannerFormTitle">Manual Banner</h3>
-    <div class="form-group">
-      <label for="bannerService">Scope</label>
-      <select id="bannerService">
-        <option value="">Global (top of page)</option>
-        <!-- Services populated dynamically -->
-      </select>
-    </div>
-    <div class="form-group">
-      <label for="bannerTemplate">Quick Templates</label>
-      <select id="bannerTemplate">
-        <option value="">-- Select a template --</option>
-        <optgroup label="Maintenance">
-          <option value="Scheduled maintenance in progress. Service may be temporarily unavailable.">Scheduled maintenance in progress</option>
-          <option value="Maintenance complete. All services restored.">Maintenance complete</option>
-          <option value="Scheduled maintenance tonight between 10 PM - 12 AM.">Scheduled maintenance tonight</option>
-        </optgroup>
-        <optgroup label="Issues">
-          <option value="We are aware of issues and investigating.">Investigating issues</option>
-          <option value="Experiencing degraded performance. Working on a fix.">Degraded performance</option>
-          <option value="Service is currently down. We are working to restore it.">Service down</option>
-          <option value="Intermittent connectivity issues. Please retry if needed.">Intermittent issues</option>
-        </optgroup>
-        <optgroup label="Updates">
-          <option value="Issue has been resolved. Thank you for your patience.">Issue resolved</option>
-          <option value="Update in progress. New features coming soon!">Update in progress</option>
-          <option value="Service restored and operating normally.">Service restored</option>
-        </optgroup>
-      </select>
-    </div>
-    <div class="form-group">
-      <label for="bannerMessage">Message</label>
-      <input type="text" id="bannerMessage" placeholder="e.g., Scheduled maintenance tonight 10-11 PM" />
-    </div>
-    <div class="form-group">
-      <label for="bannerLevel">Type</label>
-      <select id="bannerLevel">
-        <option value="info">Info (Blue)</option>
-        <option value="warning">Warning (Yellow)</option>
-        <option value="error">Error (Red)</option>
-      </select>
-    </div>
-    <div class="ops">
-      <button type="button" id="cancelBannerEdit" class="btn ghost hidden">Cancel</button>
-      <button id="createBanner" class="btn">Create Banner</button>
-    </div>
-    
-    <h3 class="banner-list-heading">Managed Banners</h3>
-    <p class="muted">Manual banners and active generated alerts appear here. Changes to generated alerts apply only to the current occurrence.</p>
-    <div id="bannersList"></div>
-  </div>
+  <p class="muted">Tell visitors what's going on: a quick notice, an announcement for later, or a maintenance window that pauses monitoring.</p>
 
-  <div class="admin-section maintenance-schedules-section">
-    <h3>Scheduled Maintenance</h3>
-    <p class="muted">Choose any start and end date, leave a window open until you disable it, or repeat it on the days you choose. Monitoring, incidents, and uptime recording can be paused for the full window.</p>
+  <section class="admin-section banners-panel" aria-labelledby="bannerFormTitle">
+    <div class="banners-layout">
+      <form id="bannerForm" class="banner-form" novalidate>
+        <h3 id="bannerFormTitle">New banner</h3>
+        <p class="banner-form-note" id="bannerFormNote" hidden></p>
 
-    <form id="maintenanceScheduleForm">
-      <div class="maintenance-form-grid">
-        <div class="form-group maintenance-name-field">
-          <label for="maintenanceName">Name</label>
-          <input type="text" id="maintenanceName" maxlength="100" placeholder="Server upgrade" required>
-        </div>
-        <div class="form-group maintenance-message-field">
-          <label for="maintenanceMessage">Banner Message</label>
-          <input type="text" id="maintenanceMessage" maxlength="500" placeholder="Scheduled maintenance is in progress." required>
-        </div>
         <div class="form-group">
-          <label for="maintenanceScheduleType">Repeat</label>
-          <select id="maintenanceScheduleType">
-            <option value="once">Does not repeat</option>
-            <option value="daily">Every day</option>
-            <option value="weekly">Selected weekdays</option>
-          </select>
+          <div class="field-head">
+            <label for="bannerMessage">Message</label>
+            <span class="field-count" id="bannerMessageCount">0 / 500</span>
+          </div>
+          <textarea id="bannerMessage" rows="2" maxlength="500" placeholder="e.g. Plex is slow while the library scan runs."></textarea>
+          <div class="banner-templates" id="bannerTemplates">
+            <span class="banner-templates-label">Start from</span>
+            <button type="button" class="chip-btn" data-template="investigating">Investigating</button>
+            <button type="button" class="chip-btn" data-template="slow">Running slowly</button>
+            <button type="button" class="chip-btn" data-template="down">Down</button>
+            <button type="button" class="chip-btn" data-template="maintenance">Maintenance tonight</button>
+            <button type="button" class="chip-btn" data-template="resolved">Resolved</button>
+          </div>
         </div>
-        <div class="form-group maintenance-once-field maintenance-date-field">
-          <label for="maintenanceStartsAt">Start date and time</label>
-          <input type="datetime-local" id="maintenanceStartsAt" required>
-        </div>
-        <div class="form-group maintenance-once-field maintenance-date-field">
-          <label for="maintenanceEndsAt">End date and time</label>
-          <input type="datetime-local" id="maintenanceEndsAt" required>
-          <label class="maintenance-no-end" for="maintenanceNoEnd">
-            <input type="checkbox" id="maintenanceNoEnd"> No scheduled end (disable manually)
-          </label>
-        </div>
-        <fieldset id="maintenanceWeekdaysField" class="form-group maintenance-weekdays-field hidden" disabled>
-          <legend>Repeat on</legend>
-          <div class="maintenance-weekdays">
-            <label><input type="checkbox" name="maintenanceWeekdays" value="1" checked> Mon</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="2"> Tue</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="3"> Wed</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="4"> Thu</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="5"> Fri</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="6"> Sat</label>
-            <label><input type="checkbox" name="maintenanceWeekdays" value="0"> Sun</label>
+
+        <fieldset class="form-group banner-field">
+          <legend>Type</legend>
+          <div class="seg">
+            <label class="seg-option seg-info"><input type="radio" name="bannerLevel" value="info" checked><span>Info</span></label>
+            <label class="seg-option seg-warning"><input type="radio" name="bannerLevel" value="warning"><span>Warning</span></label>
+            <label class="seg-option seg-error"><input type="radio" name="bannerLevel" value="error"><span>Critical</span></label>
           </div>
         </fieldset>
-        <div class="form-group maintenance-recurring-field hidden">
-          <label for="maintenanceStartTime">Start time</label>
-          <input type="time" id="maintenanceStartTime" value="02:55" disabled>
+
+        <fieldset class="form-group banner-field" id="bannerWhereField">
+          <legend>Show on</legend>
+          <div class="seg">
+            <label class="seg-option"><input type="radio" name="bannerWhere" value="page" checked><span>Top of the page</span></label>
+            <label class="seg-option"><input type="radio" name="bannerWhere" value="services"><span>Chosen services</span></label>
+          </div>
+          <div class="link-picker banner-picker" id="bannerServicePicker" hidden>
+            <input type="search" id="bannerServiceSearch" class="link-picker-search" data-link-filter="bannerServiceList" aria-controls="bannerServiceList" aria-label="Filter services" placeholder="Filter services" autocomplete="off">
+            <div id="bannerServiceList" class="link-picker-list" role="group" aria-label="Services"></div>
+          </div>
+        </fieldset>
+
+        <div class="banner-when" id="bannerWhenFields">
+          <fieldset class="form-group banner-field">
+            <legend>Starts</legend>
+            <div class="seg">
+              <label class="seg-option"><input type="radio" name="bannerStart" value="now" checked><span>Now</span></label>
+              <label class="seg-option"><input type="radio" name="bannerStart" value="at"><span>Later</span></label>
+            </div>
+            <input type="datetime-local" id="bannerStartsAt" aria-label="Start date and time" hidden>
+          </fieldset>
+          <fieldset class="form-group banner-field">
+            <legend>Ends</legend>
+            <div class="seg">
+              <label class="seg-option"><input type="radio" name="bannerEnd" value="never" checked><span>When I end it</span></label>
+              <label class="seg-option"><input type="radio" name="bannerEnd" value="after"><span>After</span></label>
+              <label class="seg-option"><input type="radio" name="bannerEnd" value="at"><span>At</span></label>
+            </div>
+            <select id="bannerDuration" aria-label="Show it for" hidden>
+              <option value="30">30 minutes</option>
+              <option value="60" selected>1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="240">4 hours</option>
+              <option value="480">8 hours</option>
+              <option value="1440">1 day</option>
+              <option value="4320">3 days</option>
+              <option value="10080">1 week</option>
+            </select>
+            <input type="datetime-local" id="bannerEndsAt" aria-label="End date and time" hidden>
+          </fieldset>
         </div>
-        <div class="form-group maintenance-recurring-field hidden">
-          <label for="maintenanceDuration">Duration</label>
-          <div class="maintenance-duration-inputs">
-            <input type="number" id="maintenanceDuration" min="0" step="any" value="30" disabled>
-            <select id="maintenanceDurationUnit" aria-label="Duration unit" disabled>
-              <option value="1">Minutes</option>
-              <option value="60">Hours</option>
-              <option value="1440">Days</option>
-              <option value="10080">Weeks</option>
+
+        <div class="banner-preview">
+          <span class="banner-preview-label">Preview</span>
+          <div id="bannerPreview"></div>
+          <p class="banner-preview-when" id="bannerPreviewWhen" aria-live="polite"></p>
+        </div>
+
+        <p class="form-error" id="bannerFormError" role="alert" hidden></p>
+        <div class="banner-form-actions">
+          <button type="button" id="cancelBannerEdit" class="btn ghost" hidden>Cancel</button>
+          <button type="submit" id="saveBanner" class="btn">Publish banner</button>
+        </div>
+      </form>
+
+      <div class="banner-board">
+        <div class="banner-board-head">
+          <h3>Banners</h3>
+          <button type="button" id="clearEndedBanners" class="btn mini ghost" hidden>Delete ended</button>
+        </div>
+        <div id="bannersList" class="banner-groups" aria-live="polite">
+          <div class="muted">Loading banners...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="admin-section banners-panel" aria-labelledby="maintenanceFormTitle">
+    <div class="banners-layout">
+      <form id="maintenanceScheduleForm" class="banner-form" novalidate>
+        <h3 id="maintenanceFormTitle">New maintenance window</h3>
+        <p class="banner-form-intro">Shows a banner while it runs and can pause monitoring of the services it covers.</p>
+
+        <div class="form-group">
+          <label for="maintenanceName">Name</label>
+          <input type="text" id="maintenanceName" maxlength="100" placeholder="NAS disk replacement" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <div class="field-head">
+            <label for="maintenanceMessage">Banner message</label>
+            <span class="field-count" id="maintenanceMessageCount">0 / 500</span>
+          </div>
+          <textarea id="maintenanceMessage" rows="2" maxlength="500" placeholder="Scheduled maintenance is in progress."></textarea>
+        </div>
+
+        <fieldset class="form-group banner-field">
+          <legend>Covers</legend>
+          <div class="seg">
+            <label class="seg-option"><input type="radio" name="maintenanceCovers" value="all" checked><span>All services</span></label>
+            <label class="seg-option"><input type="radio" name="maintenanceCovers" value="services"><span>Chosen services</span></label>
+          </div>
+          <div class="link-picker banner-picker" id="maintenanceServicePicker" hidden>
+            <input type="search" id="maintenanceServiceSearch" class="link-picker-search" data-link-filter="maintenanceServiceList" aria-controls="maintenanceServiceList" aria-label="Filter services" placeholder="Filter services" autocomplete="off">
+            <div id="maintenanceServiceList" class="link-picker-list" role="group" aria-label="Services"></div>
+            <div class="banner-dependents" id="maintenanceDependents" hidden>
+              <span id="maintenanceDependentsText"></span>
+              <button type="button" class="btn mini ghost" id="addMaintenanceDependents">Add them</button>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-group banner-field">
+          <legend>Repeat</legend>
+          <div class="seg">
+            <label class="seg-option"><input type="radio" name="maintenanceRepeat" value="once" checked><span>Once</span></label>
+            <label class="seg-option"><input type="radio" name="maintenanceRepeat" value="daily"><span>Every day</span></label>
+            <label class="seg-option"><input type="radio" name="maintenanceRepeat" value="weekly"><span>Weekly</span></label>
+          </div>
+        </fieldset>
+
+        <div class="banner-when" id="maintenanceOnceFields">
+          <div class="form-group">
+            <label for="maintenanceStartsAt">Starts</label>
+            <input type="datetime-local" id="maintenanceStartsAt">
+          </div>
+          <fieldset class="form-group banner-field">
+            <legend>Ends</legend>
+            <div class="seg">
+              <label class="seg-option"><input type="radio" name="maintenanceEnd" value="at" checked><span>At</span></label>
+              <label class="seg-option"><input type="radio" name="maintenanceEnd" value="after"><span>After</span></label>
+              <label class="seg-option"><input type="radio" name="maintenanceEnd" value="never"><span>When I end it</span></label>
+            </div>
+            <input type="datetime-local" id="maintenanceEndsAt" aria-label="End date and time">
+            <select id="maintenanceOnceDuration" aria-label="Lasts" hidden>
+              <option value="30">30 minutes</option>
+              <option value="60" selected>1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="240">4 hours</option>
+              <option value="480">8 hours</option>
+              <option value="1440">1 day</option>
+            </select>
+          </fieldset>
+        </div>
+
+        <div class="maintenance-recurring" id="maintenanceRecurringFields" hidden>
+          <fieldset class="form-group banner-field" id="maintenanceWeekdaysField" hidden>
+            <legend>On</legend>
+            <div class="day-chips">
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="1" checked><span>Mon</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="2"><span>Tue</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="3"><span>Wed</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="4"><span>Thu</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="5"><span>Fri</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="6"><span>Sat</span></label>
+              <label class="day-chip"><input type="checkbox" name="maintenanceWeekdays" value="0"><span>Sun</span></label>
+            </div>
+          </fieldset>
+          <div class="banner-when">
+            <div class="form-group">
+              <label for="maintenanceStartTime">At</label>
+              <input type="time" id="maintenanceStartTime" value="02:00">
+            </div>
+            <div class="form-group">
+              <label for="maintenanceDuration">Lasts</label>
+              <div class="duration-inputs">
+                <input type="number" id="maintenanceDuration" min="0" step="any" value="30">
+                <select id="maintenanceDurationUnit" aria-label="Duration unit">
+                  <option value="1">Minutes</option>
+                  <option value="60">Hours</option>
+                  <option value="1440">Days</option>
+                  <option value="10080">Weeks</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="banner-when">
+          <div class="form-group">
+            <label for="maintenanceTimezone">Timezone</label>
+            <input type="text" id="maintenanceTimezone" list="maintenanceTimezones" autocomplete="off" spellcheck="false" aria-describedby="maintenanceTimezoneNow">
+            <datalist id="maintenanceTimezones"></datalist>
+            <small class="help-text" id="maintenanceTimezoneNow"></small>
+          </div>
+          <div class="form-group">
+            <label for="maintenanceNotice">Announce it</label>
+            <select id="maintenanceNotice">
+              <option value="0">Only while it runs</option>
+              <option value="60">1 hour before</option>
+              <option value="180">3 hours before</option>
+              <option value="1440">1 day before</option>
+              <option value="2880">2 days before</option>
+              <option value="10080">1 week before</option>
             </select>
           </div>
         </div>
-        <div class="form-group">
-          <label for="maintenanceTimezone">Timezone</label>
-          <input type="text" id="maintenanceTimezone" value="Europe/London" list="maintenanceTimezones" aria-describedby="maintenanceTimezoneHelp" required>
-          <datalist id="maintenanceTimezones">
-            <option value="Europe/London"></option>
-            <option value="UTC"></option>
-          </datalist>
+
+        <fieldset class="form-group banner-field">
+          <legend>Banner type</legend>
+          <div class="seg">
+            <label class="seg-option seg-info"><input type="radio" name="maintenanceLevel" value="info"><span>Info</span></label>
+            <label class="seg-option seg-warning"><input type="radio" name="maintenanceLevel" value="warning" checked><span>Warning</span></label>
+            <label class="seg-option seg-error"><input type="radio" name="maintenanceLevel" value="error"><span>Critical</span></label>
+          </div>
+        </fieldset>
+
+        <div class="maintenance-options">
+          <label class="toggle" for="maintenanceSuppressMonitoring">
+            <input type="checkbox" id="maintenanceSuppressMonitoring" checked>
+            <span class="slider"></span>
+            <span class="toggleLabel">Pause monitoring and uptime recording</span>
+          </label>
+          <label class="toggle" for="maintenanceEnabled">
+            <input type="checkbox" id="maintenanceEnabled" checked>
+            <span class="slider"></span>
+            <span class="toggleLabel">Window enabled</span>
+          </label>
         </div>
-        <div class="form-group">
-          <label for="maintenanceLevel">Banner Type</label>
-          <select id="maintenanceLevel">
-            <option value="info">Info (Blue)</option>
-            <option value="warning" selected>Warning (Yellow)</option>
-            <option value="error">Error (Red)</option>
-          </select>
+
+        <p class="banner-summary" id="maintenanceSummary" aria-live="polite"></p>
+        <p class="form-error" id="maintenanceFormError" role="alert" hidden></p>
+        <div class="banner-form-actions">
+          <button type="button" id="cancelMaintenanceSchedule" class="btn ghost" hidden>Cancel</button>
+          <button type="submit" id="saveMaintenanceSchedule" class="btn">Save window</button>
+        </div>
+      </form>
+
+      <div class="banner-board">
+        <div class="banner-board-head">
+          <h3>Maintenance windows</h3>
+        </div>
+        <div id="maintenanceSchedulesList" class="banner-groups">
+          <div class="muted">Loading windows...</div>
         </div>
       </div>
-      <p id="maintenanceTimezoneHelp" class="muted maintenance-help">All dates and times use the selected timezone. At clock changes, repeated times use the first occurrence; missing times are skipped for repeats. Durations use elapsed time, and overlapping windows keep maintenance active.</p>
-
-      <div class="maintenance-options">
-        <label class="toggle" for="maintenanceEnabled">
-          <input type="checkbox" id="maintenanceEnabled" checked>
-          <span class="slider"></span>
-          <span class="toggleLabel">Schedule enabled</span>
-        </label>
-        <label class="toggle" for="maintenanceSuppressMonitoring">
-          <input type="checkbox" id="maintenanceSuppressMonitoring" checked>
-          <span class="slider"></span>
-          <span class="toggleLabel">Pause monitoring and uptime recording</span>
-        </label>
-      </div>
-
-      <div class="ops maintenance-form-actions">
-        <button type="button" id="cancelMaintenanceSchedule" class="btn ghost hidden">Cancel</button>
-        <button type="submit" id="saveMaintenanceSchedule" class="btn">Create Schedule</button>
-      </div>
-    </form>
-
-    <h3 class="banner-list-heading">Maintenance Schedules</h3>
-    <div id="maintenanceSchedulesList" class="maintenance-schedules-list">
-      <div class="muted">Loading schedules...</div>
     </div>
-  </div>
+  </section>
 </div>
 {{end}}

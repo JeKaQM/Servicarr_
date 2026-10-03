@@ -12,7 +12,7 @@ function crowdsecChartNumber(value) {
 }
 
 function crowdsecFormatNumber(value) {
-  return Math.round(crowdsecChartNumber(value)).toLocaleString();
+  return Math.round(crowdsecChartNumber(value)).toLocaleString(APP_LOCALE);
 }
 
 function crowdsecChartEscape(value) {
@@ -28,7 +28,7 @@ function crowdsecHourLabel(value, includeDate) {
   const options = includeDate
     ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
     : { hour: '2-digit', minute: '2-digit' };
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+  return new Intl.DateTimeFormat(APP_LOCALE, options).format(date);
 }
 
 function crowdsecNormaliseBuckets(stats) {
@@ -46,7 +46,7 @@ function crowdsecBucketLabel(value, stats, full = false) {
   if (stats && stats.bucket_unit === 'day') {
     const date = new Date(value || '');
     if (Number.isNaN(date.getTime())) return 'Unknown period';
-    return new Intl.DateTimeFormat(undefined, full
+    return new Intl.DateTimeFormat(APP_LOCALE, full
       ? { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
       : { month: 'short', day: 'numeric' }).format(date);
   }

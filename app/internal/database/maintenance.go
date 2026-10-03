@@ -84,7 +84,8 @@ func EnsureDefaultMaintenanceSchedule() error {
 // GetMaintenanceSchedules returns all maintenance schedules.
 func GetMaintenanceSchedules() ([]models.MaintenanceSchedule, error) {
 	rows, err := DB.Query(`SELECT id, name, message, level, weekday, start_time, duration_minutes,
-		timezone, suppress_monitoring, enabled, created_at, updated_at, schedule_type, weekdays, starts_at, ends_at
+		timezone, suppress_monitoring, enabled, created_at, updated_at, schedule_type, weekdays, starts_at, ends_at,
+		service_keys, notice_minutes
 		FROM maintenance_schedules ORDER BY weekday, start_time, name`)
 	if err != nil {
 		return nil, err
@@ -95,12 +96,13 @@ func GetMaintenanceSchedules() ([]models.MaintenanceSchedule, error) {
 	for rows.Next() {
 		var schedule models.MaintenanceSchedule
 		var suppress, enabled int
-		var weekdays string
+		var weekdays, serviceKeys string
 		if err := rows.Scan(
 			&schedule.ID, &schedule.Name, &schedule.Message, &schedule.Level,
 			&schedule.Weekday, &schedule.StartTime, &schedule.DurationMinutes,
 			&schedule.Timezone, &suppress, &enabled, &schedule.CreatedAt, &schedule.UpdatedAt,
 			&schedule.ScheduleType, &weekdays, &schedule.StartsAt, &schedule.EndsAt,
+			&serviceKeys, &schedule.NoticeMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -109,6 +111,12 @@ func GetMaintenanceSchedules() ([]models.MaintenanceSchedule, error) {
 		}
 		if len(schedule.Weekdays) == 0 {
 			schedule.Weekdays = nil // Legacy rows use the single weekday column.
+		}
+		if err := json.Unmarshal([]byte(serviceKeys), &schedule.ServiceKeys); err != nil {
+			return nil, fmt.Errorf("decode maintenance services: %w", err)
+		}
+		if len(schedule.ServiceKeys) == 0 {
+			schedule.ServiceKeys = nil // Covers every service.
 		}
 		schedule.SuppressMonitoring = suppress == 1
 		schedule.Enabled = enabled == 1
@@ -141,14 +149,22 @@ func SaveMaintenanceScheduleWith(q Querier, schedule *models.MaintenanceSchedule
 		}
 		weekdays = string(encoded)
 	}
+	serviceKeys := "[]"
+	if len(schedule.ServiceKeys) > 0 {
+		encoded, err := json.Marshal(schedule.ServiceKeys)
+		if err != nil {
+			return err
+		}
+		serviceKeys = string(encoded)
+	}
 	scheduleType := strings.TrimSpace(schedule.ScheduleType)
 	if scheduleType == "" {
 		scheduleType = "weekly"
 	}
 	_, err := q.Exec(`INSERT INTO maintenance_schedules
 		(id, name, message, level, weekday, start_time, duration_minutes, timezone, suppress_monitoring, enabled, created_at, updated_at,
-		schedule_type, weekdays, starts_at, ends_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		schedule_type, weekdays, starts_at, ends_at, service_keys, notice_minutes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
 			message=excluded.message,
@@ -163,11 +179,13 @@ func SaveMaintenanceScheduleWith(q Querier, schedule *models.MaintenanceSchedule
 			timezone=excluded.timezone,
 			suppress_monitoring=excluded.suppress_monitoring,
 			enabled=excluded.enabled,
+			service_keys=excluded.service_keys,
+			notice_minutes=excluded.notice_minutes,
 			updated_at=excluded.updated_at`,
 		schedule.ID, schedule.Name, schedule.Message, schedule.Level, schedule.Weekday,
 		schedule.StartTime, schedule.DurationMinutes, schedule.Timezone,
 		boolInt(schedule.SuppressMonitoring), boolInt(schedule.Enabled), createdAt, now,
-		scheduleType, weekdays, schedule.StartsAt, schedule.EndsAt)
+		scheduleType, weekdays, schedule.StartsAt, schedule.EndsAt, serviceKeys, schedule.NoticeMinutes)
 	if err == nil {
 		// Preserve the original creation time when updating a schedule by ID.
 		err = q.QueryRow(`SELECT created_at FROM maintenance_schedules WHERE id = ?`, schedule.ID).Scan(&schedule.CreatedAt)
